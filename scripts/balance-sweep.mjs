@@ -29,7 +29,7 @@ function score(before, after) {
 function bestPlay(state) {
   let best = null
   for (const sel of subsets(state.hand.length)) {
-    const plan = buildPlan(state.hand, sel, state.regions, state.laws, undefined)
+    const plan = buildPlan(state.hand, sel, state.laws)
     if (!plan.valid) continue
     let next
     try { let s = state; for (const i of sel) s = applyAction(s, { type: 'toggleCard', cardIdx: i }); next = applyAction(s, { type: 'play' }) } catch { continue }
@@ -52,7 +52,7 @@ function playSeed(seedText) {
       let bought = true
       while (bought) {
         bought = false
-        const order = ['canopy-choir', 'seed-vaults', 'barter-routes', 'mycorrhiza', 'deep-taproots', 'communal-tending', 'rich-soil']
+        const order = ['canopy-choir', 'seed-vaults', 'barter-routes', 'mycorrhiza', 'open-canals', 'stone-masonry']
         for (const id of order) {
           const item = s.market.find((m) => m.id === id); if (!item) continue
           try { s = applyAction(s, { type: 'buy', itemId: id }); bought = true; break } catch {}

@@ -94,7 +94,7 @@ function score(before, after) {
 function bestPlay(state) {
   let best = null
   for (const sel of candidateSubsets(state.hand.length, LOOK, sampleSalt())) {
-    const plan = buildPlan(state.hand, sel, state.regions, state.laws, undefined)
+    const plan = buildPlan(state.hand, sel, state.laws)
     if (!plan.valid) continue
     let next
     try {
@@ -129,7 +129,7 @@ function playSeed(seedText) {
       while (bought) {
         bought = false
         // flourishing-per-seed first; expansions only outside epoch 3
-        const order = ['canopy-choir', 'seed-vaults', 'barter-routes', 'mycorrhiza', 'deep-taproots', 'communal-tending', 'rich-soil']
+        const order = ['canopy-choir', 'seed-vaults', 'barter-routes', 'mycorrhiza', 'open-canals', 'stone-masonry']
         for (const id of order) {
           const item = s.market.find((m) => m.id === id)
           if (!item) continue

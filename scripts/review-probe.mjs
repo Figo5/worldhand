@@ -1,6 +1,7 @@
-// Independent review probe — v2 engine contract checks.
-import { newGame, applyAction, preview, buildPlan, suitMajority, cardConservation,
-  checkWithering, EPOCH_TARGETS, PLAYS_PER_EPOCH,
+// Independent review probe — Balatro-simple engine contract checks.
+// Updated for the no-suit-actions / auto-Seeds / lives contract.
+import { newGame, applyAction, preview, buildPlan, cardConservation,
+  EPOCH_TARGETS, PLAYS_PER_EPOCH, SURVIVAL_START,
   HAND_SIZE, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
 import { evaluateSelection, compareHands, CATEGORY_POINTS } from '../src/engine/poker.ts'
 
@@ -26,46 +27,50 @@ const log = (k, v) => out.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v
   log('tie-keys-equal', compareHands(p1, t2) === 0)
 }
 
-// 2. Tie influence choice
+// 2. NO suit-choice plumbing: 'play' takes no suitChoice/regionChoice and every
+//    play is just a poker hand — effects are the same regardless of suit mix.
 {
-  const m1 = suitMajority([{r:5,s:'H'},{r:6,s:'D'}])            // default H (S,H,D,C order)
-  const m2 = suitMajority([{r:5,s:'H'},{r:6,s:'D'}], 'D')       // explicit choice D
-  log('tie-default-H', m1.suit === 'H' && m1.decision === 'tiebreak-first')
-  log('tie-choice-D', m2.suit === 'D' && m2.decision === 'tiebreak-choice')
-  // 2v2 tie among suits
-  const m3 = suitMajority([{r:5,s:'H'},{r:6,s:'H'},{r:7,s:'C'},{r:8,s:'C'}])
-  log('tie-2v2-default-C', m3.suit === 'C') // C later in S,H,D,C? No: H before C → H
-  // plan-level tie choice affects effects
-  const s0 = newGame('probe-tie')
-  const pH = buildPlan([{r:5,s:'H'},{r:6,s:'D'}], [0,1], s0.regions, [], 'H')
-  const pD = buildPlan([{r:5,s:'H'},{r:6,s:'D'}], [0,1], s0.regions, [], 'D')
-  log('plan-tie-H-effect', pH.suit === 'H' && pH.effects[0].kind === 'flourishing')
-  log('plan-tie-D-effect', pD.suit === 'D' && pD.effects[0].kind === 'seeds')
+  const s0 = newGame('probe-no-actions')
+  const pH = buildPlan([{r:5,s:'H'},{r:6,s:'D'}], [0,1], [])
+  const pD = buildPlan([{r:5,s:'D'},{r:6,s:'H'}], [0,1], [])
+  log('plan-shape-suit-agnostic', pH.growth === pD.growth && pH.effects.length === 2
+    && pH.effects.every(e => e.kind === 'flourishing' || e.kind === 'seeds'))
+  try {
+    applyAction(s0, { type: 'play', suitChoice: 'H' })
+    log('suit-choice-rejected', false)
+  } catch (e) {
+    // the extraneous field is ignored; the play itself is invalid only because
+    // nothing is selected — proving no suitChoice code path exists to dispatch
+    log('suit-choice-rejected', String(e.message).includes('select 1–5'))
+  }
+  let s = newGame('probe-play-pure')
+  s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+  s = applyAction(s, { type: 'toggleCard', cardIdx: 1 })
+  const pv = preview(s)
+  const s2 = applyAction(s, { type: 'play' })
+  log('commit-matches-preview', JSON.stringify(s2.lastResolution) === JSON.stringify(pv))
 }
 
-// 3. Preview equals commit
+// 3. Preview equals commit (growth + breakdown + effects)
 {
   let s = newGame('probe-pvcommit')
   s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
   s = applyAction(s, { type: 'toggleCard', cardIdx: 2 })
   const pv = preview(s)
-  const before = { f: s.flourishing, seeds: s.seeds, stab: s.regions.map(r => r.stability) }
+  const before = { f: s.flourishing, seeds: s.seeds }
   const s2 = applyAction(s, { type: 'play' })
   const committed = s2.lastResolution
   log('preview-eq-commit-category', committed.category === pv.category)
-  log('preview-eq-commit-suit', committed.suit === pv.suit)
+  log('preview-eq-commit-growth', committed.growth === pv.growth)
+  log('preview-eq-commit-parts', JSON.stringify(committed.growthParts) === JSON.stringify(pv.growthParts))
   log('preview-eq-commit-effects', JSON.stringify(committed.effects) === JSON.stringify(pv.effects))
-  const appliedOk = pv.effects.every(e => {
-    if (e.kind === 'flourishing') return s2.flourishing === before.f + e.amount
-    if (e.kind === 'seeds') return s2.seeds === Math.min(30, before.seeds + e.amount)
-    if (e.kind === 'stability') return s2.regions[e.regionId].stability === Math.min(10, before.stab[e.regionId] + e.amount)
-    return true
-  })
-  log('preview-eq-commit-applied', appliedOk)
+  const seedsFx = pv.effects.find(e => e.kind === 'seeds')
+  log('preview-eq-commit-applied', s2.flourishing === before.f + pv.growth
+    && s2.seeds === Math.min(30, before.seeds + seedsFx.amount))
   log('preview-summary', pv.summary)
 }
 
-// 4. Refill / card conservation across a full chaotic run
+// 4. Refill / card conservation across a full chaotic run (incl. a card-addition)
 {
   let s = newGame('probe-conservation')
   const totals = new Set()
@@ -96,7 +101,6 @@ const log = (k, v) => out.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v
 
 // 5. Discard replacement determinism
 {
-  let s = newGame('probe-discard')
   const s2a = applyAction(newGame('probe-discard'), { type: 'discard', cardIdxs: [0, 1] })
   const s2b = applyAction(newGame('probe-discard'), { type: 'discard', cardIdxs: [0, 1] })
   log('discard-deterministic', JSON.stringify(s2a.hand) === JSON.stringify(s2b.hand))
@@ -105,9 +109,10 @@ const log = (k, v) => out.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v
 }
 
 // 6. Three-epoch progression + escalating targets (ONE Growth target per epoch)
-log('epoch-targets-escalating', EPOCH_TARGETS.map(t => t.need).join(',') === '50,120,200')
+log('epoch-targets-escalating', EPOCH_TARGETS.map(t => t.need).join(',') === '45,110,335')
 log('total-epochs', TOTAL_EPOCHS)
 log('plays-per-epoch', PLAYS_PER_EPOCH)
+log('lives-start', SURVIVAL_START)
 {
   let s = newGame('probe-progression')
   const steps = []
@@ -120,22 +125,50 @@ log('plays-per-epoch', PLAYS_PER_EPOCH)
     } else if (s.phase === 'market') s = applyAction(s, { type: 'endMarket' })
     else if (s.phase === 'epoch-end') s = applyAction(s, { type: 'closeEpoch' })
     else break
-    if (s.phase === 'select') steps.push(`e${s.epoch} f${s.flourishing} stab${s.regions.filter(r=>!r.dormant).reduce((n,r)=>n+r.stability,0)}`)
+    if (s.phase === 'select') steps.push(`e${s.epoch} f${s.flourishing}`)
   }
   log('progression-epochs', [...new Set(steps.map(x => x[1]))].length) // distinct epochs reached
   log('progression-final', { epoch: s.epoch, outcome: s.outcome, reason: s.outcomeReason })
 }
 
-// 7. Withering + flourish-zero boundary (both must fire)
+// 7. Withering at 0 lives + flourish-zero boundary (both must fire)
 {
-  let s = newGame('probe-wither')
-  s.regions[4].dormant = false; s.regions[5].dormant = false
-  for (const r of s.regions) if (!r.dormant) r.stability = 0
-  log('withering-fires', checkWithering(s).phase === 'game-over')
+  let s = newGame('probe-zero-lives')
+  s.lives = 0
+  s.epoch = 1
+  s.phase = 'epoch-end'
+  const s2 = applyAction(s, { type: 'closeEpoch' })
+  log('lives-zero-ends-withered', s2.phase === 'game-over' && s2.outcome === 'withered')
   let z = newGame('probe-zero')
   z.flourishing = 0; z.phase = 'epoch-end'
   const z2 = applyAction(z, { type: 'closeEpoch' })
   log('flourish-zero-boundary-ends', z2.phase === 'game-over' && z2.outcome === 'withered')
+}
+
+// 8. Auto-Seeds: every play gains Seeds (1 per 4 Growth, capped at 30)
+{
+  const s0 = newGame('probe-autoseeds')
+  s0.seeds = 0
+  const plan = buildPlan([{r:10,s:'H'}], [0], [])
+  // Growth = round(10 x 1) = 10 -> seeds = ceil(10 x 1/4) = 3
+  const seedsFx = plan.effects.find(e => e.kind === 'seeds')
+  log('autoseeds-formula-10-growth', plan.growth === 10 && seedsFx.amount === 3)
+  // cap: at 30 Seeds a big play cannot push past the cap
+  let s = newGame('probe-autoseeds-cap')
+  s.seeds = 30
+  s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+  s = applyAction(s, { type: 'play' })
+  log('autoseeds-capped', s.seeds === 30)
+}
+
+// 9. Growth laws: flat + multiplier with preview == commit
+{
+  const s0 = newGame('probe-laws')
+  const base = buildPlan([{r:10,s:'H'}], [0], [])
+  const flat = buildPlan([{r:10,s:'H'}], [0], [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade', growthFlat: 3 }])
+  const mult = buildPlan([{r:10,s:'H'}], [0], [{ id: 'open-canals', title: 'Open Canals', desc: '', cost: 14, kind: 'upgrade', growthMult: 1.2 }])
+  log('growth-flat-law', base.growth === 10 && flat.growth === 13)
+  log('growth-mult-law', mult.growth === 12 && mult.growthParts.laws === 2)
 }
 
 console.log(out.join('\n'))

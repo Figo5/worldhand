@@ -47,8 +47,8 @@ async function runViewport(width, height, tag) {
   // save via button (no auto-save) then read log from save
   await page.click('button:has-text("Save")'); await page.waitForTimeout(100)
   const logTop = await page.evaluate(() => JSON.parse(localStorage.getItem('worldhand.save') ?? 'null')?.state.log.slice(-1)[0]?.text)
-  const pvAmt = previewText.match(/([+\-]\d+)/)?.[1]
-  rec(`[${tag}] preview-equals-commit`, logTop ? logTop.includes(pvAmt ?? '§') : false, { pvAmt, logTop })
+  const pvAmt = previewText.match(/Banks (\d+) Growth/)?.[1]
+  rec(`[${tag}] preview-equals-commit`, logTop ? logTop.includes(`Banks ${pvAmt} Growth`) : false, { pvAmt, logTop })
 
   // discard 2
   await page.locator('.pcard-btn').nth(0).click()

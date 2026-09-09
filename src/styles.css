@@ -206,6 +206,18 @@ button.danger:hover:not(:disabled) { background: #3d1a1a; }
 .sw-steppe { background: #d4b106; } .sw-wetland { background: #00897b; }
 .sw-dev { background: linear-gradient(135deg, #d8e26a, #ffb36b 60%, #8be9ff); }
 
+/* ---------- planet-growth caption (development/awake-driven visual size) ---------- */
+.planet-growth {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 0.74rem;
+  color: var(--muted);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.planet-growth .pg-frac { color: var(--accent); font-weight: 700; }
+
 .map-detail { margin-top: 8px; font-size: 0.84rem; border-top: 1px solid var(--edge); padding-top: 8px; }
 .map-detail .muted { display: block; margin-top: 2px; }
 
@@ -239,6 +251,16 @@ button.danger:hover:not(:disabled) { background: #3d1a1a; }
 .growth-hero-action.diamond { color: #ff8c3b; }
 .growth-hero-action.spade { color: #6f9bff; }
 .growth-hero-action.club { color: #7cc4ff; }
+.growth-hero-chips {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: #16203acc;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
 .growth-hero-breakdown {
   font-size: 0.78rem;
   color: var(--muted);
@@ -331,7 +353,31 @@ button.advance { border-color: var(--accent2); }
   padding: 12px 16px;
 }
 .market-btn span { color: var(--muted); font-size: 0.8rem; font-weight: 400; }
+.market-btn .market-kind {
+  color: var(--accent2);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
 .market .row button { font-variant-numeric: tabular-nums; }
+.market-slots { font-size: 0.78rem; margin: 4px 0 8px; }
+.owned-row { margin-top: 10px; }
+.remove-btn {
+  border-color: #6e2f2c;
+  color: var(--bad);
+  font-size: 0.76rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #1c1016;
+}
+.remove-btn:hover:not(:disabled) { background: #3d1a1a; }
+.effect-chip .effect-kind {
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  margin-right: 4px;
+}
 
 .error { color: var(--bad); font-size: 0.85rem; margin: 0; }
 .muted { color: var(--muted); }

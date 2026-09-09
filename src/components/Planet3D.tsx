@@ -236,17 +236,38 @@ export default function Planet3D({ regions, focus, onFocus }: Planet3DProps) {
     scene.add(atmosphere)
 
     // ---------- ocean base + tilted, slowly spinning world ----------
+    // Planet visual growth: the globe scale follows total development of
+    // living regions (engine `development` + awakenings) — the world visibly
+    // grows as the civilization gets smarter. Presentation only.
+    const planetScaleGroup = new THREE.Group()
     const ocean = new THREE.Mesh(
       new THREE.SphereGeometry(R, 64, 48),
       new THREE.MeshStandardMaterial({ color: 0x0d2b4d, roughness: 0.55, metalness: 0.1 }),
     )
+    ocean.name = 'planet-ocean'
     const tilt = new THREE.Group()
     tilt.rotation.z = -0.18
-    tilt.add(ocean)
-    scene.add(tilt)
+    planetScaleGroup.add(tilt)
+    scene.add(planetScaleGroup)
 
     const world = new THREE.Group()
     tilt.add(world)
+
+    const PLANET_MIN_SCALE = 1.0
+    const PLANET_MAX_SCALE = 1.22
+    const targetScale = { current: 1 }
+    const applyPlanetGrowth = (rs: typeof regions) => {
+      const total = rs.length
+      const living = rs.filter((r) => !r.dormant)
+      const totalDev = living.reduce((n, r) => n + r.development, 0)
+      const devPotential = living.length * STABILITY_MAX
+      // half awakenings, half development — waking regions and accumulating
+      // development both visibly grow the globe
+      const frac = total > 0
+        ? 0.5 * (living.length / total) + 0.5 * (devPotential > 0 ? Math.min(1, totalDev / devPotential) : 0)
+        : 0
+      targetScale.current = PLANET_MIN_SCALE + (PLANET_MAX_SCALE - PLANET_MIN_SCALE) * frac
+    }
 
     interface IconState {
       group: THREE.Group
@@ -457,6 +478,9 @@ export default function Planet3D({ regions, focus, onFocus }: Planet3DProps) {
       const rs = regionsRef.current
       const fid = focusRef.current
       const k = reducedRef.current ? 1 : Math.min(1, dt * 3.2) // instant under reduced motion
+      applyPlanetGrowth(rs)
+      const sk = reducedRef.current ? 1 : Math.min(1, dt * 2.2)
+      planetScaleGroup.scale.setScalar(lerp(planetScaleGroup.scale.x, targetScale.current, sk))
       for (const p of patches) {
         const region = rs[p.id]
         if (!region) continue

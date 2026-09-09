@@ -1,22 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  newGame, applyAction, checkWithering, preview,
+  newGame, applyAction, preview,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_EPOCHS, TOTAL_REGIONS,
-  STABILITY_MAX, SEEDS_CAP, EPOCH_TARGETS, UPCOMING_DROUGHT_EPOCH,
-  SURVIVAL_START,
-  type Action, type GameState, type Region,
+  STABILITY_MAX, SEEDS_CAP, EPOCH_TARGETS, SURVIVAL_START, LAW_SLOTS,
+  type Action, type GameState, type Region, type Law,
 } from './engine/worldhand'
-import type { Suit } from './engine/poker'
 import { cardName, SUIT_NAMES } from './engine/poker'
+import type { Suit } from './engine/poker'
 import { saveGame, loadGame, clearSave } from './ui/save'
 import Planet3D from './components/Planet3D'
 
-const SUIT_CLASS: Record<Suit, string> = { S: 'spade', H: 'heart', D: 'diamond', C: 'club' }
 const SUIT_GLYPH: Record<Suit, string> = { S: '♠', H: '♥', D: '♦', C: '♣' }
-const CARD_ACTION: Record<Suit, string> = { S: 'Study', H: 'Grow', D: 'Mine', C: 'Settle' }
 
 /** Growth breakdown part formatting: +n for gains, plain n for 0/penalties. */
 const fmtPart = (n: number) => (n > 0 ? `+${n}` : `${n}`)
+
+const KIND_LABEL: Record<Law['kind'], string> = {
+  law: 'Law', upgrade: 'Upgrade', expansion: 'Expansion', cards: 'Cards',
+}
 
 const TERRAIN_LABELS: Record<string, string> = {
   meadow: 'Meadow',
@@ -45,7 +46,6 @@ export default function App() {
   const [seedText, setSeedText] = useState('')
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
-  const [tieChoice, setTieChoice] = useState<Suit | undefined>(undefined)
   const [mapFocus, setMapFocus] = useState<number | null>(null)
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export default function App() {
 
   const act = useCallback((a: Action) => {
     try {
-      setState((s) => (s ? checkWithering(applyAction(s, a)) : s))
+      setState((s) => (s ? applyAction(s, a) : s))
       setError('')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -75,12 +75,11 @@ export default function App() {
     const t = seedText.trim() || `world-${Date.now()}`
     setState(newGame(t))
     setError('')
-    setTieChoice(undefined)
   }, [seedText])
 
   const plan = useMemo(
-    () => (state && state.phase === 'select' ? preview(state, tieChoice) : null),
-    [state, tieChoice],
+    () => (state && state.phase === 'select' ? previewOf(state) : null),
+    [state],
   )
 
   if (!state) {
@@ -89,11 +88,11 @@ export default function App() {
         <h1>Worldhand</h1>
         <p className="tagline">
           A deterministic planet-building card roguelike across three epochs. Each epoch you
-          make <strong>4 plays</strong> from an 8-card hand — select 1–5 cards, score them as a
-          poker hand, and the majority suit acts: ♠ Study develops regions, ♥ Grow banks
-          Growth, ♦ Mine gathers Seeds, ♣ Settle steadies everything. Every play banks one
-          <strong> Growth</strong> score toward escalating epoch targets. Survive the previewed
-          epoch-3 Drought and grow a flourishing world.
+          make <strong>4 plays</strong> from an 8-card hand: select 1–5 cards, score them as a
+          poker hand, and bank one big <strong>Growth</strong> number toward the epoch target.
+          Every play also earns <strong>Seeds</strong> — spend them in the market on upgrades,
+          extra cards, and new regions to make the civilization smarter and the planet grow.
+          Miss an epoch target and you lose a life; three misses and the world withers.
         </p>
         <div className="card panel">
           <label htmlFor="seed">Seed phrase — same seed, same world, same cards</label>
@@ -130,7 +129,7 @@ export default function App() {
         </div>
         <div className="row">
           <button onClick={() => { saveGame(state); setSaved(true); setTimeout(() => setSaved(false), 1500) }}>
-            {saved ? 'Saved ✓' : 'Save'}
+            {saved ? 'Saved' : 'Save'}
           </button>
           <button onClick={() => { const s = loadGame(); if (s) setState(s) }}>Load</button>
           <button
@@ -145,49 +144,36 @@ export default function App() {
 
       <section className="hud" aria-label="World status">
         <div className="hud-item" title="Flourishing now — this epoch's single Growth target is the bar to clear">
-          <span className="hud-label">🌱 Flourishing</span>
+          <span className="hud-label">Flourishing</span>
           <strong>{state.flourishing}<span className="hud-of">/{target.need}</span></strong>
         </div>
-        <div className="hud-item" title="Seeds — the currency for the market (cap 30)">
-          <span className="hud-label">🌰 Seeds</span>
+        <div className="hud-item" title="Seeds — the market currency (cap 30)">
+          <span className="hud-label">Seeds</span>
           <strong>{state.seeds}<span className="hud-of">/{SEEDS_CAP}</span></strong>
         </div>
+        <div className="hud-item" title="Lives — a missed epoch target costs 1; 0 ends the run">
+          <span className="hud-label">Lives</span>
+          <strong>{state.lives}/{SURVIVAL_START}</strong>
+        </div>
         <div className="hud-item" title="Plays left this epoch (4 per epoch)">
-          <span className="hud-label">▶ Plays</span>
+          <span className="hud-label">Plays</span>
           <strong>{state.playsLeft}/{PLAYS_PER_EPOCH}</strong>
         </div>
         <div className="hud-item" title="Discards left this epoch (3 per epoch)">
-          <span className="hud-label">🗑 Discards</span>
+          <span className="hud-label">Discards</span>
           <strong>{state.discardsLeft}/{DISCARDS_PER_EPOCH}</strong>
         </div>
         <div className="hud-item" title="Living (awake) regions of 12">
-          <span className="hud-label">🗺 Living regions</span>
+          <span className="hud-label">Living regions</span>
           <strong>{awakened.length}/{TOTAL_REGIONS}</strong>
         </div>
-        <div className="hud-item" title="Survival pool — a missed epoch-1/2 target costs 1; 0 ends the run">
-          <span className="hud-label">❤ Survival</span>
-          <strong>{state.survival}/{SURVIVAL_START}</strong>
-        </div>
-        {state.challenge ? (
-          <div className={`hud-item ${planOrChallengeOk(state) ? 'ok' : 'warn'}`} title="This epoch's challenge — resolves at epoch end">
-            <span className="hud-label">⚔ Drought</span>
-            <strong>{planOrChallengeOk(state) ? 'on track' : 'at risk'}</strong>
-            <span className="hud-note">{state.challenge.desc}</span>
-          </div>
-        ) : state.epoch < UPCOMING_DROUGHT_EPOCH ? (
-          <div className="hud-item upcoming" title="Upcoming challenge — every living region must hold stability 3+ when it resolves">
-            <span className="hud-label">⚔ Upcoming</span>
-            <strong>Drought in epoch {UPCOMING_DROUGHT_EPOCH}</strong>
-            <span className="hud-note">keep every living region at stability 3+</span>
-          </div>
-        ) : null}
       </section>
 
       {state.laws.length > 0 && (
         <section className="effects" aria-label="Owned laws and upgrades">
           {state.laws.map((l) => (
             <div key={l.id} className="effect-chip" title={l.desc}>
-              {l.kind === 'law' ? '⚖' : l.kind === 'upgrade' ? '✦' : '🌍'} {l.title}
+              <span className="effect-kind">{KIND_LABEL[l.kind] ?? l.kind}</span> {l.title}
             </div>
           ))}
         </section>
@@ -195,7 +181,7 @@ export default function App() {
 
       {over ? (
         <section className={`panel verdict ${state.outcome === 'flourishing' ? 'win' : 'lose'}`}>
-          <h2>{state.outcome === 'flourishing' ? '🌸 A Flourishing World' : '🍂 The World Withers'}</h2>
+          <h2>{state.outcome === 'flourishing' ? 'A Flourishing World' : 'The World Withers'}</h2>
           <p>{state.outcomeReason}</p>
           <div className="row">
             <button className="primary" onClick={() => setState(newGame(state.seedText))}>Replay Same Seed</button>
@@ -204,20 +190,32 @@ export default function App() {
         </section>
       ) : state.phase === 'market' ? (
         <section className="panel market">
-          <h2>Market — spend Seeds on laws, upgrades, and expansions</h2>
+          <h2>Market — spend Seeds on upgrades, cards, and new regions</h2>
+          <p className="muted market-slots">Slots used {state.laws.length}/{LAW_SLOTS} — buying is blocked at the cap until you remove an item.</p>
           <div className="row">
             {state.market.length === 0 && <p className="muted">Market is sold out this epoch.</p>}
             {state.market.map((m) => {
               const discount = state.laws.reduce((n, l) => n + (l.marketDiscount ?? 0), 0)
               const cost = Math.max(1, m.cost - discount)
               return (
-                <button key={m.id} className="market-btn" disabled={state.seeds < cost} onClick={() => act({ type: 'buy', itemId: m.id })}>
-                  <strong>{m.kind === 'law' ? '⚖' : m.kind === 'upgrade' ? '✦' : '🌍'} {m.title} — {cost} 🌰</strong>
+                <button key={m.id} className="market-btn" disabled={state.seeds < cost || state.laws.length >= LAW_SLOTS} onClick={() => act({ type: 'buy', itemId: m.id })}>
+                  <strong>{m.title} — {cost} Seeds</strong>
                   <span>{m.desc}</span>
+                  <span className="market-kind">{KIND_LABEL[m.kind] ?? m.kind}</span>
                 </button>
               )
             })}
           </div>
+          {state.laws.length > 0 && (
+            <div className="row owned-row" role="group" aria-label="Owned laws and upgrades — remove to free a slot">
+              <span className="muted">Owned:</span>
+              {state.laws.map((l) => (
+                <button key={l.id} className="remove-btn" title={`Remove ${l.title} (frees a slot; no refund)`} onClick={() => act({ type: 'removeLaw', lawId: l.id })}>
+                  Remove {l.title}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="row controls-row">
             <button className="advance" onClick={() => act({ type: 'endMarket' })}>
               Continue → close epoch {state.epoch}
@@ -249,50 +247,32 @@ export default function App() {
                 <section className="panel preview" data-testid="preview">
                   <h2>Resolution preview</h2>
                   <p className="pv-line">
-                    <span className={`pv-cat ${SUIT_CLASS[plan.suit]}`}>{SUIT_GLYPH[plan.suit]} {plan.categoryLabel}</span>
-                    <span className="pv-pts">+{plan.categoryPoints} pts</span>
+                    <span className={`pv-cat pv-cat-plain`}>{plan.categoryLabel}</span>
+                    <span className="pv-pts">{plan.pokerBase} chips × {plan.mult} mult</span>
                     <span className="pv-dec">
-                      {plan.suitDecision === 'majority' ? 'suit by majority'
-                        : plan.suitDecision === 'single' ? 'single card'
-                        : plan.suitDecision === 'tiebreak-choice' ? 'suit by your tie choice'
-                        : 'suit by tie (S,H,D,C order)'}
+                      {plan.cards.map((c) => cardName(c)).join(' ')}
                     </span>
                   </p>
                   <ul className="pv-cards">
                     {plan.cards.map((c, i) => <li key={i} className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>{cardName(c)}</li>)}
                   </ul>
                   <p className="pv-summary">{plan.summary}</p>
-                  {plan.suitDecision.startsWith('tiebreak') && (
-                    <div className="row tie-row" role="group" aria-label="Tie-break suit choice">
-                      <span className="muted">Tie — act as:</span>
-                      {(['S', 'H', 'D', 'C'] as Suit[]).map((s) => (
-                        <button
-                          key={s}
-                          className={`tie-btn ${tieChoice === s ? 'sel' : ''}`}
-                          aria-pressed={tieChoice === s}
-                          onClick={() => setTieChoice(s)}
-                        >
-                          {SUIT_GLYPH[s]} {SUIT_NAMES[s].split(' ')[0]}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </section>
               )}
 
               <section className="hand panel">
                 <h2>
-                  Hand of 8 — select 1–5 cards · {state.playsLeft} plays · {state.discardsLeft} discards left
+                  Hand — select 1–5 cards · {state.playsLeft} plays · {state.discardsLeft} discards left
                 </h2>
                 {plan && plan.valid ? (
                   <div className="growth-hero" data-testid="growth-hero" aria-live="polite">
                     <span className="growth-hero-label">Growth</span>
                     <span className="growth-hero-num">{plan.growth}</span>
-                    <span className={`growth-hero-action ${SUIT_CLASS[plan.suit]}`}>
-                      {SUIT_GLYPH[plan.suit]} {CARD_ACTION[plan.suit]}
+                    <span className="growth-hero-chips" title="chips × mult — the poker base">
+                      {plan.pokerBase} chips × {plan.mult} mult
                     </span>
-                    <span className="growth-hero-breakdown" title="ordered breakdown: poker → region → laws → drought">
-                      {fmtPart(plan.growthParts.poker)} poker · {fmtPart(plan.growthParts.region)} region · {fmtPart(plan.growthParts.laws)} laws · {fmtPart(plan.growthParts.drought)} drought
+                    <span className="growth-hero-breakdown" title="ordered breakdown: poker → laws">
+                      {fmtPart(plan.growthParts.poker)} poker · {fmtPart(plan.growthParts.laws)} laws
                     </span>
                   </div>
                 ) : (
@@ -318,7 +298,7 @@ export default function App() {
                           <span className="pcard-rank">{cardName(c)}</span>
                           <span className="pcard-sel-glyph" aria-hidden="true">✓</span>
                         </span>
-                        <span className={`pcard-name ${sel ? 'on' : ''}`}>{CARD_ACTION[c.s]}</span>
+                        <span className={`pcard-name ${sel ? 'on' : ''}`}>{SUIT_GLYPH[c.s]} {SUIT_NAMES[c.s].split(' ')[0]}</span>
                       </button>
                     )
                   })}
@@ -329,13 +309,13 @@ export default function App() {
                     className="primary"
                     disabled={!plan || !plan.valid}
                     data-testid="play-btn"
-                    onClick={() => { act({ type: 'play', suitChoice: tieChoice }); setTieChoice(undefined) }}
+                    onClick={() => act({ type: 'play' })}
                   >
-                    Play {plan && plan.valid ? `${SUIT_GLYPH[plan.suit]} ${plan.categoryLabel}` : ''}
+                    Play Hand {plan && plan.valid ? `— ${plan.categoryLabel}` : ''}
                   </button>
                   <button
                     disabled={state.selected.length < 1 || state.discardsLeft <= 0}
-                    onClick={() => { act({ type: 'discard', cardIdxs: [...state.selected] }); setTieChoice(undefined) }}
+                    onClick={() => act({ type: 'discard', cardIdxs: [...state.selected] })}
                     title="Discard the selected cards (1–5) and refill the hand"
                   >
                     Discard {state.selected.length > 0 ? `(${state.selected.length})` : ''} ({state.discardsLeft})
@@ -363,13 +343,8 @@ export default function App() {
   )
 }
 
-function planOrChallengeOk(s: GameState): boolean {
-  const living = s.regions.filter((r) => !r.dormant)
-  if (s.challenge?.kind === 'drought') return living.every((r) => r.stability >= s.challenge!.need)
-  if (s.challenge?.kind === 'stable5') return living.filter((r) => r.stability >= 5).length >= s.challenge!.need
-  if (s.challenge?.kind === 'revealed') return living.length >= s.challenge!.need
-  if (s.challenge?.kind === 'stabilitySum') return living.reduce((n, r) => n + r.stability, 0) >= s.challenge!.need
-  return true
+function previewOf(s: GameState) {
+  return preview(s)
 }
 
 /** The planet panel: 3D globe (primary) + accessible region legend + map-detail.
@@ -382,10 +357,17 @@ function PlanetPanel({
   onFocus: (id: number) => void
 }) {
   const focused = focus !== null ? regions[focus] : null
+  const living = regions.filter((r) => !r.dormant)
+  const totalDev = living.reduce((n, r) => n + r.development, 0)
+  const devPotential = living.length * STABILITY_MAX
   return (
     <section className="panel planet" aria-label="Planet map">
       <h2>Planet — 12 regions</h2>
       <Planet3D regions={regions} focus={focus} onFocus={onFocus} />
+      <p className="planet-growth" data-testid="planet-growth" aria-label="Planet growth — driven by living regions and their development">
+        <span className="pg-frac">{totalDev}/{devPotential}</span>
+        <span>development across {living.length} living regions — the planet grows with it</span>
+      </p>
       <div className="region-legend" data-testid="region-legend" role="group" aria-label="All 12 regions — select one to inspect it on the globe">
         {regions.map((r) => {
           const isFocus = focus === r.id

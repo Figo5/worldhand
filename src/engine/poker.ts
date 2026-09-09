@@ -8,7 +8,7 @@ export interface Card {
 
 export const SUITS: Suit[] = ['S', 'H', 'D', 'C']
 export const SUIT_NAMES: Record<Suit, string> = {
-  S: 'Study (♠)', H: 'Grow (♥)', D: 'Mine (♦)', C: 'Settle (♣)',
+  S: 'Spades (♠)', H: 'Hearts (♥)', D: 'Diamonds (♦)', C: 'Clubs (♣)',
 }
 export const RANKS: Rank[] = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 

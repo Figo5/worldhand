@@ -11,17 +11,18 @@ await p.waitForSelector('.pcard-btn')
 await p.locator('.pcard-btn').first().click()
 await p.locator('.pcard-btn').nth(1).click()
 const preview = await p.locator('[data-testid="preview"]').innerText()
-// suit action names updated for the one-action-per-suit contract
-// (Study/Grow/Mine/Settle — formerly Roots/Bloom/Sow/Tend)
-const summaryAmt = preview.match(/(Mine|Grow|Study|Settle)[^+]*\+(\d+)/)
+// suit action names are gone: the play is a plain poker hand — match the
+// "Banks +N Growth" hero-number line instead of a suit-action name
+const summaryAmt = preview.match(/Banks (\d+) Growth/)
+const amt = summaryAmt?.[1]
 console.log('preview:', preview.replace(/\n/g, ' | '))
-console.log('extracted-amount:', summaryAmt?.[2])
+console.log('extracted-amount:', amt)
 await p.locator('[data-testid="play-btn"]').click()
 await p.waitForTimeout(150)
 await p.click('button:has-text("Save")'); await p.waitForTimeout(100)
 const logTop = await p.evaluate(() => JSON.parse(localStorage.getItem('worldhand.save')).state.log.slice(-1)[0].text)
 console.log('commit-log:', logTop)
-console.log('MATCH:', summaryAmt ? logTop.includes('+' + summaryAmt[2]) : false)
+console.log('MATCH:', amt ? logTop.includes(`Banks ${amt} Growth`) : false)
 // also verify category and suit strings match
 const pvCat = preview.match(/(High Card|Pair|Two Pair|Three of a Kind|Straight|Flush|Full House|Four of a Kind|Straight Flush)/)?.[1]
 console.log('category-match:', logTop.includes(pvCat ?? '§'))
