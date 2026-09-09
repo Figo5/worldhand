@@ -61,7 +61,7 @@ Final F (eval, LOOK=30): min 322 / median 360 / max 410. On the restored **autho
 - `node scripts/qa.mjs` — ALL PLAYWRIGHT CHECKS PASSED at 1280×800 and 480×800, zero console/page errors.
 - `node scripts/review-planet3d.mjs` — PASSED (canvas mount + pixel sample, legend → map-detail, keyboard, reduced-motion rotation stop, raycast) at both viewports, zero errors.
 - `review-probe / review-pvcommit / review-browser / review-autosave / review-fullrun / drought-legibility / review-save-lives-browser / review-independent` — all pass, zero errors.
-- Corrected solver (bounded solver results, NOT human win-rate estimates): LOOK=30 eval 25/30 (83%), calib 24/30 (80%); LOOK=12 eval 1/30 (3%), calib 3/30 (10%); exhaustive 30/30 both sets.
+- Corrected solver (bounded solver results, NOT human win-rate estimates): LOOK=30 eval 16/30 (53%), calib 20/30 (67%); LOOK=12 eval 0/30 (0%), calib 1/30 (3%); exhaustive 30/30 both sets.
 - Fresh screenshots: `shots-review/ui-wide-growth.png` + `-full`, `ui-narrow-growth.png` + `-full` (honest chips×mult=base pill, 3D planet, no emojis) + `planet3d-*.png` from the 3D acceptance run.
 
 ## Known scope boundaries (intentional)

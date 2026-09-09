@@ -152,3 +152,77 @@ The four issues documented above were fixed in commit `d8eae6c` on this same tre
 4. **Scoring labels** — plan now carries `chips` (= rankSum, pre-mult) and the UI shows `chips × mult = base`; kickers' contribution is documented in RULES.md/README and pinned by a mutual-consistency test.
 
 Suite: 87/87 tests, tsc/build/qa/review scripts green at commit time.
+
+---
+
+## 11. Independent re-verification on the stabilized tree (v4, this reviewer, post-fix)
+
+**Routing metadata per required delegation override:** provider `ollama-cloud`, model `glm-5.3-flash` (session-configured; coordinator route `deepseek-v4-flash:0731` not inherited; no recursive delegation). All claims are tool outputs from this session.
+**Re-verified at:** HEAD `98d67a4` ("qa: refresh screenshots on restored-target revision"), 2026-09-09 14:30–14:40 EDT. Working tree clean of source changes; the fix landed as `d8eae6c`, targets restored in `c148686`, coordinator verification/playtest in `51adee9`. My two review scripts (`scripts/review-independent.mjs`, `scripts/review-save-lives-browser.mjs`) were adapted by the worker to the v3 save shape (validateState calls, schema:3 envelopes, two-step-confirm probe) and committed — I re-ran the adapted versions and re-read their source to confirm the probes still assert the same properties (reject/not-loaded/preserved, two-step confirm, lives-zero outcome); the original pre-fix versions and their results remain in § 2 as the "before" evidence. Pre-existing review scripts were untouched by the worker except the one-line target string in `review-probe.mjs` (followed the engine's target restore `30,70,320 → 45,110,360`); `git diff 43c803f..HEAD` on qa/browser/fullrun/autosave/planet3d/pvcommit scripts is empty, and test deletions are exactly 11 lines (the two superseded lives tests + the v2 envelope describe-block, each replaced by a stronger v3 counterpart — no weakening).
+
+### Battery on HEAD `98d67a4` (all run by me, this session)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean, exit 0 |
+| `npx vitest run` | **87/87 passed** (2 files) |
+| `npm run build` | green (chunk-size warning only) |
+| `node scripts/qa.mjs` | **PASSED 1280×800 + 480×800**, 0 console/page errors (grep for error lines: 0) |
+| `node scripts/review-planet3d.mjs` | **PASSED**, 0 pageerror/console-error lines |
+| `review-probe` (vite-node) | all assertions true, 0 fail lines |
+| `review-fullrun` / `review-browser` / `review-autosave` / `review-pvcommit` / `drought-legibility` / `check-no-emoji` | all PASSED, `errors: []` |
+| `scripts/review-independent.mjs` (v3-adapted) | **10/10** |
+| `scripts/review-save-lives-browser.mjs` (v3-adapted) | **15/15**, `page errors: []`, `clear-save guard observed: two-step-confirm` |
+
+### The four issues on the current tree
+
+**Issue 1 — SAVE/LOAD: FIXED (verified in source, tests, and browser).**
+- `SAVE_VERSION = 3` (engine-rules generation) + separate `SCHEMA_VERSION = 3` (envelope layout); `OBSOLETE_ITEM_IDS = ['deep-taproots','rich-soil','communal-tending','drought','stability-charter']` (worldhand.ts:49–51).
+- `validateState()` (worldhand.ts:569–673) rejects, with plain-language reasons: (a) missing/non-numeric lives (`lives is missing or not a number`), out-of-range lives, and 0-lives-not-in-game-over phase inconsistency; (b) obsolete AND unknown item ids in `market`/`laws`; (c) invalid phase (not in `VALID_PHASES`) and invalid epoch/outcome; (d) malformed cards — non-integer rank outside 2..14 or suit outside S/H/D/C in any of hand/deckRest/discardPile — plus a 52-card conservation check; (e) old versions (`state.version !== 3`, envelope `schema`/`version` mismatch).
+- **Legacy preservation:** `loadGameDetailed()` (save.ts:84–117) preserves the raw blob **byte-for-byte** under `worldhand.save.legacy.<ts>` (`preserveLegacy`, with a drop-oldest retry on quota) and returns `{state:null, rejectedReason, legacyKey}` — never erases, never partially migrates. Browser-verified: v1/legacy blobs and corrupt v2/v3 envelopes stay intact after load attempts; "Show preserved legacy blob" button exposes the raw JSON.
+- **UI explains a fresh run is needed:** `[data-testid=save-reject]` panel with "Saved world is incompatible — a fresh run is needed", the reason, and the legacy key (App.tsx:103–124). Browser probe confirms it renders.
+- **Quit preserves progress; destructive reset confirmed:** Quit touches nothing (byte-for-byte probe still passing); Clear Save and game-over Back-to-Menu are two-step in-UI confirm gates (step 1 keeps the save, Cancel keeps it, Confirm clears) — probe `two-step-confirm` passing.
+
+**Issue 2 — solve.mjs policy: FIXED (verified in source and by fresh runs).**
+- `score()` (solve.mjs:226–243) contains zero drought/stability terms — grep confirms; it scores Growth banked toward the current epoch target (with a reachability penalty), Seeds gained (discounted near cap), and life loss (−120/−400). Header states "current mechanics ONLY".
+- `pokerCandidates()` (solve.mjs:111–199) spans deliberate 1–5-card category candidates: all 1–2 card selections plus pairs/trips/quads groups, two-pair/full-house combos, flushes (best + lowest same-suit 5), straights incl. ace-low wheel with suit preference, and best-rank 3/4/5-card fillers; `candidateSubsets` caps deterministically (candidates first, then seeded sample). Measured effect: LOOK=30 now evaluates real poker hands (the old bounded list could not).
+- Discard policy: `maybeDiscard` dumps unwanted cards and keeps the refill only if the post-refill best beats the pre-discard best by +8 — sensible and documented.
+- Purchase policy: documented priority order (canopy-choir → seed-vaults → barter-routes → open-canals → stone-masonry → fourth-counsel; expansions/mycorrhiza/fifth-counsel skipped with rationale) in the header (lines 27–38) and inline.
+- Seeds disjoint: `CALIB_SEEDS` (probe-0..29, target sweeps) vs `EVAL_SEEDS` (eval-0..29, the reported result); `--set calib|eval` selects; default runs both and reports separately.
+- Labeling: header says "NOT a human win-rate estimate: this is an automated BOUNDED SOLVER RESULT"; every run banner and output line says "bounded solver"; RULES.md §Balance is titled "bounded solver result — NOT a human win-rate estimate"; grep finds no surviving "bounded-human" phrasing and no "human win-rate estimate" label anywhere.
+
+**Issue 3 — Lives contract: FIXED (uniform, exhaustible, consistent).**
+- Engine: EVERY missed epoch target — 1, 2, and 3 — costs 1 life (endEpoch charges before the final verdict); the run ends only at 0 lives; the win check is separate ("flourishes … lives remaining: N"). The pre-fix epoch-3 free-miss is gone.
+- Consistency: HUD tooltip "Lives — EVERY missed epoch target (all 3 epochs) costs 1; 0 ends the run" (App.tsx:193), intro copy (App.tsx:101), RULES.md §Lives, README, and the test suite all state the same rule.
+- Tests: `the epoch-3 miss still costs its life (uniform contract, exercised through a real epoch-end)`, `missing the epoch-3 target ALSO costs 1 life (before the final verdict)`, and the regression `three misses across epochs 1–3 drain exactly 3 lives → 0` — the third test proves exhaustibility in ordinary play (previously impossible).
+- My independent probe: 1 life + misses → 0 → boundary → game-over/withered with a lives reason. `review-fullrun` now ends "Out of lives (0): too many epoch targets missed" — an ordinary no-debt policy run can actually exhaust the pool.
+- Smallest-coherent-change check: the rule is a uniform life cost with no new mechanics; the income-halving and boundary logic are unchanged in shape. Noted deviation from the pre-fix contract is deliberate and documented (uniform miss cost), not scope creep.
+
+**Issue 4 — Scoring communication: FIXED.**
+- The plan now carries `chips` (= rankSum, pre-multiplier) and `pokerBase` = `round(chips × mult)`; the UI/preview/log show `chips 17 x 2 mult = base 34` — the multiplication is shown as happening once (verified live: `Banks 37 Growth (chips 17 x 2 mult = base 34 +3 laws)`). No re-multiplication: `growthParts.poker === pokerBase` in every case.
+- Kickers documented: RULES.md §"Kickers contribute (documented, non-standard)" spells out pair K+K+Q = 38 chips × 1.5 = 57 and that this is non-standard poker semantics.
+- Test pins consistency: `plan chips/mult/base are mutually consistent: base = round(chips x mult) exactly (display can never drift from the formula)` (tests/worldhand.test.ts:220–239) across a multi-hand matrix; my independent sweep re-verifies `pokerBase === round(rankSum × mult)` and `growth === max(0, poker + laws)`.
+
+### Corrected bounded-solver win rate (measured by me on HEAD `98d67a4`, authorized [45,110,360])
+
+| Policy | eval-* (probe-*/calib in parens) |
+|---|---|
+| LOOK=30 | **16/30 (53%)** (20/30, 67%) — final F min 322 / median 360 / max 410 |
+| LOOK=12 | 0/30 (0%) (1/30, 3%) |
+| LOOK=250 (near-exhaustive) | 30/30 (100%) (30/30, 100%) — min 937/939, median 1224/1254, max 1871/1653 |
+
+These are **bounded solver results** (machine heuristic, disjoint seed sets), not human win-rate estimates; I did not tune the heuristic or force any band. 53% sits inside the intended 40–60% band on the eval set as measured. The coordinator's HANDOFF (§ Coordinator verification, PLAYTEST_HANDOFF.md:79) records the same 53%/67% I measure.
+
+### Remaining problems
+
+1. **Stale solver table in RULES.md (doc-only, real).** RULES.md:104–108 still shows "LOOK=30 25/30 (83%) (24/30, 80%) … LOOK=12 1/30 (3%)" — numbers measured on the abandoned [30,70,320] ladder with the pre-restore code, and its "honest note" paragraph still discusses e3=320. The same stale numbers survive in PLAYTEST_HANDOFF.md:64 ("83%/80%") — a leftover from the pre-restore commit `d8eae6c`'s TASK C. PLAYTEST_HANDOFF's live Balance section (:22–25) carries the correct 53%/67%; **RULES.md's table contradicts both the restored ladder and my measurements.** Doc fix (worker/coordinator call, one table): replace with the 53% (eval) / 67% (calib), 0%/3% LOOK=12, 100% exhaustive numbers measured on [45,110,360]. Not edited by me — docs are the worker's in-flight lane.
+2. Minor: `hasSave()` in save.ts remains dead code (the load path uses `loadGameDetailed`); cosmetic only.
+3. Minor (pre-existing, unchanged): region development/stability remain presentation-only; the coordinator's playtest notes the planet "reads as decoration" — a design gap, not a correctness bug.
+
+### Honest assessment of ruleset coherence
+
+**The game now has a coherent ruleset, and this time the tooling agrees with the game.** One hero number (Growth = round(chips × mult) + laws) drives targets, Seeds, and the solver; loss is a single uniform rule (every missed target costs 1 life, 0 = withered); the win is a single check (final target while lives remain); the save layer refuses anything the engine cannot honor while keeping the old data recoverable; and the balance probe scores exactly the mechanics that exist. The four surfaces (HUD, docs, tests, engine) state the same numbers everywhere I checked. The only incoherence left is the stale RULES.md balance table (remaining problem 1) — it does not affect gameplay, but it is the one place a reader would learn a wrong win-rate number.
+
+**Final status: all four issues verified FIXED on HEAD `98d67a4`. Battery: tsc clean, 87/87 tests, build green, qa 0 errors at both viewports, planet3d and all review scripts green, independent probes 10/10 + 15/15. Corrected bounded-solver result: 53% (eval) / 67% (calib) at LOOK=30 on the authorized [45,110,360].**
+
+— End of independent review v4 (re-verification). § 1–9 above document the pre-fix state (HEAD `43c803f`) and remain the evidence baseline for what changed.

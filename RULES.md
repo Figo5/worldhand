@@ -101,8 +101,8 @@ The shipped [45, 110, 360] measures on the eval-* set (calibration set in parent
 
 | Policy | Result (bounded solver) |
 |---|---|
-| LOOK=30 (bounded reference) | **25/30 (83%)** (24/30, 80%) |
-| LOOK=12 (very bounded) | 1/30 (3%) (3/30, 10%) |
+| LOOK=30 (bounded reference) | **16/30 (53%)** (20/30, 67% calib) |
+| LOOK=12 (very bounded) | 0/30 (0%) (1/30, 3% calib) |
 | Exhaustive (oracle) | 30/30 (100%) both sets |
 
 **Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The **[45,110,360] targets are the authorized ladder** from the preceding cycle, restored per the goal (this cycle was for correctness fixes, not another balance redesign). The corrected policy measures a high bounded win rate against them — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
