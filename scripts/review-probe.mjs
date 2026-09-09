@@ -1,6 +1,6 @@
 // Independent review probe — v2 engine contract checks.
 import { newGame, applyAction, preview, buildPlan, suitMajority, cardConservation,
-  checkWithering, EPOCH_TARGETS, STABILITY_SUM_TARGETS, PLAYS_PER_EPOCH,
+  checkWithering, EPOCH_TARGETS, PLAYS_PER_EPOCH,
   HAND_SIZE, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
 import { evaluateSelection, compareHands, CATEGORY_POINTS } from '../src/engine/poker.ts'
 
@@ -104,9 +104,8 @@ const log = (k, v) => out.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v
   log('discard-budget-decrements-once', s2a.discardsLeft === 2)
 }
 
-// 6. Three-epoch progression + escalating targets
-log('epoch-targets-escalating', EPOCH_TARGETS.map(t => t.need).join(',') === '5,8,12' &&
-  STABILITY_SUM_TARGETS.join(',') === '14,22,30')
+// 6. Three-epoch progression + escalating targets (ONE Growth target per epoch)
+log('epoch-targets-escalating', EPOCH_TARGETS.map(t => t.need).join(',') === '50,120,200')
 log('total-epochs', TOTAL_EPOCHS)
 log('plays-per-epoch', PLAYS_PER_EPOCH)
 {

@@ -13,7 +13,10 @@ import Planet3D from './components/Planet3D'
 
 const SUIT_CLASS: Record<Suit, string> = { S: 'spade', H: 'heart', D: 'diamond', C: 'club' }
 const SUIT_GLYPH: Record<Suit, string> = { S: '♠', H: '♥', D: '♦', C: '♣' }
-const CARD_ACTION: Record<Suit, string> = { S: 'Roots', H: 'Bloom', D: 'Sow', C: 'Tend' }
+const CARD_ACTION: Record<Suit, string> = { S: 'Study', H: 'Grow', D: 'Mine', C: 'Settle' }
+
+/** Growth breakdown part formatting: +n for gains, plain n for 0/penalties. */
+const fmtPart = (n: number) => (n > 0 ? `+${n}` : `${n}`)
 
 const TERRAIN_LABELS: Record<string, string> = {
   meadow: 'Meadow',
@@ -87,9 +90,10 @@ export default function App() {
         <p className="tagline">
           A deterministic planet-building card roguelike across three epochs. Each epoch you
           make <strong>4 plays</strong> from an 8-card hand — select 1–5 cards, score them as a
-          poker hand, and the majority suit acts: ♠ Roots steadies regions, ♥ Bloom raises
-          Flourishing, ♦ Sow gathers Seeds, ♣ Tend tends everything. Meet escalating epoch
-          targets, survive the previewed epoch-3 Drought, and grow a flourishing world.
+          poker hand, and the majority suit acts: ♠ Study develops regions, ♥ Grow banks
+          Growth, ♦ Mine gathers Seeds, ♣ Settle steadies everything. Every play banks one
+          <strong> Growth</strong> score toward escalating epoch targets. Survive the previewed
+          epoch-3 Drought and grow a flourishing world.
         </p>
         <div className="card panel">
           <label htmlFor="seed">Seed phrase — same seed, same world, same cards</label>
@@ -112,7 +116,6 @@ export default function App() {
   }
 
   const awakened = state.regions.filter((r) => !r.dormant)
-  const totalStab = awakened.reduce((n, r) => n + r.stability, 0)
   const over = state.phase === 'game-over'
   const target = EPOCH_TARGETS[state.epoch - 1]
 
@@ -141,13 +144,9 @@ export default function App() {
       </header>
 
       <section className="hud" aria-label="World status">
-        <div className="hud-item" title="Flourishing now — this epoch's target is the bar to clear">
+        <div className="hud-item" title="Flourishing now — this epoch's single Growth target is the bar to clear">
           <span className="hud-label">🌱 Flourishing</span>
           <strong>{state.flourishing}<span className="hud-of">/{target.need}</span></strong>
-        </div>
-        <div className="hud-item" title="Total living stability — this epoch's stability target is the bar to clear">
-          <span className="hud-label">🛡 Stability</span>
-          <strong>{totalStab}<span className="hud-of">/{[14, 22, 30][state.epoch - 1]}</span></strong>
         </div>
         <div className="hud-item" title="Seeds — the currency for the market (cap 30)">
           <span className="hud-label">🌰 Seeds</span>
@@ -285,6 +284,24 @@ export default function App() {
                 <h2>
                   Hand of 8 — select 1–5 cards · {state.playsLeft} plays · {state.discardsLeft} discards left
                 </h2>
+                {plan && plan.valid ? (
+                  <div className="growth-hero" data-testid="growth-hero" aria-live="polite">
+                    <span className="growth-hero-label">Growth</span>
+                    <span className="growth-hero-num">{plan.growth}</span>
+                    <span className={`growth-hero-action ${SUIT_CLASS[plan.suit]}`}>
+                      {SUIT_GLYPH[plan.suit]} {CARD_ACTION[plan.suit]}
+                    </span>
+                    <span className="growth-hero-breakdown" title="ordered breakdown: poker → region → laws → drought">
+                      {fmtPart(plan.growthParts.poker)} poker · {fmtPart(plan.growthParts.region)} region · {fmtPart(plan.growthParts.laws)} laws · {fmtPart(plan.growthParts.drought)} drought
+                    </span>
+                  </div>
+                ) : (
+                  <div className="growth-hero muted" data-testid="growth-hero">
+                    <span className="growth-hero-label">Growth</span>
+                    <span className="growth-hero-num">—</span>
+                    <span className="growth-hero-breakdown">select 1–5 cards to bank Growth toward {target.need}</span>
+                  </div>
+                )}
                 <div className="hand-cards" role="listbox" aria-label="Hand" onKeyDown={handleHandKeys}>
                   {state.hand.map((c, i) => {
                     const sel = state.selected.includes(i)

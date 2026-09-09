@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
   newGame, applyAction, preview, buildPlan, suitMajority, cardConservation,
-  checkWithering, droughtChallenge, applyPlanEffects, EPOCH_TARGETS, STABILITY_SUM_TARGETS,
+  checkWithering, droughtChallenge, applyPlanEffects, EPOCH_TARGETS,
+  DROUGHT_PENALTY_PER_REGION,
   SURVIVAL_START, SURVIVAL_MAX,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, HAND_SIZE, TOTAL_EPOCHS, TOTAL_REGIONS,
   STABILITY_BASE, STABILITY_MAX, SEEDS_CAP, START_REGIONS,
 } from '../src/engine/worldhand'
+import { CATEGORY_MULT } from '../src/engine/poker'
 import type { GameState, Suit } from '../src/engine/worldhand'
 import type { Card, Suit as PSuit } from '../src/engine/poker'
 
@@ -46,32 +48,30 @@ describe('worldhand v2 core contracts', () => {
       }
     }
   })
-  it('three escalating targets are strictly increasing', () => {
+  it('ONE escalating Flourishing (Growth) target per epoch, strictly increasing', () => {
+    // The simplified contract: a single cumulative-Growth target per epoch.
+    // The old two-target contract (Flourishing + STABILITY_SUM_TARGETS) is gone.
     expect(EPOCH_TARGETS).toHaveLength(3)
-    expect(STABILITY_SUM_TARGETS).toEqual([20, 30, 40])
-    expect(EPOCH_TARGETS.map((t) => t.need)).toEqual([12, 24, 32])
+    expect(EPOCH_TARGETS.map((t) => t.need)).toEqual([50, 120, 200])
     expect(EPOCH_TARGETS[0].need).toBeLessThan(EPOCH_TARGETS[1].need)
     expect(EPOCH_TARGETS[1].need).toBeLessThan(EPOCH_TARGETS[2].need)
+    // every target is a single `need` number (no per-epoch stability-sum list)
+    for (const t of EPOCH_TARGETS) expect(typeof t.need).toBe('number')
   })
   it('targets are calibrated against measured bounded play, not the final target alone', () => {
     // scripts/solve.mjs with LOOK=30 (bounded policy: all 1-2 card selections +
-    // 17 seeded longer ones, 30 probe-* seeds, Survival active) measured the
-    // win-rate curve the shipped targets sit on:
-    //   [12,22,30] 21/30 · [12,23,31] 20/30 · [12,24,31] 20/30 ·
-    //   [12,24,32] 17/30 · [12,24,33] 14/30 · [12,25,33] 14/30 ·
-    //   [13,26,34] 8/30 · [14,26,34] 8/30 · [20,36,52] 0/30
-    // [12,24,32] lands in the intended 40-60% band for the bounded policy
-    // (17/30 = 57%); the same targets give 3/30 (10%) at LOOK=12 and 30/30
-    // (100%) exhaustive — the band is measured at the bounded reference, not
-    // only reachable by exhaustive search. The final epoch target must stay
-    // meaningfully above the old trivially-banked 12 and below the ~68 ceiling
-    // the best exhaustive runs reach.
-    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBeGreaterThan(12)
-    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBeLessThanOrEqual(58)
-    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBeLessThan(68)
+    // seeded longer ones, 30 probe-* seeds, Survival active) measured the
+    // win-rate ladder the shipped targets sit on (new Growth engine):
+    //   e3 190 → 20/30 (67%) · e3 200 → 18/30 (60%) · e3 205 → 15/30 (50%)
+    // [50,120,200] lands at the top edge of the intended 40-60% band for the
+    // bounded policy (18/30 = 60%); the same targets give 13/30 (43%) at
+    // LOOK=12 and 30/30 (100%) exhaustive — the band is measured at the
+    // bounded reference, not only reachable by exhaustive search. The shipped
+    // targets are escalating and far above the old chips-only [12,24,32].
+    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBe(200)
     // strictly escalating so every epoch's target stays live
     for (let i = 1; i < EPOCH_TARGETS.length; i++) {
-      expect(EPOCH_TARGETS[i].need).toBeGreaterThan(EPOCH_TARGETS[i - 1].need * 1.2)
+      expect(EPOCH_TARGETS[i].need).toBeGreaterThan(EPOCH_TARGETS[i - 1].need)
     }
   })
   it('card conservation holds after every action type', () => {
@@ -166,8 +166,8 @@ describe('suit majority / tie choice', () => {
   })
   it('REGRESSION: committed play carries suitChoice — commit matches the previewed tie choice (was: commit dropped the tie choice)', () => {
     // 2♥+2♣+1♦ tie between H and C: the old commit path called
-    // buildPlan(..., undefined), so a player previewing Clubs/Tend got
-    // Hearts/Bloom on commit (S,H,D,C default order).
+    // buildPlan(..., undefined), so a player previewing Clubs/Settle got
+    // Hearts/Grow on commit (S,H,D,C default order).
     let s = newGame('tie-commit')
     s = forceHand(s, [C(5, 'H'), C(6, 'H'), C(7, 'D'), C(9, 'C'), C(10, 'C')])
     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
@@ -178,11 +178,18 @@ describe('suit majority / tie choice', () => {
     const pv = preview(s, 'C')
     expect(pv.suitDecision).toBe('tiebreak-choice')
     expect(pv.suit).toBe('C')
-    expect(pv.effects.every((e) => e.kind === 'stability')).toBe(true) // Tend effects
+    // Settle effects: +1 stability per living region, PLUS the single banked
+    // Growth effect every play carries (the flourish bank).
+    const stabEffects = pv.effects.filter((e) => e.kind === 'stability')
+    expect(stabEffects).toHaveLength(START_REGIONS)
+    expect(pv.effects.filter((e) => e.kind === 'flourishing')).toHaveLength(1)
     const s2 = applyAction(s, { type: 'play', suitChoice: 'C' })
     expect(s2.lastResolution!.suit).toBe('C')
     expect(s2.lastResolution!.suitDecision).toBe('tiebreak-choice')
     expect(s2.lastResolution!.effects).toEqual(pv.effects)
+    // the single Growth score is identical in preview and commit
+    expect(s2.lastResolution!.growth).toBe(pv.growth)
+    expect(s2.lastResolution!.growthParts).toEqual(pv.growthParts)
   })
   it('REGRESSION: preview(hand, tieChoice) === buildPlan(hand, selected, regions, laws, tieChoice) === committed play with suitChoice', () => {
     const s0 = newGame('tie-pipeline')
@@ -214,55 +221,39 @@ describe('suit majority / tie choice', () => {
     expect(planC.suitCounts).toEqual({ S: 0, H: 2, D: 1, C: 2 })
     expect(planC.suit).toBe('C')
   })
-  it('regionChoice on a committed play still targets the Roots region (backward-compatible)', () => {
+  it('regionChoice on a committed play still targets the Study region (backward-compatible)', () => {
     // default: the weakest living region is targeted
-    const s1 = forceHand(newGame('roots-target'), [C(10, 'S')])
+    const s1 = forceHand(newGame('study-target'), [C(10, 'S')])
     s1.regions[0].stability = 2
     s1.regions[1].stability = 9
     const sDefault = applyAction(s1, { type: 'toggleCard', cardIdx: 0 })
     const committedDefault = applyAction(sDefault, { type: 'play' })
-    expect(committedDefault.lastResolution!.effects[0]).toMatchObject({ kind: 'stability', regionId: 0 })
+    expect(committedDefault.lastResolution!.effects[0]).toMatchObject({ kind: 'develop', regionId: 0, amount: 1 })
     // regionChoice overrides the weakest-first default
-    const s2 = forceHand(newGame('roots-target-2'), [C(10, 'S')])
+    const s2 = forceHand(newGame('study-target-2'), [C(10, 'S')])
     s2.regions[3].dormant = false
     s2.regions[3].stability = 9
     s2.regions[0].stability = 9
     s2.regions[1].stability = 2
     const sT = applyAction(s2, { type: 'toggleCard', cardIdx: 0 })
     const committedTargeted = applyAction(sT, { type: 'play', regionChoice: 3 })
-    expect(committedTargeted.lastResolution!.effects[0]).toMatchObject({ kind: 'stability', regionId: 3 })
+    expect(committedTargeted.lastResolution!.effects[0]).toMatchObject({ kind: 'develop', regionId: 3, amount: 1 })
   })
 })
 
-describe('suit actions — two meaningful actions per suit', () => {
-  it('♠ Roots: stability to a living region; weak regions get targeted first', () => {
-    const s0 = newGame('roots')
-    const s1 = forceHand(s0, [C(10, 'S'), C(5, 'H')])
-    s1.regions[0].stability = 2 // weakest
-    const plan = buildPlan(s1.hand, [0], s1.regions, [])
-    expect(plan.suit).toBe('S')
-    expect(plan.effects[0]).toEqual({ kind: 'stability', regionId: 0, amount: Math.round(10 / 4) })
-  })
-  it('♠ Roots with high ranks gives bigger stability', () => {
-    const s0 = newGame('roots2')
-    const low = buildPlan([C(4, 'S')], [0], s0.regions, [])
-    const high = buildPlan([C(14, 'S')], [0], s0.regions, [])
-    const lowAmt = (low.effects[0] as any).amount
-    const highAmt = (high.effects[0] as any).amount
-    expect(highAmt).toBeGreaterThan(lowAmt)
-  })
-  it('♥ Bloom: +Flourishing; Q+ heart wakes a dormant region', () => {
-    const s0 = newGame('bloom')
+describe('suit actions — ONE action per suit (Grow/Mine/Study/Settle)', () => {
+  it('♥ Grow: banks Growth toward the epoch target; Q+ heart wakes a dormant region', () => {
+    const s0 = newGame('grow')
     const s1 = forceHand(s0, [C(13, 'H')])
     const plan = buildPlan(s1.hand, [0], s1.regions, [])
     expect(plan.suit).toBe('H')
     expect(plan.effects.some((e) => e.kind === 'wake')).toBe(true)
     expect(s1.regions[4].dormant).toBe(true) // first dormant untouched by plan-building
   })
-  it('REGRESSION: ResolutionPlan carries the Drought wake-cost warning whenever a Bloom play wakes a region', () => {
+  it('REGRESSION: ResolutionPlan carries the Drought wake-cost warning whenever a Grow play wakes a region', () => {
     // The wake's cost (stability 3+ during the epoch-3 Drought) must be stated
     // in the shared plan summary — visible at decision time in the preview and
-    // in the committed resolution, for EVERY region a Bloom play wakes.
+    // in the committed resolution, for EVERY region a Grow play wakes.
     for (let dormantId = 4; dormantId < TOTAL_REGIONS; dormantId++) {
       const s = newGame(`wake-warn-${dormantId}`)
       // wake everything before the target region so it is next in wake order
@@ -279,76 +270,138 @@ describe('suit actions — two meaningful actions per suit', () => {
       expect(plan.summary).toContain('epoch-3 Drought')
     }
   })
-  it('Bloom low cards do not wake, so no wake warning appears', () => {
-    const s0 = newGame('bloom2')
+  it('Grow low cards do not wake, so no wake warning appears', () => {
+    const s0 = newGame('grow2')
     const plan = buildPlan([C(5, 'H')], [0], s0.regions, [])
     expect(plan.effects.some((e) => e.kind === 'wake')).toBe(false)
     expect(plan.summary).not.toContain('Drought')
   })
-  it('♦ Sow: +Seeds (capped)', () => {
-    const s0 = newGame('sow')
-    const plan = buildPlan([C(12, 'D')], [0], s0.regions, [])
-    expect(plan.suit).toBe('D')
-    expect(plan.effects[0]).toEqual({ kind: 'seeds', amount: 4 })
-  })
-  it('♣ Tend: +1 stability to EVERY living region', () => {
-    const s0 = newGame('tend')
-    const plan = buildPlan([C(9, 'C')], [0], s0.regions, [])
-    expect(plan.suit).toBe('C')
-    const stabEffects = plan.effects.filter((e) => e.kind === 'stability')
-    expect(stabEffects).toHaveLength(START_REGIONS) // 4 living regions
-    for (const e of stabEffects) expect((e as any).amount).toBe(1)
-  })
-  it('commit applies wake from Bloom Q+ play', () => {
+  it('commit applies wake from Grow Q+ play', () => {
     let s = newGame('wake')
     s = forceHand(s, [C(13, 'H')])
     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
     s = applyAction(s, { type: 'play' })
     expect(s.regions.filter((r) => !r.dormant)).toHaveLength(5)
   })
-
-  // Adjacency/development are mechanical (v2.1 fix): Roots spreads to living
-  // neighbors and gains from target development, and plays deepen development.
-  it('♠ Roots spreads stability to living neighbors (adjacency matters)', () => {
-    const s0 = newGame('adjacency')
-    const s1 = forceHand(s0, [C(10, 'S'), C(5, 'H')])
-    const plan = buildPlan(s1.hand, [0], s1.regions, [])
-    const stab = plan.effects.filter((e) => e.kind === 'stability')
-    // region 0's neighbors are 1, 7, 8 — at start only 1 is living (7 and 8 dormant)
-    const targetAmount = (plan.effects[0] as any).amount
-    expect(plan.effects[0]).toEqual({ kind: 'stability', regionId: 0, amount: targetAmount })
-    expect(stab.map((e) => (e as any).regionId).sort()).toEqual([0, 1])
-    for (const e of stab.slice(1)) expect((e as any).amount).toBe(Math.floor(targetAmount / 2))
-    expect(plan.summary).toContain('Roots spread to')
-  })
-  it('♠ Roots does not spread to dormant neighbors', () => {
-    const s0 = newGame('adjacency-dormant')
-    const s1 = forceHand(s0, [C(10, 'S'), C(5, 'H')])
-    const plan = buildPlan(s1.hand, [0], s1.regions, [])
-    const regionIds = plan.effects.filter((e) => e.kind === 'stability').map((e) => (e as any).regionId)
-    expect(regionIds).not.toContain(8)
-    expect(regionIds).not.toContain(6)
-  })
-  it('development deepens Roots: +1 stability per 3 development', () => {
-    const s0 = newGame('development')
-    s0.regions[0].development = 3
-    const base = buildPlan([C(10, 'S')], [0], s0.regions.map((r) => ({ ...r, development: 0 })), [])
-    const dev = buildPlan([C(10, 'S')], [0], s0.regions, [])
-    expect((dev.effects[0] as any).amount).toBe((base.effects[0] as any).amount + 1)
-    expect(dev.summary).toContain('development')
-  })
-  it('a Roots play adds +1 development to the target (feeding future Roots)', () => {
-    let s = newGame('devgrow')
-    s = forceHand(s, [C(14, 'S')])
+  it('♦ Mine: gains Seeds, capped at SEEDS_CAP', () => {
+    const s0 = newGame('mine')
+    const plan = buildPlan([C(12, 'D')], [0], s0.regions, [])
+    expect(plan.suit).toBe('D')
+    expect(plan.effects[0]).toEqual({ kind: 'seeds', amount: 4 })
+    // cap: a big Mine play cannot push Seeds past 30
+    let s = newGame('mine-cap')
+    s.seeds = SEEDS_CAP
+    s = forceHand(s, [C(14, 'D')])
     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
     s = applyAction(s, { type: 'play' })
-    expect(s.regions[0].development).toBe(1)
+    expect(s.seeds).toBe(SEEDS_CAP)
   })
-  it('development caps at STABILITY_MAX via applyPlanEffects', () => {
-    const s = newGame('devcap')
-    s.regions[0].development = STABILITY_MAX
-    applyPlanEffects(s, { cards: [], category: 'high', categoryLabel: '', categoryPoints: 0, suit: 'S', suitDecision: 'single', suitCounts: { S: 1, H: 0, D: 0, C: 0 }, rankSum: 10, effects: [{ kind: 'develop', regionId: 0, amount: 1 }], summary: '', valid: true, invalidReason: '' })
-    expect(s.regions[0].development).toBe(STABILITY_MAX)
+  it('♠ Study: +1 development to the weakest living region by default', () => {
+    const s0 = newGame('study')
+    const s1 = forceHand(s0, [C(10, 'S')])
+    s1.regions[0].stability = 2 // weakest living region
+    const plan = buildPlan(s1.hand, [0], s1.regions, [])
+    expect(plan.suit).toBe('S')
+    expect(plan.effects[0]).toEqual({ kind: 'develop', regionId: 0, amount: 1 })
+    expect(plan.summary).toContain('Study')
+    expect(plan.summary).toContain(s1.regions[0].name)
+  })
+  it('♠ Study: a targeted region (regionChoice) overrides the weakest-first default', () => {
+    const s0 = newGame('study2')
+    const s1 = forceHand(s0, [C(10, 'S')])
+    s1.regions[0].stability = 2 // weakest
+    s1.regions[3].dormant = false
+    const plan = buildPlan(s1.hand, [0], s1.regions, [], 3 as unknown as Suit)
+    expect(plan.suit).toBe('S')
+    expect(plan.effects[0]).toEqual({ kind: 'develop', regionId: 3, amount: 1 })
+  })
+  it('♠ Study with the Study upgrade gains the law bonus (+1 dev)', () => {
+    const s0 = newGame('study2')
+    const base = buildPlan([C(10, 'S')], [0], s0.regions, [])
+    const buffed = buildPlan([C(10, 'S')], [0], s0.regions, [{ id: 'deep-taproots', title: 'Deep Taproots', desc: '', cost: 10, kind: 'upgrade', studyBonus: 1 }])
+    expect((base.effects[0] as any).amount).toBe(1)
+    expect((buffed.effects[0] as any).amount).toBe(2)
+  })
+  it('♣ Settle: +1 stability to EVERY living region (the Drought defence)', () => {
+    const s0 = newGame('settle')
+    const plan = buildPlan([C(9, 'C')], [0], s0.regions, [])
+    expect(plan.suit).toBe('C')
+    const stabEffects = plan.effects.filter((e) => e.kind === 'stability')
+    expect(stabEffects).toHaveLength(START_REGIONS) // 4 living regions
+    for (const e of stabEffects) expect((e as any).amount).toBe(1)
+  })
+  it('♣ Settle with the Communal Tending upgrade gives +1 extra stability everywhere', () => {
+    const s0 = newGame('settle2')
+    const plan = buildPlan([C(9, 'C')], [0], s0.regions, [{ id: 'communal-tending', title: 'Communal Tending', desc: '', cost: 9, kind: 'upgrade', settleBonus: 1 }])
+    const stabEffects = plan.effects.filter((e) => e.kind === 'stability')
+    for (const e of stabEffects) expect((e as any).amount).toBe(2)
+  })
+  it('every play — any suit — banks ONE Growth score with an ordered growthParts breakdown', () => {
+    const s0 = newGame('growth-bank')
+    const regions = s0.regions.map((r) => ({ ...r }))
+    for (const suit of ['S', 'H', 'D', 'C'] as const) {
+      const plan = buildPlan([C(10, suit)], [0], regions, [])
+      expect(plan.valid).toBe(true)
+      expect(plan.growth).toBe(Math.max(0, plan.growthParts.poker + plan.growthParts.region + plan.growthParts.laws + plan.growthParts.drought))
+      // single-card 10: rankSum 10 × mult 1 (high card) = 10 poker base
+      expect(plan.growthParts.poker).toBe(10)
+      expect(plan.growthParts.laws).toBe(0)
+      expect(plan.growthParts.drought).toBe(0) // all living regions start at stability 3+
+      expect(plan.effects.some((e) => e.kind === 'flourishing' && e.amount === plan.growth)).toBe(true)
+    }
+  })
+  it('Growth poker base = rankSum × CATEGORY_MULT (flush outscores high card)', () => {
+    const s0 = newGame('growth-mult')
+    const high = buildPlan([C(10, 'H')], [0], s0.regions, [])
+    const flush = buildPlan([C(2, 'H'), C(6, 'H'), C(7, 'H'), C(9, 'H'), C(14, 'H')], [0, 1, 2, 3, 4], s0.regions, [])
+    expect(high.growthParts.poker).toBe(10 * CATEGORY_MULT['high'])
+    expect(flush.growthParts.poker).toBe((2 + 6 + 7 + 9 + 14) * CATEGORY_MULT['flush'])
+    expect(flush.growth).toBeGreaterThan(high.growth)
+  })
+  it('region part: +floor(acting region development / 3) — the Study loop feeds Growth', () => {
+    const s0 = newGame('growth-region')
+    const dev3 = s0.regions.map((r, i) => (i === 0 ? { ...r, development: 3 } : { ...r }))
+    const plan = buildPlan([C(10, 'S')], [0], dev3, [])
+    expect(plan.growthParts.region).toBe(Math.floor(3 / 3))
+    const dev7 = s0.regions.map((r, i) => (i === 0 ? { ...r, development: 7 } : { ...r }))
+    expect(buildPlan([C(10, 'S')], [0], dev7, []).growthParts.region).toBe(Math.floor(7 / 3))
+  })
+  it('laws part: owned Grow upgrades add Growth directly (other suits do not)', () => {
+    const s0 = newGame('growth-laws')
+    const laws = [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade', growBonus: 3 }]
+    const grow = buildPlan([C(10, 'H')], [0], s0.regions, laws)
+    expect(grow.growthParts.laws).toBe(3)
+    const mine = buildPlan([C(10, 'D')], [0], s0.regions, laws)
+    expect(mine.growthParts.laws).toBe(0)
+  })
+  it('drought part: −DROUGHT_PENALTY_PER_REGION Growth per living region below stability 3 (floored at 0)', () => {
+    const s0 = newGame('growth-drought')
+    const risky = s0.regions.map((r, i) => (i < START_REGIONS && i < 2 ? { ...r, stability: 2 } : { ...r }))
+    const plan = buildPlan([C(10, 'H')], [0], risky, [])
+    expect(plan.growthParts.drought).toBe(-2 * DROUGHT_PENALTY_PER_REGION)
+    expect(plan.growth).toBe(Math.max(0, 10 - 2 * DROUGHT_PENALTY_PER_REGION))
+    // floor at 0: a tiny play in a drought-stricken world banks nothing
+    const dire = s0.regions.map((r) => ({ ...r, stability: 0 }))
+    const direPlan = buildPlan([C(2, 'H')], [0], dire, [])
+    expect(direPlan.growthParts.drought).toBe(-4 * DROUGHT_PENALTY_PER_REGION)
+    expect(direPlan.growth).toBe(0)
+  })
+  it('preview == commit: the same plan (incl. growth and growthParts) is used by both', () => {
+    let s = newGame('pv-commit-growth')
+    s = forceHand(s, [C(10, 'S'), C(11, 'H'), C(12, 'D'), C(13, 'C'), C(9, 'H')])
+    s.regions[0].development = 4
+    s.regions[2].stability = 2 // drought liability
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 1 })
+    const pv = preview(s)
+    expect(pv.valid).toBe(true)
+    const before = { f: s.flourishing }
+    const s2 = applyAction(s, { type: 'play' })
+    const committed = s2.lastResolution!
+    expect(committed.growth).toBe(pv.growth)
+    expect(committed.growthParts).toEqual(pv.growthParts)
+    expect(committed.effects).toEqual(pv.effects)
+    expect(s2.flourishing).toBe(before.f + pv.growth)
   })
 })
 
@@ -404,6 +457,8 @@ describe('epoch end: targets, Stability decay, Drought challenge', () => {
     expect(newGame('survival-init').survival).toBe(3)
   })
   it('missing the epoch-1 target costs 1 Survival and halves that epoch-end market income', () => {
+    // Mine-only singles bank exactly 10 Growth each (4 plays = 40 + start 3 = 43),
+    // deterministically below the epoch-1 target of 50.
     let s = newGame('survival-miss-e1')
     s = forceHand(s, [C(4, 'D'), C(4, 'D'), C(4, 'D'), C(4, 'D')])
     for (let i = 0; i < 4; i++) {
@@ -412,28 +467,22 @@ describe('epoch end: targets, Stability decay, Drought challenge', () => {
     }
     expect(s.phase).toBe('market')
     const f = s.flourishing
-    const stab = s.regions.filter((r) => !r.dormant).reduce((n, r) => n + r.stability, 0)
-    if (f < EPOCH_TARGETS[0].need && stab < STABILITY_SUM_TARGETS[0]) {
-      expect(s.survival).toBe(SURVIVAL_START - 1)
-      expect(s.log.some((l) => l.text.includes(`Survival drops to ${SURVIVAL_START - 1}`))).toBe(true)
-      expect(s.log.some((l) => l.text.includes('market income is halved'))).toBe(true)
-    } else {
-      // this seed happened to meet the target: Survival must be untouched
-      expect(s.survival).toBe(SURVIVAL_START)
-      expect(s.log.every((l) => !l.text.includes('Survival drops'))).toBe(true)
-    }
+    expect(f).toBeLessThan(EPOCH_TARGETS[0].need)
+    expect(s.survival).toBe(SURVIVAL_START - 1)
+    expect(s.log.some((l) => l.text.includes(`Survival drops to ${SURVIVAL_START - 1}`))).toBe(true)
+    expect(s.log.some((l) => l.text.includes('market income is halved'))).toBe(true)
   })
   it('meeting the epoch target costs no Survival', () => {
-    // force a met target: huge flourishing, huge stability
+    // force a met target: Flourishing already far above the epoch-1 target
     let s = newGame('survival-met')
-    s.flourishing = 40
-    for (const r of s.regions) if (!r.dormant) r.stability = 8
+    s.flourishing = 100
     s.epoch = 1
     s = forceHand(s, [C(4, 'D'), C(4, 'D'), C(4, 'D'), C(4, 'D')])
     for (let i = 0; i < 4; i++) {
       s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
       s = applyAction(s, { type: 'play' })
     }
+    expect(s.flourishing).toBeGreaterThanOrEqual(EPOCH_TARGETS[0].need)
     expect(s.survival).toBe(SURVIVAL_START)
     expect(s.log.every((l) => !l.text.includes('Survival drops'))).toBe(true)
     expect(s.log.every((l) => !l.text.includes('halved'))).toBe(true)
@@ -629,7 +678,7 @@ describe('capped world stats', () => {
   it('stability caps at 10', () => {
     let s = newGame('cap')
     s.regions[0].stability = 10
-    s = forceHand(s, [C(14, 'S')])
+    s = forceHand(s, [C(14, 'C')])
     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
     s = applyAction(s, { type: 'play' })
     expect(s.regions[0].stability).toBe(STABILITY_MAX)

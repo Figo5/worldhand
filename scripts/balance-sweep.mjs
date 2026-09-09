@@ -1,7 +1,7 @@
 // One-shot balance calibration probe: greedy policy across the default 30 seeds,
 // sweeping candidate epoch-target triples. Reports wins + final-F distribution.
 // Usage: npx vite-node scripts/balance-sweep.mjs [targetA,targetB,targetC ...]
-import { newGame, applyAction, buildPlan, EPOCH_TARGETS, TOTAL_EPOCHS, STABILITY_SUM_TARGETS } from '../src/engine/worldhand.ts'
+import { newGame, applyAction, buildPlan, EPOCH_TARGETS, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
 
 const subsets = (n) => {
   const out = []
@@ -64,17 +64,15 @@ function playSeed(seedText) {
   }
   return s
 }
-// target override: rewrite module constants for the sweep
+// target override: rewrite module constants for the sweep (single Growth target)
 function setTargets(vals) {
   EPOCH_TARGETS.length = 0
-  vals.forEach((need, i) => EPOCH_TARGETS.push({ epoch: i + 1, desc: `F${need}`, need, kind: 'flourishing' }))
-  STABILITY_SUM_TARGETS.length = 0
-  vals.forEach((_, i) => STABILITY_SUM_TARGETS.push(0))
+  vals.forEach((need, i) => EPOCH_TARGETS.push({ epoch: i + 1, desc: `Growth ${need}`, need }))
 }
 const argTargets = process.argv.slice(2)
 const candidates = argTargets.length
   ? argTargets.map((s) => s.split(',').map(Number))
-  : [[12, 20, 30], [14, 24, 34], [16, 28, 42], [18, 32, 46], [20, 36, 52], [22, 40, 58], [24, 44, 64], [26, 48, 70], [28, 52, 76], [30, 56, 82]]
+  : [[30, 80, 150], [40, 90, 160], [50, 100, 180], [60, 120, 200], [25, 70, 140], [35, 85, 155]]
 const seeds = Array.from({ length: 30 }, (_, i) => `probe-${i}`)
 for (const t of candidates) {
   setTargets(t)

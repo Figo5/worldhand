@@ -1,21 +1,35 @@
 // Worldhand — corrected deterministic planet-building card roguelike. Pure engine, no DOM.
 //
-// Contracts (vertical slice):
+// Contracts (vertical slice, simplified one-action-per-suit edition):
 // - 12 regions; each epoch the player makes FOUR plays and THREE discards.
 // - Play = select 1–5 cards from the 8-card hand → exact poker scoring.
 //   Category decides WHICH suit acts; cards decide magnitude; Ace is low (wheel).
-// - Deterministic ResolutionPlan: preview() and commit() share one scoring pipeline.
-// - Suit majority (or tie-break choice) decides the acting suit.
+// - ONE action per suit (4 total): ♥ Grow is the Growth suit (its upgrades feed
+//   Growth and Q+ hearts wake regions), ♦ Mine gains Seeds, ♠ Study develops
+//   the target region, ♣ Settle raises every living region's stability.
+// - HERO SCORE — every play resolves to ONE number, **Growth**, read like
+//   Balatro's chips×mult:
+//       1. poker base   = rankSum × category multiplier
+//       2. region bonus = the acting region's development/3 (floor)
+//       3. World Laws   = owned law/upgrade bonuses
+//       4. Drought      = −5 Growth per living region below stability 3
+//     Growth = max(0, pokerBase + regionBonus + lawBonus + droughtMod).
+//   EVERY play banks its Growth: Flourishing (the single epoch target) is the
+//   cumulative sum of Growth.
+// - Deterministic ResolutionPlan: preview() and commit() share one scoring
+//   pipeline; the plan carries `growth` plus the ordered `growthParts`
+//   breakdown (poker → region → laws → drought).
 // - Discard 1–5 cards → refill from deck; total card conservation invariant.
-// - 3 escalating epoch targets on capped world stats; the Survival pool is the
-//   core resource: every missed epoch target drains 1 Stability (0 → withered)
-//   and halves that epoch's market income.
-// - Epoch 3 carries an explicit, previewed Drought challenge.
-// - Market (Seeds → laws/upgrades/expansions); capped world stats; two actions per suit.
+// - 3 escalating epoch targets on the ONE hero currency; the Survival pool is
+//   the core resource: every missed epoch target drains 1 Stability (0 →
+//   withered) and halves that epoch's market income.
+// - Epoch 3 carries an explicit, previewed Drought challenge (per-region
+//   stability 3+ — the per-region stability field still exists and matters).
+// - Market (Seeds → laws/upgrades/expansions); capped world stats.
 // - Versioned saves; quitting never destroys the save.
 import { Rng, hashSeed, type Seed } from './rng'
 import {
-  deck, evaluateSelection, CATEGORY_POINTS, categoryLabel,
+  deck, evaluateSelection, CATEGORY_POINTS, CATEGORY_MULT, categoryLabel,
   type Card, type HandCategory, type Suit,
 } from './poker'
 
@@ -38,13 +52,15 @@ export const SEEDS_CAP = 30
 export const MARKET_SIZE = 3
 
 export type Phase = 'select' | 'market' | 'epoch-end' | 'game-over'
-export interface EpochTarget { epoch: number; desc: string; need: number; kind: 'flourishing' | 'stabilitySum' }
+export interface EpochTarget { epoch: number; desc: string; need: number }
+/** ONE target per epoch: cumulative Growth (Flourishing). No separate
+ *  stability-sum target — per-region stability still exists (the epoch-3
+ *  Drought needs every living region at 3+) but it is never an epoch target. */
 export const EPOCH_TARGETS: EpochTarget[] = [
-  { epoch: 1, desc: 'Flourishing at 12+ and total stability 20+', need: 12, kind: 'flourishing' },
-  { epoch: 2, desc: 'Flourishing at 24+ and total stability 30+', need: 24, kind: 'flourishing' },
-  { epoch: 3, desc: 'Flourishing at 32+ and total stability 40+', need: 32, kind: 'flourishing' },
+  { epoch: 1, desc: 'Growth 50 (cumulative Flourishing)', need: 50 },
+  { epoch: 2, desc: 'Growth 120 (cumulative Flourishing)', need: 120 },
+  { epoch: 3, desc: 'Growth 200 (cumulative Flourishing)', need: 200 },
 ]
-export const STABILITY_SUM_TARGETS = [20, 30, 40]
 
 /** The Drought is decided in epoch 3, but Bloom wake decisions happen from
  * epoch 1 — the upcoming condition is legible in the HUD from the start. */
@@ -72,10 +88,11 @@ export interface Law {
   decayDelta?: number
   extraSeedsPerEpoch?: number
   marketDiscount?: number
-  bloomBonus?: number
-  rootsBonus?: number
-  sowBonus?: number
-  tendBonus?: number
+  /** per-suit law/upgrade bonuses (one action per suit) */
+  growBonus?: number
+  mineBonus?: number
+  studyBonus?: number
+  settleBonus?: number
   wakeRegionId?: number
 }
 
@@ -83,10 +100,10 @@ export const MARKET_ITEMS: Law[] = [
   { id: 'mycorrhiza', title: 'Mycorrhiza Network', desc: 'Regions decay 1 less each epoch.', cost: 6, kind: 'law', decayDelta: -1 },
   { id: 'seed-vaults', title: 'Seed Vaults', desc: '+3 Seeds at each epoch end.', cost: 8, kind: 'law', extraSeedsPerEpoch: 3 },
   { id: 'barter-routes', title: 'Barter Routes', desc: 'Market items cost 2 less.', cost: 5, kind: 'law', marketDiscount: 2 },
-  { id: 'canopy-choir', title: 'Canopy Choir', desc: 'Bloom plays yield +1 Flourishing.', cost: 10, kind: 'upgrade', bloomBonus: 1 },
-  { id: 'deep-taproots', title: 'Deep Taproots', desc: 'Roots plays yield +1 stability.', cost: 10, kind: 'upgrade', rootsBonus: 1 },
-  { id: 'rich-soil', title: 'Rich Soil', desc: 'Sow plays yield +1 extra Seed.', cost: 7, kind: 'upgrade', sowBonus: 1 },
-  { id: 'communal-tending', title: 'Communal Tending', desc: 'Tend plays give +1 stability everywhere.', cost: 9, kind: 'upgrade', tendBonus: 1 },
+  { id: 'canopy-choir', title: 'Canopy Choir', desc: 'Grow plays: +3 Growth.', cost: 10, kind: 'upgrade', growBonus: 3 },
+  { id: 'deep-taproots', title: 'Deep Taproots', desc: 'Study plays: +1 development.', cost: 10, kind: 'upgrade', studyBonus: 1 },
+  { id: 'rich-soil', title: 'Rich Soil', desc: 'Mine plays yield +2 extra Seeds.', cost: 7, kind: 'upgrade', mineBonus: 2 },
+  { id: 'communal-tending', title: 'Communal Tending', desc: 'Settle plays give +1 stability everywhere.', cost: 9, kind: 'upgrade', settleBonus: 1 },
   { id: 'wake-laguna', title: 'Wake Laguna', desc: 'Awaken the dormant coastal region.', cost: 12, kind: 'expansion', wakeRegionId: 4 },
   { id: 'wake-brumal', title: 'Wake Brumal', desc: 'Awaken the dormant steppe region.', cost: 12, kind: 'expansion', wakeRegionId: 9 },
 ]
@@ -155,6 +172,12 @@ export interface ResolutionPlan {
   suitCounts: Record<Suit, number>
   /** rank sum of selected cards (magnitude driver) */
   rankSum: number
+  /** HERO SCORE: the one big number this play resolves to (>= 0).
+   *  Growth = max(0, poker + region + laws + drought). */
+  growth: number
+  /** ordered breakdown of `growth`: [poker, region, laws, drought] — the
+   *  stable display/computation order is poker → region → laws → drought. */
+  growthParts: { poker: number; region: number; laws: number; drought: number }
   /** concrete world effects this plan applies */
   effects: PlanEffect[]
   summary: string
@@ -186,7 +209,24 @@ export function suitMajority(cards: Card[], tieChoice?: Suit): SuitMajority {
   return { suit: choice, decision: tieChoice && tied.includes(tieChoice) ? 'tiebreak-choice' : 'tiebreak-first', counts, tied }
 }
 
-/** Build the deterministic ResolutionPlan for a selection (pure; no state mutation). */
+/** Drought economics: each living region below stability 3 at plan time is a
+ *  liability worth −5 Growth. Stated once; used by preview and commit alike. */
+export const DROUGHT_PENALTY_PER_REGION = 5
+
+/** Region development feeds Growth: every 3 development on the acting region
+ *  grants +1 Growth (the Study loop, and Settle's target bonus). */
+const REGION_DEV_BONUS_DIVISOR = 3
+
+/** Build the deterministic ResolutionPlan for a selection (pure; no state mutation).
+ *
+ * The HERO SCORE 'Growth' is computed here, in ONE place, in a stable order:
+ *   1. poker base  = rankSum × CATEGORY_MULT[category]  (chips × mult)
+ *   2. region bonus = +floor(actingRegion.development / 3)  (0 if none applies)
+ *   3. World Laws   = +owned growBonus / studyBonus / mineBonus / settleBonus
+ *   4. Drought      = −5 × living regions currently below stability 3
+ * Growth = max(0, sum). The plan carries the final number (`growth`) plus the
+ * ordered parts (`growthParts`); preview and commit both go through this
+ * function, so they can never disagree. */
 export function buildPlan(
   hand: Card[],
   selected: number[],
@@ -197,7 +237,8 @@ export function buildPlan(
   const base: ResolutionPlan = {
     cards: [], category: 'high', categoryLabel: '—', categoryPoints: 0,
     suit: 'S', suitDecision: 'single', suitCounts: { S: 0, H: 0, D: 0, C: 0 },
-    rankSum: 0, effects: [], summary: '', valid: false, invalidReason: '',
+    rankSum: 0, growth: 0, growthParts: { poker: 0, region: 0, laws: 0, drought: 0 },
+    effects: [], summary: '', valid: false, invalidReason: '',
   }
   if (selected.length < 1 || selected.length > 5) {
     return { ...base, invalidReason: 'select 1–5 cards' }
@@ -214,69 +255,87 @@ export function buildPlan(
   const res = evaluateSelection(cards)
   const maj = suitMajority(cards, tieChoice)
   const sum = cards.reduce((n, c) => n + c.r, 0)
-  const lawBonus = (k: 'rootsBonus' | 'bloomBonus' | 'sowBonus' | 'tendBonus') =>
+  const lawBonus = (k: 'growBonus' | 'mineBonus' | 'studyBonus' | 'settleBonus') =>
     laws.reduce((n, l) => n + (l[k] ?? 0), 0)
+
+  const living = regions.filter((r) => !r.dormant)
+  // Drought part (order step 4, computed from the pre-play world; preview and
+  // commit read the same state so the numbers always agree):
+  const droughtCount = living.filter((r) => r.stability < 3).length
+  const droughtMod = droughtCount > 0 ? -DROUGHT_PENALTY_PER_REGION * droughtCount : 0
 
   const effects: PlanEffect[] = []
   let summary = ''
-  const living = regions.filter((r) => !r.dormant)
-  const weakest = living.reduce((a, b) => (b.stability < a.stability ? b : a), living[0])
+  // Which region's development feeds the region part (and Study's target).
+  let regionTarget: Region | null = null
 
   switch (maj.suit) {
-    case 'S': { // Roots: stability to a region; adjacency spreads it, development deepens it
-      // tieChoice doubles as the Roots region target (historical contract):
-      // a number selects that living region as the target; a suit letter is never
-      // a valid region id, so suit tie choices fall through to the weakest region.
-      const target = regions.find((r) => r.id === (tieChoice as number | undefined) && !r.dormant) ?? weakest
-      const devBonus = Math.floor(target.development / 3)
-      const gain = Math.max(1, Math.round(sum / 4)) + lawBonus('rootsBonus') + devBonus
-      effects.push({ kind: 'stability', regionId: target.id, amount: gain })
-      // a Roots play deepens the soil it steadies (+1 development, feeds future Roots gains)
-      effects.push({ kind: 'develop', regionId: target.id, amount: 1 })
-      summary = `Roots in ${target.name}: +${gain} stability${devBonus > 0 ? ` (incl. +${devBonus} development)` : ''}.`
-      // root network: living neighbors of the target share half the gain (dormant neighbors get nothing)
-      const spread = Math.floor(gain / 2)
-      if (spread > 0) {
-        for (const nid of target.adjacency) {
-          const n = regions.find((r) => r.id === nid)
-          if (n && !n.dormant && n.id !== target.id) {
-            effects.push({ kind: 'stability', regionId: n.id, amount: spread })
-            summary += ` Roots spread to ${n.name}: +${spread}.`
-          }
-        }
-      }
-      break
-    }
-    case 'H': { // Bloom: Flourishing; Q+ cards may wake a dormant region
-      const gain = Math.max(1, Math.round(sum / 5)) + lawBonus('bloomBonus')
-      effects.push({ kind: 'flourishing', amount: gain })
-      summary = `Bloom: +${gain} Flourishing.`
-      const high = cards.filter((c) => c.r >= 12)
-      if (high.length > 0) {
-        const dormant = regions.find((r) => r.dormant)
-        if (dormant) {
-          effects.push({ kind: 'wake', regionId: dormant.id })
-          // Drought legibility: a wake is not pure upside — the newly awake
-          // region must hold stability 3+ when the epoch-3 Drought resolves.
-          // Stated in the shared plan so preview AND commit both show it.
-          summary += ` ${dormant.name} wakes - it will need stability 3+ during the epoch-3 Drought.`
-        }
-      }
-      break
-    }
-    case 'D': { // Sow: Seeds
-      const gain = Math.max(1, Math.round(sum / 3)) + lawBonus('sowBonus')
+    case 'D': { // Mine: Seeds for the market (the economy suit)
+      const gain = Math.max(1, Math.round(sum / 3)) + lawBonus('mineBonus')
       effects.push({ kind: 'seeds', amount: gain })
-      summary = `Sow: +${gain} Seeds.`
+      summary = `Mine: +${gain} Seeds.`
       break
     }
-    case 'C': { // Tend: +1 (or +2 w/ upgrade) stability to every living region
-      const per = 1 + lawBonus('tendBonus')
+    case 'S': { // Study: develop the weakest living region (grows the planet, feeds Growth)
+      // tieChoice doubles as the Study region target (historical contract):
+      // a number selects that living region as the target; a suit letter is
+      // never a valid region id, so suit tie choices fall through to the
+      // weakest living region.
+      const target = (regions.find((r) => r.id === (tieChoice as number | undefined) && !r.dormant)
+        ?? weakestOf(living)) as Region
+      const gain = 1 + lawBonus('studyBonus')
+      effects.push({ kind: 'develop', regionId: target.id, amount: gain })
+      regionTarget = target
+      summary = `Study in ${target.name}: +${gain} development.`
+      break
+    }
+    case 'C': { // Settle: +1 stability to every living region (matters for the Drought)
+      const per = 1 + lawBonus('settleBonus')
       for (const r of living) effects.push({ kind: 'stability', regionId: r.id, amount: per })
-      summary = `Tend: +${per} stability across ${living.length} regions.`
+      regionTarget = living[0] ?? null
+      summary = `Settle: +${per} stability across ${living.length} regions.`
       break
     }
   }
+
+  // ---- HERO SCORE: Growth, in the fixed order poker → region → laws → drought
+  // 1. poker base: rankSum ("chips") × category multiplier
+  // 2. region bonus: +floor(acting region's development / 3)
+  // 3. World Laws: owned Grow upgrades add Growth directly (other suits'
+  //    upgrades amplify their own resource, not Growth)
+  // 4. Drought: −5 per living region below stability 3
+  const pokerBase = Math.round(sum * CATEGORY_MULT[res.category])
+  const regionBonus = regionTarget ? Math.floor(regionTarget.development / REGION_DEV_BONUS_DIVISOR) : 0
+  const lawGrowth = maj.suit === 'H' ? lawBonus('growBonus') : 0
+  const growthParts = { poker: pokerBase, region: regionBonus, laws: lawGrowth, drought: droughtMod }
+  const growth = Math.max(0, pokerBase + regionBonus + lawGrowth + droughtMod)
+
+  // Grow-specific wake (the Growth suit's rider): Q+ cards may wake a dormant
+  // region. A wake is not pure upside — the newly awake region must hold
+  // stability 3+ when the epoch-3 Drought resolves. Stated in the shared plan
+  // so preview AND commit both show it.
+  let growPrefix = ''
+  if (maj.suit === 'H') {
+    growPrefix = 'Grow: '
+    const high = cards.filter((c) => c.r >= 12)
+    if (high.length > 0) {
+      const dormant = regions.find((r) => r.dormant)
+      if (dormant) {
+        effects.push({ kind: 'wake', regionId: dormant.id })
+        growPrefix += `${dormant.name} wakes - it will need stability 3+ during the epoch-3 Drought. `
+      }
+    }
+  }
+  summary = growPrefix + summary
+
+  // EVERY play banks its Growth — Flourishing is the cumulative sum of Growth
+  // toward the single epoch target. The action summary (what the suit DID) is
+  // kept in front of the banking line (what the play SCORED) so the preview
+  // still names the suit action, e.g. "Mine: +4 Seeds. Banks 12 Growth (…)."
+  effects.push({ kind: 'flourishing', amount: growth })
+  const part = (n: number) => (n > 0 ? `+${n}` : `${n}`)
+  const bankLine = `Banks ${growth} Growth (${part(growthParts.poker)} poker ${part(growthParts.region)} region ${part(growthParts.laws)} laws ${part(growthParts.drought)} drought).`
+  summary = summary ? `${summary} ${bankLine}` : bankLine
 
   return {
     cards,
@@ -287,11 +346,21 @@ export function buildPlan(
     suitDecision: maj.decision,
     suitCounts: maj.counts,
     rankSum: sum,
+    growth,
+    growthParts,
     effects,
     summary,
     valid: true,
     invalidReason: '',
   }
+}
+
+/** weakest = lowest stability living region (tie → lowest id, deterministic). */
+function weakestOf(living: Region[]): Region | undefined {
+  return living.reduce<Region | undefined>(
+    (a, b) => (a === undefined || b.stability < a.stability ? b : a),
+    undefined,
+  )
 }
 
 /** Apply a plan to a mutable-ish state copy. Used by BOTH preview-apply and commit. */
@@ -544,13 +613,12 @@ function endEpoch(state: GameState): GameState {
   s.hand = []
   s.selected = []
 
-  // epoch target check
+  // epoch target check: the ONE target per epoch is cumulative Growth (Flourishing)
   const target = EPOCH_TARGETS[s.epoch - 1]
-  const totalStab = s.regions.filter((r) => !r.dormant).reduce((n, r) => n + r.stability, 0)
-  const metTarget = s.flourishing >= target.need && totalStab >= STABILITY_SUM_TARGETS[s.epoch - 1]
+  const metTarget = s.flourishing >= target.need
   s.log.push({
     at: `e${s.epoch}`,
-    text: `Epoch ${s.epoch} target "${target.desc}": ${metTarget ? 'met' : 'missed'} (Flourishing ${s.flourishing}, stability ${totalStab}).`,
+    text: `Epoch ${s.epoch} target "${target.desc}": ${metTarget ? 'met' : 'missed'} (Growth/Flourishing ${s.flourishing}).`,
   })
 
   // Survival pool: a missed epoch target costs 1 Survival (0 → the run ends
@@ -673,9 +741,9 @@ export function checkWithering(s: GameState): GameState {
 
 export function suitActionName(s: Suit): string {
   return {
-    S: 'Roots — stability to the weakest living region',
-    H: 'Bloom — Flourishing; Q+ wakes a region',
-    D: 'Sow — Seeds',
-    C: 'Tend — stability to all living regions',
+    S: 'Study — development in a living region (feeds Growth region bonus)',
+    H: 'Grow — bank Growth toward the epoch target; Q+ wakes a region',
+    D: 'Mine — gain Seeds for the market',
+    C: 'Settle — stability to all living regions (matters for the Drought)',
   }[s]
 }

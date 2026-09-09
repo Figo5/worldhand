@@ -8,7 +8,7 @@ export interface Card {
 
 export const SUITS: Suit[] = ['S', 'H', 'D', 'C']
 export const SUIT_NAMES: Record<Suit, string> = {
-  S: 'Roots (♠)', H: 'Bloom (♥)', D: 'Sow (♦)', C: 'Tend (♣)',
+  S: 'Study (♠)', H: 'Grow (♥)', D: 'Mine (♦)', C: 'Settle (♣)',
 }
 export const RANKS: Rank[] = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 
@@ -50,6 +50,21 @@ export const CATEGORY_POINTS: Record<HandCategory, number> = {
   'full-house': 7,
   'quads': 8,
   'straight-flush': 9,
+}
+
+/** Balatro-style hand multiplier: the played selection's poker category sets
+ *  the multiplier applied to the rank-sum "chips" to make the poker base of
+ *  the hero Growth score. Strictly increasing with hand strength. */
+export const CATEGORY_MULT: Record<HandCategory, number> = {
+  'high': 1,
+  'pair': 1.5,
+  'two-pair': 2,
+  'trips': 2.5,
+  'straight': 3,
+  'flush': 4,
+  'full-house': 5,
+  'quads': 6,
+  'straight-flush': 8,
 }
 
 export interface HandResult {
