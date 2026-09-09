@@ -35,11 +35,13 @@ export type { Suit } from './poker'
 /** SAVE_VERSION: the engine RULES generation this save was produced by.
  *  History: 1 = old 8-epoch/suit-action contract, 2 = three-epoch no-suit
  *  contract (survival-pool rename), 3 = Balatro-simple engine — auto-Seeds
- *  economy, market shop, and the every-miss-costs-a-life lives rule. A save
- *  whose version or structure does not match the CURRENT engine is rejected
- *  (never reinterpreted) and preserved as recoverable legacy data — see
- *  `validateState` + src/ui/save.ts. */
-export const SAVE_VERSION = 3
+ *  economy, market shop, and the every-miss-costs-a-life lives rule,
+ *  4 = regional-bonus rules — regions carry a fixed `specialization`
+ *  (pair / twopair / flush) that adds a flat Growth bonus to plays of the
+ *  EXACT matching category. A save whose version or structure does not match
+ *  the CURRENT engine is rejected (never reinterpreted) and preserved as
+ *  recoverable legacy data — see `validateState` + src/ui/save.ts. */
+export const SAVE_VERSION = 4
 /** SCHEMA_VERSION: envelope/layout generation, tracked separately from the
  *  rules so a pure layout change does not imply a rules change. */
 export const SCHEMA_VERSION = 3
@@ -89,11 +91,86 @@ export interface Region {
   x: number
   y: number
   stability: number
-  /** drives the 3D planet's evolution icons (presentation only — no gameplay use) */
+  /** drives the 3D planet's evolution icons and the regional Growth bonus */
   development: number
   dormant: boolean
   adjacency: number[]
+  /** FIXED regional specialization (stable mapping, never rerolled per run):
+   *  the exact evaluated poker category this region boosts when AWAKE.
+   *  null = no specialization. Dormant specialized regions contribute 0. */
+  specialization: null | 'pair' | 'twopair' | 'flush'
 }
+
+/** ---------------------------------------------------------------------------
+ * REGIONAL BONUS — declared constants (exact numbers also pinned in RULES.md
+ * and by tests/regional-bonus.test.ts). Each awake region whose fixed
+ * `specialization` equals the played hand's EXACT evaluated category adds
+ *
+ *     regionBonus = BASE + min(DEV_BONUS_CAP, floor(development / DEV_STEP))
+ *
+ * PAIR_BASE=3, TWOPAIR_BASE=4, FLUSH_BASE=6, DEV_STEP=2, DEV_BONUS_CAP=4 —
+ * e.g. a Pair-specialized region with development 4 grants 3+2=5. Dormant
+ * regions contribute 0. Bonuses stack ADDITIVELY across all awake matching
+ * regions (multiple Pair regions add; never a multiplicative chain), are
+ * applied ONCE, AFTER the existing law-adjusted Growth:
+ *
+ *     Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)
+ *
+ * The law multiplier NEVER re-multiplies the regional bonus.
+ * ------------------------------------------------------------------------- */
+export const PAIR_BASE = 3
+export const TWOPAIR_BASE = 4
+export const FLUSH_BASE = 6
+export const DEV_STEP = 2
+export const DEV_BONUS_CAP = 4
+
+export type Specialization = NonNullable<Region['specialization']>
+
+/** The SPECIALIZATION_BONUS table: base flat bonus per specialization. */
+export const SPECIALIZATION_BASE: Record<Specialization, number> = {
+  pair: PAIR_BASE,
+  twopair: TWOPAIR_BASE,
+  flush: FLUSH_BASE,
+}
+
+/** The player-facing label for a specialization (exact poker category). */
+export const SPECIALIZATION_LABEL: Record<Specialization, string> = {
+  pair: 'Pair',
+  twopair: 'Two Pair',
+  flush: 'Flush',
+}
+
+/** Map a played hand's evaluated poker category onto the specialization token.
+ *  The Region field uses the declared literal 'twopair'; the poker category is
+ *  'two-pair' — this normalization is the ONLY place the two vocabularies meet
+ *  (exact-category matching still applies: trips/quads/etc. map to null). */
+export function specOfCategory(c: HandCategory): Specialization | null {
+  if (c === 'pair') return 'pair'
+  if (c === 'two-pair') return 'twopair'
+  if (c === 'flush') return 'flush'
+  return null
+}
+
+/** The bonus ONE awake region pays for a play of its exact category at its
+ *  current development: `base + min(DEV_BONUS_CAP, floor(dev / DEV_STEP))`. */
+export function regionBonusOf(r: Region): number {
+  const base = r.specialization ? SPECIALIZATION_BASE[r.specialization] : 0
+  if (!r.specialization) return 0
+  return base + Math.min(DEV_BONUS_CAP, Math.floor(Math.max(0, r.development) / DEV_STEP))
+}
+
+/** The DETERMINISTIC region → specialization map: fixed data, stable across
+ *  every run and seed (never rerolled), terrain identity untouched. Exactly
+ *  three specializations exist; the Pair region STARTS AWAKE and the Two-Pair
+ *  and Flush regions START DORMANT (the starting planet never activates all
+ *  three — the dormant ones become obtainable through the wake-* expansions). */
+const SPECIALIZATION_MAP: Record<number, Specialization | null> = {
+  0: 'pair', // Auralia  — Pair specialization, STARTS AWAKE
+  6: 'twopair', // Pellucid — Two Pair specialization, starts dormant (Wake Pellucid)
+  11: 'flush', // Vantage  — Flush specialization, starts dormant (Wake Vantage)
+}
+/** Which specialized regions begin the run dormant (everything but Auralia). */
+export const SPECIALIZATION_START_DORMANT = [6, 11]
 
 export interface Law {
   id: string
@@ -125,6 +202,8 @@ export const MARKET_ITEMS: Law[] = [
   { id: 'fifth-counsel', title: 'Fifth Counsel', desc: 'Hand grows to 10 cards each epoch.', cost: 18, kind: 'cards', handSize: 1 },
   { id: 'wake-laguna', title: 'Wake Laguna', desc: 'Awaken the dormant coastal region — the planet visibly grows.', cost: 12, kind: 'expansion', wakeRegionId: 4 },
   { id: 'wake-brumal', title: 'Wake Brumal', desc: 'Awaken the dormant steppe region — the planet visibly grows.', cost: 12, kind: 'expansion', wakeRegionId: 9 },
+  { id: 'wake-pellucid', title: 'Wake Pellucid', desc: 'Awaken Pellucid — the planet visibly grows, and Two Pair hands gain +4 Growth there (grows with development).', cost: 12, kind: 'expansion', wakeRegionId: 6 },
+  { id: 'wake-vantage', title: 'Wake Vantage', desc: 'Awaken Vantage — the planet visibly grows, and Flush hands gain +6 Growth there (grows with development).', cost: 12, kind: 'expansion', wakeRegionId: 11 },
 ]
 
 export interface LogEntry { at: string; text: string }
@@ -189,10 +268,16 @@ export interface ResolutionPlan {
   /** the hand's multiplier (CATEGORY_MULT[category]) */
   mult: number
   /** HERO SCORE: the one big number this play resolves to (>= 0).
-   *  Growth = max(0, pokerBase × lawMult + lawFlat). */
+   *  Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus). */
   growth: number
-  /** ordered breakdown of `growth`: poker → laws (mult + flat). */
-  growthParts: { poker: number; laws: number }
+  /** ordered breakdown of `growth`: poker → laws (mult + flat) → regions.
+   *  The regional part is the sum over awake regions whose fixed
+   *  specialization equals the hand's EXACT category; it is added AFTER the
+   *  law multiplier (never re-multiplied). poker + laws + regions === growth. */
+  growthParts: { poker: number; laws: number; regions: number }
+  /** which specializations actually contributed, for the UI breakdown
+   *  (e.g. [{ spec: 'twopair', count: 1, bonus: 7 }]; empty when none) */
+  regionContribs: { spec: Specialization; count: number; bonus: number }[]
   effects: PlanEffect[]
   summary: string
   valid: boolean
@@ -266,11 +351,13 @@ export function buildPlan(
   selected: number[],
   laws: Law[],
   seeds: number = 0,
+  regions: Region[] = [],
 ): ResolutionPlan {
   const base: ResolutionPlan = {
     cards: [], category: 'high', categoryLabel: '—', categoryPoints: 0,
     suitCounts: { S: 0, H: 0, D: 0, C: 0 },
-    rankSum: 0, chips: 0, pokerBase: 0, mult: 1, growth: 0, growthParts: { poker: 0, laws: 0 },
+    rankSum: 0, chips: 0, pokerBase: 0, mult: 1, growth: 0,
+    growthParts: { poker: 0, laws: 0, regions: 0 }, regionContribs: [],
     effects: [], summary: '', valid: false, invalidReason: '',
   }
   if (selected.length < 1 || selected.length > 5) {
@@ -290,7 +377,7 @@ export function buildPlan(
   for (const c of cards) suitCounts[c.s]++
   const sum = cards.reduce((n, c) => n + c.r, 0)
 
-  // ---- HERO SCORE: Growth, in the fixed order poker → laws (mult → flat)
+  // ---- HERO SCORE: Growth, in the fixed order poker → laws (mult → flat) → regions
   // 1. poker base: rankSum ("chips", ALL selected ranks incl. kickers)
   //    × CATEGORY_MULT[category] (the hand mult)
   const mult = CATEGORY_MULT[res.category]
@@ -299,8 +386,24 @@ export function buildPlan(
   const lawMult = lawGrowthMult(laws)
   const lawFlat = lawGrowthFlat(laws)
   const lawBonus = Math.round(pokerBase * lawMult) + lawFlat - pokerBase
-  const growthParts = { poker: pokerBase, laws: lawBonus }
-  const growth = Math.max(0, Math.round(pokerBase * lawMult) + lawFlat)
+  // 3. REGIONS: sum the bonus of every AWAKE region whose fixed specialization
+  //    equals the hand's EXACT evaluated category (dormant → 0; additive
+  //    stacking across multiple matching regions; applied ONCE, AFTER the law
+  //    arithmetic — the law multiplier never re-multiplies this part).
+  const wantedSpec = specOfCategory(res.category)
+  let regionsBonus = 0
+  const regionContribs: ResolutionPlan['regionContribs'] = []
+  for (const r of regions) {
+    if (r.dormant || r.specialization === null || r.specialization !== wantedSpec) continue
+    const bonus = regionBonusOf(r)
+    if (bonus <= 0) continue
+    regionsBonus += bonus
+    const existing = regionContribs.find((c) => c.spec === r.specialization)
+    if (existing) { existing.count += 1; existing.bonus += bonus }
+    else regionContribs.push({ spec: r.specialization, count: 1, bonus })
+  }
+  const growthParts = { poker: pokerBase, laws: lawBonus, regions: regionsBonus }
+  const growth = Math.max(0, Math.round(pokerBase * lawMult) + lawFlat + regionsBonus)
 
   // AUTO-EARN SEEDS: hand quality pays instantly. 1 Seed per 4 Growth
   // (SEEDS_PER_GROWTH = 1/4). The nominal earn is credited under SEEDS_CAP by
@@ -319,9 +422,13 @@ export function buildPlan(
     { kind: 'seeds', amount: seedsGain, credited: credit.credited, overflow: credit.overflow },
   ]
   // Honest summary: rankSum × mult (the true chips×mult equation), then the
-  // already-multiplied base, then the TRUTHFUL Seed credit. e.g.
-  // "chips 30 x 4 mult = base 120. Gains 16 Seeds (Credited 6; overflow 10)."
-  const summary = `Banks ${growth} Growth (chips ${sum} x ${mult} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}). Gains ${seedsGain} Seeds${overflowClause}.`
+  // already-multiplied base, then the regional bonus when one applies, then the
+  // TRUTHFUL Seed credit. e.g.
+  // "chips 32 x 2 mult = base 64 +7 regions. Gains 18 Seeds (Credited 6; overflow 12)."
+  const regionClause = regionsBonus > 0
+    ? ` +${regionsBonus} region${regionContribs.length > 1 ? 's' : ''}`
+    : ''
+  const summary = `Banks ${growth} Growth (chips ${sum} x ${mult} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}${regionClause}). Gains ${seedsGain} Seeds${overflowClause}.`
 
   return {
     cards,
@@ -335,6 +442,7 @@ export function buildPlan(
     mult,
     growth,
     growthParts,
+    regionContribs,
     effects,
     summary,
     valid: true,
@@ -358,7 +466,7 @@ export function applyPlanEffects(s: GameState, plan: ResolutionPlan): void {
 }
 
 export function preview(s: GameState): ResolutionPlan {
-  return buildPlan(s.hand, s.selected, s.laws, s.seeds)
+  return buildPlan(s.hand, s.selected, s.laws, s.seeds, s.regions)
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +506,10 @@ function setupWorld(seed: Seed, seedText: string): GameState {
     development: 0,
     dormant: i >= START_REGIONS,
     adjacency: ADJACENCY[i],
+    // DETERMINISTIC specialization map (fixed data — see SPECIALIZATION_MAP):
+    // Auralia (0) = pair (awake — START_REGIONS covers id 0..3), Pellucid (6)
+    // and Vantage (11) start dormant and are awakenable via wake-* expansions.
+    specialization: SPECIALIZATION_MAP[i] ?? null,
   }))
   return {
     version: SAVE_VERSION,
@@ -427,7 +539,7 @@ function setupWorld(seed: Seed, seedText: string): GameState {
 function clone(s: GameState): GameState {
   return {
     ...s,
-    regions: s.regions.map((r) => ({ ...r, adjacency: [...r.adjacency] })),
+    regions: s.regions.map((r) => ({ ...r, adjacency: [...r.adjacency] })), // specialization copies by spread
     hand: [...s.hand],
     deckRest: [...s.deckRest],
     discardPile: [...s.discardPile],
@@ -489,7 +601,7 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'play': {
       if (s.phase !== 'select') throw new Error('not in select phase')
       if (s.playsLeft <= 0) throw new Error('no plays left this epoch')
-      const plan = buildPlan(s.hand, s.selected, s.laws, s.seeds)
+      const plan = buildPlan(s.hand, s.selected, s.laws, s.seeds, s.regions)
       if (!plan.valid) throw new Error(plan.invalidReason || 'invalid selection')
       // apply plan effects (shared pipeline — preview and commit agree by construction)
       applyPlanEffects(s, plan)
@@ -687,11 +799,15 @@ export function validateState(v: unknown): string | null {
   if ((s.laws.length as number) > LAW_SLOTS) return bad('laws', `exceeds the ${LAW_SLOTS}-slot cap`)
 
   // regions: ids, adjacency references and dormancy flags must be well-formed
+  // (+ the v4 specialization field: exactly null or a legal specialization key)
   for (const r of s.regions as unknown[]) {
     if (!r || typeof r !== 'object') return 'regions contains a malformed entry'
     const rr = r as any
     if (!Number.isInteger(rr.id) || rr.id < 0 || rr.id >= TOTAL_REGIONS) return 'a region has an invalid id'
     if (typeof rr.dormant !== 'boolean') return bad('regions', 'a region is missing its dormant flag')
+    if (rr.specialization !== null && !(typeof rr.specialization === 'string' && rr.specialization in SPECIALIZATION_BASE)) {
+      return bad('regions', `a region has an invalid specialization ${JSON.stringify(rr.specialization)} (expected null | 'pair' | 'twopair' | 'flush')`)
+    }
     if (!Array.isArray(rr.adjacency) || !rr.adjacency.every((a: unknown) => typeof a === 'number' && (a as number) >= 0 && (a as number) < TOTAL_REGIONS)) {
       return bad('regions', 'a region has malformed adjacency')
     }

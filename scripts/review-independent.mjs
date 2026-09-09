@@ -72,7 +72,7 @@ ok('straight-flush mult 8 wired', seenMults.has('straight-flush:8'))
 
 // ---- D. save envelope contents (what save.ts would receive)
 const fresh = newGame('save-shape-review')
-ok('fresh state carries version 3 + lives', fresh.version === 3 && fresh.lives === 3)
+ok('fresh state carries version 4 + lives (v4 = regional-bonus rules generation)', fresh.version === 4 && fresh.lives === 3)
 
 console.log(JSON.stringify({ results }, null, 2))
 const failed = results.filter(r => !r.pass)

@@ -29,8 +29,34 @@ Every play resolves to ONE number, **Growth**, computed in one shared pipeline (
 
 1. **poker** = `round(rankSum × CATEGORY_MULT[category])` — high ×1, pair ×1.5, two-pair ×2, trips ×2.5, straight ×3, flush ×4, full-house ×5, quads ×6, straight-flush ×8.
 2. **World Laws** = × owned `growthMult` (floored at 1; Open Canals ×1.2), then + owned `growthFlat` (Canopy Choir +3, Stone Masonry +6).
+3. **Regions** = the sum of the regional bonuses of every **awake** region whose fixed `specialization` equals the played hand's **exact evaluated category** (dormant regions contribute **0**).
 
-`Growth = max(0, round(pokerBase × lawMult) + lawFlat)` — floored at 0, never negative. The breakdown is displayed in that order (`+15 poker · +2 laws`) under the big Growth readout. **Flourishing — the single epoch target — is the cumulative sum of banked Growth.** The preview and the commit both call the same `buildPlan`, so the number you see is always the number you bank. Region development and stability are **never** part of the score.
+`Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)` — floored at 0, never negative. The breakdown is displayed in that order (`+15 poker · +2 laws · +7 regions`) under the big Growth readout. **Flourishing — the single epoch target — is the cumulative sum of banked Growth.** The preview and the commit both call the same `buildPlan`, so the number you see is always the number you bank.
+
+### Regional bonus (v4 — the planet's poker specialization)
+
+Each of **three** regions carries ONE fixed `specialization` — an exact evaluated poker category — mapped deterministically in the region data (same seed → same mapping, terrain identity untouched, never rerolled):
+
+| Region | Terrain | Specialization | Starts | Base bonus |
+|---|---|---|---|---|
+| **Auralia** (id 0) | meadow | **Pair** | **awake** | +3 |
+| **Pellucid** (id 6) | meadow | **Two Pair** | dormant | +4 |
+| **Vantage** (id 11) | wetland | **Flush** | dormant | +6 |
+
+The other nine regions have no specialization. Exact matching only: a Pair-specialized region pays on an exact **Pair** — **not** on trips, two pair, or any other hand that merely contains a pair. The specialization never changes the cards' category.
+
+**Formula** (constants declared in code as exported consts, pinned by tests):
+
+```
+regionBonus = BASE + min(DEV_BONUS_CAP, floor(development / DEV_STEP))
+PAIR_BASE = 3 · TWOPAIR_BASE = 4 · FLUSH_BASE = 6 · DEV_STEP = 2 · DEV_BONUS_CAP = 4
+```
+
+A **Pair** region with development 4 therefore grants 3 + 2 = **5**. The development share caps at **+4** (floor(10/2) = 5 → min(4, 5) = 4), so a maxed Pair region pays 7, a maxed Two-Pair region 8, a maxed Flush region 10. **Dormant specialized regions contribute exactly 0.**
+
+**Stacking & order**: bonuses stack **additively** across all awake regions whose specialization matches the played category (two awake Pair regions add; never a multiplicative chain). The regional total is applied **once**, AFTER the existing law-adjusted Growth — the law multiplier never re-multiplies the regional bonus: `Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)`. A hand earning a regional bonus also earns its Seeds off the full number (`ceil(Growth / 4)` nominal, credited truthfully under the 30-Seed cap).
+
+**How the two dormant specializations become obtainable**: the existing wake-* expansions — **Wake Pellucid (12 Seeds)** and **Wake Vantage (12 Seeds)**, matching the existing Wake Laguna / Wake Brumal 12-Seed convention — awaken their advertised region and activate its bonus; the market offers state which poker category benefits, the current bonus, and how development scales it. No new interface, no new economy.
 
 ### How to read "chips × mult" (honest labeling)
 
@@ -77,7 +103,7 @@ overflow       = nominal − credited                 (the part the cap refused)
 - Up to 3 offers per epoch from the item pool, bought with Seeds. **Max 5 owned items**; buying is blocked at the cap until you explicitly remove an item (no refund, frees the slot). Owned items never reappear. Seeds cap at 30.
 - **Hand upgrades**: Canopy Choir (+3 Growth every play), Stone Masonry (+6 Growth every play), Open Canals (Growth ×1.2 every play). Bonuses apply exactly once per play.
 - **Card additions**: Fourth Counsel (hand 9), Fifth Counsel (hand 10) — new unique ids; deck conservation still holds at 52.
-- **Expansions**: Wake Laguna / Wake Brumal — awaken a specific dormant region; the planet visibly grows.
+- **Expansions**: Wake Laguna / Wake Brumal — awaken a specific dormant region; the planet visibly grows. **Wake Pellucid / Wake Vantage (12 Seeds each, same convention)** — awaken the Two-Pair / Flush-specialized region and activate its regional Growth bonus (see *Regional bonus* above).
 - **Laws**: Mycorrhiza Network (decay 1 → 0: living regions stop decaying each epoch — this also protects their Seed-income contribution, since income counts only regions with stability > 0), Seed Vaults (+3 Seeds/epoch), Barter Routes (market −2).
 - All former per-suit items (Deep Taproots, Rich Soil, Communal Tending) are removed with their actions.
 
@@ -85,7 +111,7 @@ overflow       = nominal − credited                 (the part the cap refused)
 
 **Auto-save**: the game persists the state to localStorage after every committed state-changing action (play, discard, buy, remove, end-market, epoch close — and selection changes), so quitting or reloading never loses progress. Rewards are applied exactly once inside the engine's commit; saving the resulting state cannot double-apply them.
 
-**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 3`, the Balatro-simple engine; separate `SCHEMA_VERSION = 3` for envelope layout). On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
+**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 4`, the regional-bonus engine; separate `SCHEMA_VERSION = 3` for envelope layout). On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation, an invalid region `specialization` (must be `null | 'pair' | 'twopair' | 'flush'`) — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
 
 ## Balance (bounded solver result — NOT a human win-rate estimate)
 
@@ -103,9 +129,11 @@ The shipped [45, 110, 360] measures on the eval-* set (calibration set in parent
 
 | Policy | Result (bounded solver) |
 |---|---|
-| LOOK=30 (bounded reference) | **16/30 (53%)** (20/30, 67% calib) |
+| LOOK=30 (bounded reference) | **16/30 (53%)** (20/30, 67% calib) — pre-v4 baseline |
 | LOOK=12 (very bounded) | 0/30 (0%) (1/30, 3% calib) |
 | Exhaustive (oracle) | 30/30 (100%) both sets |
+
+**Post-v4 re-measure (regional bonus shipped; policy and targets untouched)**: LOOK=30 now measures **20/30 (67%) eval / 21/30 (70%) calib**, exhaustive still 30/30. The always-awake Auralia Pair specialization adds a small flat bonus to pair plays, which the bounded policy's pair-heavy candidates convert into wins; the formula was NOT retuned after shipping (constants stayed at the declared PAIR_BASE=3 / TWOPAIR_BASE=4 / FLUSH_BASE=6 / DEV_STEP=2 / DEV_BONUS_CAP=4), targets stayed [45,110,360], and the solver's buy policy was not touched. Reported as measured — not band-forced.
 
 **Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The **[45,110,360] targets are the authorized ladder** from the preceding cycle, restored per the goal (this cycle was for correctness fixes, not another balance redesign). The corrected policy measures a high bounded win rate against them — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
 
@@ -120,9 +148,11 @@ Same seed phrase → identical world, shuffles, deals, and chronicle. All random
 - **No emojis anywhere in the rendered UI** — labels are plain text; suit symbols are typographic glyphs. `scripts/check-no-emoji.py` audits the rendered-UI sources.
 - **Animations are skippable**: under `prefers-reduced-motion` the globe's auto-rotation and icon bobbing stop (state changes apply instantly) and CSS transitions are globally disabled.
 
-## The 3D planet (presentation only)
+## The 3D planet (the world you can read)
 
 The globe is the world hero: 12 terrain patches, evolution icons (groves, farms, workshops, settlements, observatories) that appear and grow with each region's **development**, dormant regions dim and desaturated. **The globe visibly grows**: its scale blends the awakened fraction (50%) and total development (50%) of the planet. Every living region gains +1 development per epoch. Hover highlights, click selects (raycast), a keyboard-accessible legend reaches every region, and the inspector shows exact values.
+
+**Specializations are legible everywhere**: the region legend shows each specialized region's poker-category badge ("Pair" / "Two Pair" / "Flush", dimmed while dormant), the globe tooltip/inspector (`map-detail`) states which category benefits, the CURRENT bonus, how development changes it (`+1 per 2 development, cap +4`), and whether the region is dormant (contributes 0) or active. On the market, Wake Pellucid / Wake Vantage offers carry a poker-bonus note (category, base bonus, development scaling, dormant/awake state). **When a previewed hand's exact category matches an awake specialization, the matching regions get pulsing gold rings on the globe, a gold "Regional bonus active" banner names them with their current bonus, and a globe tooltip repeats the bonus — all visible without any extra click before playing.**
 
 ## Saving
 

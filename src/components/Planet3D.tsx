@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
-import type { Region } from '../engine/worldhand'
-import { STABILITY_MAX } from '../engine/worldhand'
+import type { Region, Specialization } from '../engine/worldhand'
+import { STABILITY_MAX, SPECIALIZATION_LABEL, regionBonusOf } from '../engine/worldhand'
 
 /* =========================================================================
    Planet3D — a living 3D globe (three.js) that replaces the SVG planet disc
    as the primary world view. The world is simulated presentationally only:
    every value shown comes from the pure engine state (Region[]); no engine
    mechanics were added or changed.
+   Regional-bonus visibility: when a previewed hand's EXACT category matches
+   an awake region's specialization, that region gets a pulsing gold ring +
+   emissive glow + a text tooltip — identifiable WITHOUT any extra click.
    ========================================================================= */
 
 /** Terrain → patch colour (mirrors the documented terrain palette). */
@@ -163,17 +166,27 @@ export interface Planet3DProps {
   regions: Region[]
   focus: number | null
   onFocus: (id: number) => void
+  /** the previewed hand's exact specialization (null = no match possible) */
+  previewSpec: Specialization | null
+  /** ids of AWAKE regions whose specialization matches the previewed hand */
+  matchingIds: number[]
+  /** true while a live selection preview is shown (select phase) */
+  previewActive: boolean
 }
 
-export default function Planet3D({ regions, focus, onFocus }: Planet3DProps) {
+export default function Planet3D({ regions, focus, onFocus, previewSpec, matchingIds, previewActive }: Planet3DProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const focusRef = useRef(focus)
   const regionsRef = useRef(regions)
   const onFocusRef = useRef(onFocus)
+  const matchingIdsRef = useRef(matchingIds)
+  const previewActiveRef = useRef(previewActive)
   useEffect(() => { focusRef.current = focus }, [focus])
   useEffect(() => { regionsRef.current = regions }, [regions])
   useEffect(() => { onFocusRef.current = onFocus }, [onFocus])
+  useEffect(() => { matchingIdsRef.current = matchingIds }, [matchingIds])
+  useEffect(() => { previewActiveRef.current = previewActive }, [previewActive])
 
   const reduced = useMemo(
     () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -368,6 +381,29 @@ export default function Planet3D({ regions, focus, onFocus }: Planet3DProps) {
       })
     })
 
+    // ---------- regional-bonus match rings: a pulsing gold halo per AWAKE
+    // region whose specialization matches the previewed hand (visible WITHOUT
+    // any click — driven from the shared preview pipeline via props). Each
+    // ring is a thin sphere CAP oriented over its patch, like the terrain cap. ----------
+    interface MatchRing { id: number; ring: THREE.Mesh; mat: THREE.MeshBasicMaterial }
+    const matchRings: MatchRing[] = []
+    regions.forEach((region) => {
+      if (!region.specialization) return
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false })
+      const ringGeo = new THREE.SphereGeometry(R * 1.055, 32, 8, 0, Math.PI * 2, 0, Math.PI / 3)
+      const ring = new THREE.Mesh(ringGeo, mat)
+      const { lat, lon } = patchLatLon(region.id)
+      const upV = new THREE.Vector3(
+        Math.cos(lat * DEG) * Math.sin(lon * DEG),
+        Math.sin(lat * DEG),
+        Math.cos(lat * DEG) * Math.cos(lon * DEG),
+      ).normalize()
+      ring.quaternion.setFromUnitVectors(Y_AXIS, upV)
+      world.add(ring)
+      matchRings.push({ id: region.id, ring, mat })
+      disposables.push(ringGeo, mat)
+    })
+
     // ---------- adjacency links: faint web + bright focus neighbours ----------
     const linkPoint = (id: number) => {
       const { lat, lon } = patchLatLon(id)
@@ -477,10 +513,17 @@ export default function Planet3D({ regions, focus, onFocus }: Planet3DProps) {
     const evolve = (dt: number) => {
       const rs = regionsRef.current
       const fid = focusRef.current
+      const matches = previewActiveRef.current ? new Set(matchingIdsRef.current) : new Set<number>()
       const k = reducedRef.current ? 1 : Math.min(1, dt * 3.2) // instant under reduced motion
       applyPlanetGrowth(rs)
       const sk = reducedRef.current ? 1 : Math.min(1, dt * 2.2)
       planetScaleGroup.scale.setScalar(lerp(planetScaleGroup.scale.x, targetScale.current, sk))
+      // match rings: pulse up when this region boosts the previewed hand
+      for (const mr of matchRings) {
+        const active = matches.has(mr.id)
+        const pulse = reducedRef.current ? 0.5 : 0.5 + 0.35 * Math.sin(t * 4.0)
+        mr.mat.opacity = lerp(mr.mat.opacity, active ? Math.max(0.35, pulse) : 0, k)
+      }
       for (const p of patches) {
         const region = rs[p.id]
         if (!region) continue
@@ -540,6 +583,11 @@ export default function Planet3D({ regions, focus, onFocus }: Planet3DProps) {
     }
   }, [])
 
+  // which regions currently match the preview (for the always-visible tooltip)
+  const matching = previewActive && previewSpec
+    ? regions.filter((r) => !r.dormant && r.specialization === previewSpec)
+    : []
+
   return (
     <div className="planet3d-wrap" ref={wrapRef}>
       <canvas
@@ -550,6 +598,13 @@ export default function Planet3D({ regions, focus, onFocus }: Planet3DProps) {
         aria-label="3D planet globe — arrow keys walk the 12 regions, Enter selects; Tab to the region legend for direct access"
         data-testid="planet3d-canvas"
       />
+      {matching.length > 0 && (
+        <div className="globe-spec-tooltip" data-testid="globe-spec-tooltip" role="status">
+          {matching.map((r) =>
+            `${r.name}: ${SPECIALIZATION_LABEL[r.specialization as Specialization]} +${regionBonusOf(r)} Growth`
+          ).join(' · ')} — gold rings mark the matching regions
+        </div>
+      )}
     </div>
   )
 }

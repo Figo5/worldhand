@@ -223,6 +223,68 @@ button.danger:hover:not(:disabled) { background: #3d1a1a; }
 
 .map-detail { margin-top: 8px; font-size: 0.84rem; border-top: 1px solid var(--edge); padding-top: 8px; }
 .map-detail .muted { display: block; margin-top: 2px; }
+.map-detail-spec {
+  margin-top: 5px;
+  font-size: 0.78rem;
+  color: var(--accent);
+  background: #101a30cc;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  padding: 5px 8px;
+}
+
+/* ---------- regional specialization UI (region legend + preview match) ---------- */
+.spec-badge {
+  margin-left: auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+  background: #2a2413;
+  border: 1px solid #6b5a20;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.spec-badge-dormant { color: var(--muted); border-color: #2a3450; background: #131b2e; }
+.region-btn.spec-match {
+  border-color: var(--gold);
+  outline: 2px solid var(--gold);
+  outline-offset: 0;
+  color: var(--text);
+  background: #241f0e;
+}
+.spec-glow {
+  width: 8px; height: 8px; border-radius: 999px;
+  background: var(--gold);
+  box-shadow: 0 0 8px rgba(244, 193, 79, 0.9);
+  margin-left: 4px;
+}
+.region-match-banner {
+  font-size: 0.78rem;
+  color: var(--gold);
+  background: #241f0ecc;
+  border: 1px solid #6b5a20;
+  border-radius: 8px;
+  padding: 5px 9px;
+  margin-bottom: 8px;
+}
+.region-match-banner.muted-banner { color: var(--muted); background: #131b2ecc; border-color: #2a3450; }
+.market-spec-note { color: var(--gold); font-weight: 600; }
+.globe-spec-tooltip {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  max-width: calc(100% - 16px);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--gold);
+  background: #0b1220ee;
+  border: 1px solid #6b5a20;
+  border-radius: 7px;
+  padding: 4px 8px;
+  pointer-events: none;
+  z-index: 2;
+}
 
 /* ---------- HERO: the one big Growth number over the hand ---------- */
 .growth-hero {

@@ -665,10 +665,10 @@ describe('capped world stats', () => {
 })
 
 describe('versioned save envelope + structural validation', () => {
-  it('v3 state round-trips through JSON', () => {
+  it('v4 state round-trips through JSON (v4 = regional-bonus rules generation)', () => {
     const s = newGame('roundtrip')
     const j = JSON.parse(JSON.stringify(s))
-    expect(j.version).toBe(3)
+    expect(j.version).toBe(4)
     expect(j.hand).toHaveLength(8)
     expect(j.regions).toHaveLength(12)
     const back = JSON.parse(JSON.stringify(j)) as GameState
@@ -678,7 +678,7 @@ describe('versioned save envelope + structural validation', () => {
     const mod = await import('../src/ui/save')
     expect(typeof mod.saveGame).toBe('function')
     expect(typeof mod.loadGame).toBe('function')
-    expect(mod.CURRENT_VERSION).toBe(3)
+    expect(mod.CURRENT_VERSION).toBe(4) // v4 = regional-bonus rules generation
     expect(mod.SCHEMA_VERSION_CURRENT).toBe(3)
   })
 })
@@ -688,9 +688,9 @@ describe('save versioning + structural validation (legacy preserved, never reint
   // through the exported validateState + the envelope's version fields.
   const fresh = () => JSON.parse(JSON.stringify(newGame('validator'))) as any
 
-  it('CURRENT_VERSION is 3 (Balatro-simple rules generation) and SCHEMA_VERSION is 3', async () => {
+  it('CURRENT_VERSION is 4 (regional-bonus rules generation) and SCHEMA_VERSION is 3', async () => {
     const w = await import('../src/engine/worldhand')
-    expect(w.SAVE_VERSION).toBe(3)
+    expect(w.SAVE_VERSION).toBe(4)
     expect(w.SCHEMA_VERSION).toBe(3)
   })
 
@@ -813,9 +813,9 @@ describe('save versioning + structural validation (legacy preserved, never reint
       expect(store.get('worldhand.save')).toBe(legacyV2)
       expect(mod.listLegacySaves().some((l) => l.key === res.legacyKey)).toBe(true)
 
-      // structurally corrupt v3 state (missing lives): same preserve+reject path
+      // structurally corrupt v4 state (missing lives): same preserve+reject path
       const corruptState = fresh(); delete corruptState.lives
-      const env3 = JSON.stringify({ schema: 3, version: 3, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
+      const env3 = JSON.stringify({ schema: 3, version: 4, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
       store.set('worldhand.save', env3)
       const res2 = mod.loadGameDetailed()
       expect(res2.state).toBeNull()
@@ -823,8 +823,8 @@ describe('save versioning + structural validation (legacy preserved, never reint
       expect(store.get(res2.legacyKey!)).toBe(env3)
       expect(store.get('worldhand.save')).toBe(env3)
 
-      // a valid v3 save still loads
-      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 3, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
+      // a valid v4 save still loads
+      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 4, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
       const res3 = mod.loadGameDetailed()
       expect(res3.state).not.toBeNull()
       expect(res3.rejectedReason).toBeNull()

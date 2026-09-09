@@ -3,7 +3,9 @@ import {
   newGame, applyAction, preview,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_EPOCHS, TOTAL_REGIONS,
   STABILITY_MAX, SEEDS_CAP, EPOCH_TARGETS, SURVIVAL_START, LAW_SLOTS,
-  type Action, type GameState, type Region, type Law,
+  SPECIALIZATION_LABEL, SPECIALIZATION_BASE, DEV_STEP, DEV_BONUS_CAP,
+  specOfCategory, regionBonusOf,
+  type Action, type GameState, type Region, type Law, type Specialization,
 } from './engine/worldhand'
 import { cardName, SUIT_NAMES } from './engine/poker'
 import type { Suit } from './engine/poker'
@@ -14,6 +16,31 @@ const SUIT_GLYPH: Record<Suit, string> = { S: '♠', H: '♥', D: '♦', C: '♣
 
 /** Growth breakdown part formatting: +n for gains, plain n for 0/penalties. */
 const fmtPart = (n: number) => (n > 0 ? `+${n}` : `${n}`)
+
+/** The full region-inspector sentence for a specialized region: which poker
+ *  category benefits, the CURRENT bonus, how development changes it, and
+ *  whether the region is dormant (pays 0) or active. */
+function specializationSentence(r: Region): string {
+  if (!r.specialization) return ''
+  const label = SPECIALIZATION_LABEL[r.specialization]
+  const base = SPECIALIZATION_BASE[r.specialization]
+  if (r.dormant) {
+    return `Poker specialization: ${label} — dormant: contributes 0. When awake: +${base} Growth on exact ${label} hands, +1 per ${DEV_STEP} development up to +${DEV_BONUS_CAP}.`
+  }
+  const devShare = Math.min(DEV_BONUS_CAP, Math.floor(Math.max(0, r.development) / DEV_STEP))
+  return `Poker specialization: ${label} — active: +${regionBonusOf(r)} Growth on exact ${label} hands (base +${base} + development ${r.development} → +${devShare} of the +${DEV_BONUS_CAP} cap; +1 per ${DEV_STEP} development).`
+}
+
+/** The market-offer note for a wake-* expansion whose target region carries a
+ *  specialization: what poker category the purchase will boost, at what base
+ *  bonus, and how development scales it. */
+function wakeOfferNote(m: Law, regions: Region[]): string | null {
+  if (m.kind !== 'expansion' || m.wakeRegionId === undefined) return null
+  const r = regions[m.wakeRegionId]
+  if (!r || !r.specialization) return null
+  const label = SPECIALIZATION_LABEL[r.specialization]
+  return `Poker bonus when awake: +${SPECIALIZATION_BASE[r.specialization]} Growth on exact ${label} hands, +1 per ${DEV_STEP} development (cap +${DEV_BONUS_CAP}); currently ${r.dormant ? 'dormant' : 'awake'}.`
+}
 
 const KIND_LABEL: Record<Law['kind'], string> = {
   law: 'Law', upgrade: 'Upgrade', expansion: 'Expansion', cards: 'Cards',
@@ -85,6 +112,25 @@ export default function App() {
   const plan = useMemo(
     () => (state && state.phase === 'select' ? previewOf(state) : null),
     [state],
+  )
+
+  // GLOBE-VISIBLE ON PREVIEW: which AWAKE regions match the previewed hand's
+  // exact category right now (drives the legend highlight, the globe glow and
+  // the banner). Empty for high card / non-specialized categories.
+  const matchingRegions = useMemo(
+    () => (plan?.valid && state && plan.growthParts.regions > 0
+      ? state.regions.filter((r) => !r.dormant && r.specialization !== null && r.specialization === specOfCategory(plan.category))
+      : []),
+    [plan, state],
+  )
+  const previewSpec = plan?.valid ? specOfCategory(plan.category) : null
+  // a dormant specialization region whose spec MATCHES the previewed category
+  // (wake targets — worth telling the player about even while it pays 0)
+  const dormantMatching = useMemo(
+    () => (previewSpec && state
+      ? state.regions.filter((r) => r.dormant && r.specialization === previewSpec)
+      : []),
+    [previewSpec, state],
   )
 
   if (!state) {
@@ -243,10 +289,12 @@ export default function App() {
             {state.market.map((m) => {
               const discount = state.laws.reduce((n, l) => n + (l.marketDiscount ?? 0), 0)
               const cost = Math.max(1, m.cost - discount)
+              const specNote = wakeOfferNote(m, state.regions)
               return (
                 <button key={m.id} className="market-btn" disabled={state.seeds < cost || state.laws.length >= LAW_SLOTS} onClick={() => act({ type: 'buy', itemId: m.id })}>
                   <strong>{m.title} — {cost} Seeds</strong>
                   <span>{m.desc}</span>
+                  {specNote && <span className="market-spec-note">{specNote}</span>}
                   <span className="market-kind">{KIND_LABEL[m.kind] ?? m.kind}</span>
                 </button>
               )
@@ -295,6 +343,9 @@ export default function App() {
               regions={state.regions}
               focus={mapFocus}
               onFocus={setMapFocus}
+              previewSpec={previewSpec}
+              matchingIds={matchingRegions.map((r) => r.id)}
+              previewActive={!!plan?.valid && state.phase === 'select'}
             />
             <div className="side">
               {plan && plan.valid && (
@@ -325,8 +376,8 @@ export default function App() {
                     <span className="growth-hero-chips" title="chips = rank sum of ALL selected cards (kickers included); base = round(chips × mult) — shown as the full honest equation">
                       {plan.chips} chips × {plan.mult} mult = {plan.pokerBase} base
                     </span>
-                    <span className="growth-hero-breakdown" title="ordered breakdown: poker → laws">
-                      {fmtPart(plan.growthParts.poker)} poker · {fmtPart(plan.growthParts.laws)} laws
+                    <span className="growth-hero-breakdown" title="ordered breakdown: poker → laws → regions (regional bonuses are added once, after laws)">
+                      {fmtPart(plan.growthParts.poker)} poker · {fmtPart(plan.growthParts.laws)} laws · {fmtPart(plan.growthParts.regions)} regions
                     </span>
                   </div>
                 ) : (
@@ -334,6 +385,16 @@ export default function App() {
                     <span className="growth-hero-label">Growth</span>
                     <span className="growth-hero-num">—</span>
                     <span className="growth-hero-breakdown">select 1–5 cards to bank Growth toward {target.need}</span>
+                  </div>
+                )}
+                {plan?.valid && plan.growthParts.regions > 0 && (
+                  <div className="region-match-banner" data-testid="region-match-banner" role="status">
+                    Regional bonus active: {matchingRegions.map((r) => `${r.name} (${SPECIALIZATION_LABEL[r.specialization as Specialization]}) +${regionBonusOf(r)}`).join(', ')} — highlighted on the globe.
+                  </div>
+                )}
+                {plan?.valid && plan.growthParts.regions === 0 && dormantMatching.length > 0 && (
+                  <div className="region-match-banner muted-banner" data-testid="region-dormant-note" role="status">
+                    {dormantMatching.map((r) => r.name).join(', ')} would boost this hand if awakened (Wake {dormantMatching.map((r) => r.name).join(' / Wake ')} in the market; dormant regions contribute 0).
                   </div>
                 )}
                 <div className="hand-cards" role="listbox" aria-label="Hand" onKeyDown={handleHandKeys}>
@@ -402,13 +463,18 @@ function previewOf(s: GameState) {
 }
 
 /** The planet panel: 3D globe (primary) + accessible region legend + map-detail.
- *  The legend makes every region selectable without rotating the globe. */
+ *  The legend makes every region selectable without rotating the globe, and
+ *  now carries each region's poker specialization (badge + bonus) plus the
+ *  preview-match highlight (which regions boost the current selection). */
 function PlanetPanel({
-  regions, focus, onFocus,
+  regions, focus, onFocus, previewSpec = null, matchingIds = [], previewActive = false,
 }: {
   regions: Region[]
   focus: number | null
   onFocus: (id: number) => void
+  previewSpec: Specialization | null
+  matchingIds: number[]
+  previewActive: boolean
 }) {
   const focused = focus !== null ? regions[focus] : null
   const living = regions.filter((r) => !r.dormant)
@@ -417,7 +483,7 @@ function PlanetPanel({
   return (
     <section className="panel planet" aria-label="Planet map">
       <h2>Planet — 12 regions</h2>
-      <Planet3D regions={regions} focus={focus} onFocus={onFocus} />
+      <Planet3D regions={regions} focus={focus} onFocus={onFocus} previewSpec={previewSpec} matchingIds={matchingIds} previewActive={previewActive} />
       <p className="planet-growth" data-testid="planet-growth" aria-label="Planet growth — driven by living regions and their development">
         <span className="pg-frac">{totalDev}/{devPotential}</span>
         <span>development across {living.length} living regions — the planet grows with it</span>
@@ -425,19 +491,25 @@ function PlanetPanel({
       <div className="region-legend" data-testid="region-legend" role="group" aria-label="All 12 regions — select one to inspect it on the globe">
         {regions.map((r) => {
           const isFocus = focus === r.id
+          const specLabel = r.specialization ? SPECIALIZATION_LABEL[r.specialization] : null
+          const isMatch = previewActive && matchingIds.includes(r.id)
           return (
             <button
               key={r.id}
-              className={`region-btn ${isFocus ? 'sel' : ''} ${r.dormant ? 'dormant' : ''}`}
+              className={`region-btn ${isFocus ? 'sel' : ''} ${r.dormant ? 'dormant' : ''} ${isMatch ? 'spec-match' : ''}`}
               aria-pressed={isFocus}
-              aria-label={`${r.name}, ${r.terrain}, ${r.dormant ? 'dormant' : `stability ${r.stability} of ${STABILITY_MAX}, development ${r.development}`}. Press to inspect; adjacency ${r.adjacency.map((a) => regions[a].name).join(', ')}.`}
-              title={`${r.name} — ${TERRAIN_LABELS[r.terrain] ?? r.terrain}${r.dormant ? ' (dormant)' : `, stability ${r.stability}/${STABILITY_MAX}, development ${r.development}`}`}
+              aria-label={`${r.name}, ${r.terrain}, ${r.dormant ? 'dormant' : `stability ${r.stability} of ${STABILITY_MAX}, development ${r.development}`}${specLabel ? `, ${specLabel} specialization: ${r.dormant ? 'dormant, contributes 0' : `+${regionBonusOf(r)} Growth on exact ${specLabel} hands`}` : ''}. Press to inspect; adjacency ${r.adjacency.map((a) => regions[a].name).join(', ')}.`}
+              title={specLabel
+                ? `${r.name} — ${TERRAIN_LABELS[r.terrain] ?? r.terrain}${r.dormant ? ' (dormant)' : ''} · ${specLabel} specialization · ${r.dormant ? 'dormant: contributes 0' : `active: +${regionBonusOf(r)} on exact ${specLabel} hands (development ${r.development}; +1 per ${DEV_STEP} up to +${DEV_BONUS_CAP})`}`
+                : `${r.name} — ${TERRAIN_LABELS[r.terrain] ?? r.terrain}${r.dormant ? ' (dormant)' : `, stability ${r.stability}/${STABILITY_MAX}, development ${r.development}`}`}
               onClick={() => onFocus(r.id)}
             >
               <i className={`sw sw-${r.terrain}`} aria-hidden="true" />
               <span className="region-btn-name">{r.name}</span>
+              {specLabel && <span className={`spec-badge ${r.dormant ? 'spec-badge-dormant' : ''}`} title={specializationSentence(r)}>{specLabel}</span>}
+              {isMatch && <span className="spec-glow" aria-hidden="true" title="this region boosts the previewed hand" />}
               {isFocus && <span className="region-check" aria-hidden="true">✓</span>}
-              {r.dormant && <span className="z" aria-hidden="true">z</span>}
+              {r.dormant && !isMatch && <span className="z" aria-hidden="true">z</span>}
             </button>
           )
         })}
@@ -457,6 +529,9 @@ function PlanetPanel({
           {focused.dormant
             ? ' · dormant'
             : ` · stability ${focused.stability}/${STABILITY_MAX} · development ${focused.development}`}
+          {focused.specialization && (
+            <div className="map-detail-spec" data-testid="map-detail-spec">{specializationSentence(focused)}</div>
+          )}
           <div className="muted">neighbors: {focused.adjacency.map((a) => regions[a].name).join(', ')}</div>
         </div>
       )}

@@ -44,7 +44,7 @@ const creditState = (() => {
   s.deckRest.push(...displaced) // conservation stays exactly 52
   return s
 })()
-const envelope = (state) => JSON.stringify({ schema: 3, version: 3, savedAt: '2026-09-09T00:00:00.000Z', state })
+const envelope = (state) => JSON.stringify({ schema: 3, version: 4, savedAt: '2026-09-09T00:00:00.000Z', state })
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })

@@ -1,5 +1,17 @@
 # Worldhand — Playtest Handoff (Balatro-simple edition, three-epoch slice)
 
+## Status: REGIONAL-BONUS PASS v4 (the planet influences poker choices — small, exact, declared)
+
+This pass adds a SMALL regional-bonus system without redesigning the game: three of the 12 regions carry ONE fixed poker `specialization` (Pair / Two Pair / Flush — exact evaluated category), and an awake matching region adds a flat Growth bonus after the law arithmetic: `regionBonus = BASE + min(4, floor(development / 2))` with **PAIR_BASE=3, TWOPAIR_BASE=4, FLUSH_BASE=6, DEV_STEP=2, DEV_BONUS_CAP=4** (a Pair region at development 4 grants 3+2=5). **Auralia (Pair) starts awake; Pellucid (Two Pair) and Vantage (Flush) start dormant** and become obtainable through the existing expansion shop (**Wake Pellucid / Wake Vantage, 12 Seeds each** — the existing wake-* convention; no new interface or economy; the solver's buy-priority policy is untouched). Stacking is additive across all awake matching regions, applied exactly once, and never re-multiplied by Open Canals. `buildPlan` now takes the regions and carries ordered parts `{ poker, laws, regions }` whose sum IS the committed Growth; preview == commit holds across the pipeline; dormant regions contribute 0; the truthful capped-Seed messaging and the final-epoch flow are unchanged. **SAVE_VERSION is now 4** (SCHEMA_VERSION stays 3): a v3 save is REJECTED and preserved verbatim under `worldhand.save.legacy.<ts>` — never reinterpreted. Tests were written FIRST (`tests/regional-bonus.test.ts` — 31 tests, red before green: 28 failed on the pre-implementation engine).
+
+## The regional-bonus pass (what changed, exactly)
+
+- **Region.specialization + declared constants**: `specialization: null | 'pair' | 'twopair' | 'flush'` on every region; exported consts `PAIR_BASE=3, TWOPAIR_BASE=4, FLUSH_BASE=6, DEV_STEP=2, DEV_BONUS_CAP=4`; `regionBonusOf(region)` implements `base + min(CAP, floor(dev/STEP))` (dev floored at 0). `specOfCategory(category)` is the single normalization point (`two-pair` → `twopair`; exact matching — trips/quads/etc. map to null). The mapping lives in `SPECIALIZATION_MAP` (0→pair, 6→twopair, 11→flush) — fixed data, never rerolled.
+- **Shared scoring contract**: `buildPlan(hand, selected, laws, seeds, regions)` computes `Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)` and carries `growthParts: { poker, laws, regions }` + `regionContribs` (which specializations paid). The plan summary appends `+N region(s)` after the laws clause when a bonus applies; the preview breakdown shows `+poker poker · +laws laws · +regions regions` and reconciles EXACTLY to the committed total (pinned by a sweep test).
+- **No double application**: the law multiplier applies to `pokerBase` only; the regional bonus is added after it and never re-multiplied (pinned: pair 96 → canals 115 + 3 region = 118, not round((96+3)×1.2)=119).
+- **UI legibility**: region-legend buttons carry a specialization badge (Pair/Two Pair/Flush, dimmed when dormant) + hover tooltip; the `map-detail` inspector states the full sentence (category, current bonus, development scaling, dormant/active); Wake Pellucid / Wake Vantage offers carry a "Poker bonus when awake: …" note with the dormant/awake state; the globe shows **pulsing gold rings on the matching regions + a tooltip** whenever a previewed hand's exact category matches an awake specialization — no extra click needed; a gold banner names the regions and their bonus (and a muted note names dormant regions that WOULD boost the hand if awakened).
+- **Save compatibility**: `SAVE_VERSION = 4`; `validateState` additionally rejects any region whose `specialization` is not `null | 'pair' | 'twopair' | 'flush'`. A v3 save loads to the "fresh run needed" panel with the raw blob preserved byte-for-byte under `worldhand.save.legacy.<ts>` (browser-proven). SCHEMA_VERSION stays 3 (layout unchanged).
+
 ## Status: PLAYTEST-DEFECT FIX PASS v4 (Mycorrhiza decay · truthful Seed credit · final-epoch flow)
 
 This pass fixes the three defects an actual playtest found, without touching the settled ruleset: (1) **Mycorrhiza decay** — `decayDelta −1` previously computed `stability − 2` (a double loss); the decay is now floored at 0, so with Mycorrhiza living regions decay **exactly ZERO**; (2) **truthful Seed credit** — rewards no longer announce nominal figures the 30-Seeds cap silently refuses; the plan carries nominal/credited/overflow through ONE shared contract (`seedCredit`) so preview, committed summary and chronicle always agree; (3) **final-epoch flow** — after the epoch-3 4th play the run resolves straight to the verdict (no pointless market, no "begin epoch 4" button; a legacy epoch-end state at epoch 3 shows "View Results"). Targets stay the authorized **[45, 110, 360]**; scoring, shop prices, Seed cap and the solver policy are untouched. Regression tests were written FIRST (`tests/fix-regressions.test.ts` — 21 tests, red before green).
@@ -118,3 +130,42 @@ Re-verified by the coordinator on the committed revision (worker report not take
 - Truthful credit clause appears on every play once near/at cap; e.g. `Gains 38 Seeds (Credited 22; overflow 16)`.
 - Terminal: after final epoch → "View Results" → verdict, no fourth-epoch offer.
 - **Remaining design limitations (recorded, NOT fixed here):** (1) the world/planet development still does not feed back into scoring — reads as decoration along the Growth path; (2) low tension — a naive pair-picking policy wins comfortably (F959) though the bounded solver is in-band at 53%; both are the listed NEXT design decision, deferred per scope.
+
+## Regional-bonus pass v4 — acceptance evidence
+
+### Controlled CHOICE-REVERSAL fixtures (design tests — same cards, same laws, different regional builds)
+
+Both fixtures are pinned in `tests/regional-bonus.test.ts` and were constructed WITHOUT touching the live user save (crafted engine states only):
+
+- **Fixture 1 — pair vs two-pair, exact tie broken by the region** (no laws in either build). Same 10 dealt cards; two legal selections: pair `A♠A♥K♦Q♣J♥` (64 chips ×1.5 = 96) and two-pair `A♠9♠9♥8♦8♣` (48×2 = 96) — an EXACT tie without regions.
+  - **Build A** (awake maxed Pair region dev 8 → +7; Two-Pair/Flush dormant): pair = 103, two-pair = 96 → **PAIR favored**.
+  - **Build B** (awake maxed Two-Pair region dev 8 → +8; Pair dormant): pair = 96, two-pair = 104 → **TWO-PAIR favored — REVERSAL**. The flip is exactly the documented +8 bonus.
+- **Fixture 2 — flush vs pair under Open Canals (×1.2 in BOTH builds)**. Same 10 dealt cards; pair `A♠A♥K♦Q♣J♥` = 96 → ×1.2 = 115; flush `2♥3♥4♥5♥9♥` = 92 → ×1.2 = 110. Without regions the pair wins (115 > 110).
+  - **Build A** (awake maxed Pair region): pair = 115+7 = 122 > flush 110 → **PAIR favored**.
+  - **Build B** (awake maxed Flush region): flush = 110+10 = 120 > pair 115 → **FLUSH favored — REVERSAL** (margin +5). The bonus is added AFTER the law multiplier (flush would be 120, not round(110×1.2+10)=142 — no re-multiplication).
+
+### Ordinary browser run (normal UI actions only; no forced cards, no edited saves, no debug money)
+
+One complete run, seed `regional-ordinary-1`, driven through the real UI (`scripts/ordinary-run-reg.mjs`, isolated browser storage; the read-only state peek just enumerates candidates — every play was a real preview-and-click):
+
+- **Result: WIN — Flourishing 1225 vs final target 360, lives 3/3, 0 console errors.** 12 plays, 4 buys (Fourth Counsel 12, Wake Laguna 12, Stone Masonry 16, Mycorrhiza Network 6), 0 discards.
+- **A regional bonus changed an actual card selection — once (1 of 12 plays, P10 of epoch 3):** holding `6♦6♣7♠K♣J♥` (+ others), the no-regions best play was the two-pair `6♦6♣4♠K♣4♥` (72 Growth), but awake Auralia's pair bonus made the pair `6♦6♣7♠K♣J♥` best (65 base +6 laws +4 region = 75 > 72) — the player took the pair BECAUSE of the region. The other 11 plays the bonus never flipped the argmax (it usually padded pairs/two-pairs that already won, e.g. P3 pair 60 → 63).
+- Auralia ended at development 3 (+3→+4 bonus band). Wake Laguna was bought for the planet/income, not a specialization.
+
+### Verification performed (this pass)
+
+- `npx tsc --noEmit` — clean. `npm run build` — green. `python3 scripts/check-no-emoji.py` — PASSED.
+- `npx vitest run` — **139/139** (was 108; +31 in `tests/regional-bonus.test.ts`, written FIRST and red before the implementation: 28 failed initially). Existing assertions updated ONLY for the deliberate contract changes: SAVE_VERSION 3→4 pins (3 assertions), one legacy-preservation fixture that crafts a "valid current-version" envelope (now version 4), and the final-epoch fixture's hand-refill bug in the NEW test file (not an existing test). No assertion was weakened.
+- `node scripts/qa.mjs` — **ALL PLAYWRIGHT CHECKS PASSED at 1280×800 AND 480×800, zero console/page errors.**
+- `node scripts/review-planet3d.mjs` — **PASSED** at both viewports (canvas mount + pixel sample, legend → map-detail, keyboard, reduced-motion rotation stop, raycast), zero errors.
+- `npx vite-node scripts/review-regional.mjs` (new) — PASSED: preview parts reconcile (64+0+7=71), banner/tooltip/legend-highlight on preview, Wake Pellucid/Vantage offers carry the poker notes, buying Wake Vantage awakens the advertised region + bonus, v3 save rejected + byte-preserved. Screenshots: `shots-review/regional-preview-match.png`, `regional-market-offers.png`, `regional-legacy-v3-reject.png`.
+- Pre-existing review scripts all pass (four updated for the deliberate version bump — no coverage weakened): `review-probe`, `review-pvcommit`, `review-autosave`, `review-fullrun`, `review-browser`, `review-save-lives-browser` (15/15), `review-independent` (10/10), `review-independent-v5` (20/20), `review-playtest-fixes`, `review-independent-v5-browser`, `drought-legibility`.
+- Solver (bounded solver result, NOT a human estimate; policy untouched): LOOK=30 **eval 20/30 (67%)** / calib 21/30 (70%) — up from the 16/30 (53%) baseline; exhaustive still 30/30. The always-awake Pair specialization strengthens pair-heavy plays. The formula was NOT retuned after shipping.
+- Fresh screenshots: `shots-review/regional-preview-match.png` (globe visibly highlighting the matching region on preview + banner + tooltip + reconciled breakdown), `regional-market-offers.png`, `regional-legacy-v3-reject.png`, `ordinary-run-final.png` (win verdict), plus the refreshed pre-existing review shots.
+
+### Remaining difficulty and shop limitations (recorded, NOT tuned)
+
+- The naive highest-Growth play policy still wins comfortably (F1225 vs 360) — the regional bonus adds decision texture, not difficulty. No tuning was applied and none is planned in this pass.
+- The solver's documented buy priority still skips expansions (Wake Pellucid/Vantage pay no direct Growth in that heuristic), so the bounded policy mostly plays with Auralia only; the two dormant specializations are a HUMAN purchase path (each is a genuine 12-Seed alternative at the shop).
+- A specialized region's bonus scales only with development (+1 per 2 epochs, cap +4); there is no way to target a specific region's development (deliberately — no region targeting was added).
+- The dormant-specialization note only fires while a matching hand is previewed; it does not re-explain the system outside the select phase (the legend/inspector do).

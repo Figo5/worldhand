@@ -15,7 +15,7 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
 await page.goto(URL)
 await page.waitForLoadState('networkidle')
 
-// ---- 1. legacy v1 save (Roots/Tend/Sow/Grow/Study era): what happens on load?
+// 1. legacy v1 save (Roots/Tend/Sow/Grow/Study era): what happens on load?
 await page.evaluate(() => {
   localStorage.setItem('worldhand.save', JSON.stringify({
     version: 1,
@@ -25,7 +25,7 @@ await page.evaluate(() => {
 })
 await page.reload()
 await page.waitForLoadState('networkidle')
-// the save must NOT silently resurrect as a v2 game
+// the save must NOT silently resurrect as a v4 game
 const menuVisible = await page.locator('.intro').count()
 ok('v1 legacy save does not auto-start a game (menu shown)', menuVisible === 1)
 // legacy data preserved?
