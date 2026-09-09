@@ -298,3 +298,131 @@ Balance is unchanged (bounded solver re-measured below) — I make no balance cl
 *Reviewer-added artifacts (this addendum): `scripts/review-independent-v5.mjs`, `scripts/review-independent-v5-browser.mjs`, screenshots `shots-review/v5-*.png`. No source/test/doc files were modified by me.*
 
 *Record note (same session):* while this addendum was being written, the coordinator committed `b242b96` ("coord: independent verification addendum…") — a **PLAYTEST_HANDOFF.md-only** documentation commit. `git diff <HEAD> -- src tests RULES.md README.md scripts` is empty, so the reviewed game revision (`9a5538d`) is untouched by it; the coordinator's independently-run gate (recorded there: tsc clean, 108/108, build clean, qa PASS both viewports 0 errors, `review-playtest-fixes` PASSED, solver LOOK=30 eval 16/30 = 53%) **matches this addendum's numbers exactly**, providing a second, independent confirmation of all three fixes.
+
+---
+
+# Dated Addendum — Regional-bonus system v4 (independent finished-diff review)
+
+**Reviewer:** Independent subagent (Hermes), delegated-child session. Routing metadata per required delegation override: **provider `ollama-cloud`, model `glm-5.3-flash`** (session-configured route; not the coordinator model `deepseek-v4-flash:0731`; no recursive delegation). All claims below cite tool outputs produced in this session.
+**Date:** 2026-09-09 (15:20–16:30 EDT) · **Repo:** `/Users/giofiore/Documents/Codex/worldhand`
+**Reviewed revision (frozen):** **`785556a`** — "feat: regional-bonus system (v4) — 3 fixed poker specializations drive small flat Growth bonuses". I **waited for the freeze** before reviewing: HEAD sat at baseline `f89d397` with a clean tree through my baseline survey (baseline gate re-run on `f89d397`: tsc clean, **108/108**), I observed the worker's edits accumulate (up to 40 dirty files), the feature commit land at 15:51 EDT, then confirmed source/test/docs stability (only 9 screenshot-PNG artifacts ever remained dirty; last PNG mtime 27 min before my gate). The baseline gate numbers were re-confirmed by checking out `f89d397` mid-session and re-running vitest (108/108), then returning to `785556a`.
+**Scope discipline:** no source/test/doc files modified by me. My artifacts live outside the repo (`/tmp/rev-probe.mts`) plus this addendum. No global config touched; the dev server (port 5177) was left running as found.
+
+## 0. Verdict up front
+
+**The regional-bonus system is correctly implemented on the frozen revision, and its choices reconcile to the committed total.** All eight assigned verification points hold; the full gate is green. This is a correctness statement only — **no balance claim is made and the game is not called "balanced"**; the strategic-acceptance fixtures are labeled design fixtures (choice reversal demonstrated), not ordinary playtests, and the ordinary run still wins comfortably for a naive highest-Growth policy (a difficulty limitation, reported below, not fixed here).
+
+| # | Point | Verdict | Evidence anchor |
+|---|---|---|---|
+| 1 | Mechanics (exact category, dormant 0, formula, constants, additive, once-after-laws, category never changed) | **HOLDS** | source diff + my independent 637-subset sweep + 7-category negative probe |
+| 2 | Scoring contract (one shared buildPlan; parts reconcile exactly; dormant 0; truthful seedCredit; capped messaging + final-epoch flow preserved) | **HOLDS** | sweep reconcile failures = 0; dormant-commit probe; preview==commit test + my probes |
+| 3 | Starting planet (not all three awake; deterministic map; named regions kept) | **HOLDS** | map probe across 3 different seeds |
+| 4 | Shop (≥2 specializations via existing expansion mechanism at 12 Seeds; no new interface/economy; other prices unchanged) | **HOLDS** | MARKET_ITEMS price dump; browser purchase proof |
+| 5 | Save (v4 bump; specialization validation; v3 rejected+preserved verbatim; quit/reset/reload intact; no reward duplication) | **HOLDS** | validateState probes; byte-for-byte legacy proof; reload-inert suites |
+| 6 | UI (legend/inspector/shop offers/globe tooltip tell category+bonus+dev+dormant; globe identifies matching regions on preview with no clicks) | **HOLDS** | live preview screenshot + acceptance run |
+| 7 | Strategic acceptance (two labeled fixtures, same cards+laws, genuine choice reversal; not claimed as ordinary playtest) | **HOLDS** | fixtures reproduced independently from source (build A vs B reversal, both) |
+| 8 | Ordinary run (normal UI actions only; whether a bonus changed a selection — reported honestly) | **HOLDS** | full run: WIN F1225, bonus changed **1 of 12** selections (P10) |
+
+## 1. Mechanics — HOLDS
+
+- **Source** (`worldhand.ts`): `specOfCategory(category)` maps ONLY `pair→'pair'`, `two-pair→'twopair'`, `flush→'flush'` (everything else → null) — the single normalization point; `regionBonusOf(r) = SPECIALIZATION_BASE[r.specialization] + Math.min(DEV_BONUS_CAP, Math.floor(Math.max(0, r.development) / DEV_STEP))`; the buildPlan loop skips `r.dormant` and non-matching specializations and sums additively; `growth = Math.max(0, Math.round(pokerBase * lawMult) + lawFlat + regionsBonus)` — the law multiplier never re-multiplies the regional part; the category comes from the unchanged `evaluateSelection` (the bonus never alters it).
+- **Constants exported exactly**: `PAIR_BASE=3, TWOPAIR_BASE=4, FLUSH_BASE=6, DEV_STEP=2, DEV_BONUS_CAP=4` (my probe printed them; also pinned by tests/regional-bonus.test.ts).
+- **My independent negative probe** (Auralia=pair and Vantage=flush awake, dev 0): trips → regionsPart **0**; two-pair → **0**; full-house → **0**; quads → **0**; straight → **0** (for BOTH specs); flush → **6** (only the flush spec pays); straight-flush → **0**; exact pair → **3**. There is no hidden "contains a pair" path — matching is on the exact evaluated category.
+- **No re-multiplication executed**: pair 39 poker under Open Canals → parts {poker 39, laws +8, regions 7} → growth **54** (re-multiplied would be 55). Canopy Choir +3 → {39, +3, 3} → 45 exactly once.
+- **Sweep**: 637 legal 1–5-card subsets of a mixed 10-card hand with Open Canals + Canopy Choir owned and all three spec regions awake (dev 5/3/7): **0 reconcile failures** across categories high/pair/two-pair/flush/straight/straight-flush.
+
+## 2. Scoring contract — HOLDS
+
+- **One shared pipeline**: `preview(s)` = `buildPlan(s.hand, s.selected, s.laws, s.seeds, s.regions)` and the `play` commit calls the same `buildPlan` with the same live state (diff-verified; both call sites updated identically). `growthParts = { poker, laws, regions }`; **poker + laws + regions === growth** verified over my 637-subset sweep (0 failures) and by the worker's selection-sweep test.
+- **Dormant = 0 through the full commit path** (my probe, not just buildPlan): Pellucid twopair dormant at dev 8 → preview regions part 0, committed growth 64, flourishing delta exactly 64.
+- **Truthful seedCredit preserved**: plan effects still carry nominal `amount` + `credited` + `overflow`; `applyPlanEffects` banks exactly `credited`. My probes + worker tests: balance 24 + nominal 18 → credited 6 / overflow 12, committed seeds 30, identical clause in preview and chronicle; balance 30 + positive → credited 0 / overflow 14, balance unchanged. Capped-Seed messaging and the final-epoch flow (straight-to-verdict, `View Results`) are untouched — `review-playtest-fixes.mjs` and `review-independent-v5-browser.mjs` both still pass verbatim on the frozen revision.
+
+## 3. Starting planet — HOLDS
+
+- **Exact map (deterministic fixed data, printed from a live engine import, identical across 3 DIFFERENT seeds and across repeated same-seed calls; named regions kept; terrains untouched):**
+
+| Region | id | Terrain | Specialization | Start state |
+|---|---|---|---|---|
+| Auralia | 0 | meadow | **pair** (base +3) | **AWAKE** |
+| Veymark | 1 | coast | — | awake |
+| Calder | 2 | highland | — | awake |
+| Thessaly | 3 | forest | — | awake |
+| Laguna | 4 | steppe | — | dormant |
+| Ozurn | 5 | wetland | — | dormant |
+| **Pellucid** | 6 | meadow | **twopair** (base +4) | **dormant** |
+| Harrow | 7 | coast | — | dormant |
+| Sequana | 8 | highland | — | dormant |
+| Brumal | 9 | forest | — | dormant |
+| Kestrel | 10 | steppe | — | dormant |
+| **Vantage** | 11 | wetland | **flush** (base +6) | **dormant** |
+
+- Exactly three specializations exist (`specd.length === 3` in tests + my map dump); the other nine regions are `null`. **Only the Pair region is awake at start** — the starting planet does NOT activate all three; TwoPair and Flush start dormant and are obtainable only via the shop.
+
+## 4. Shop — HOLDS
+
+- Two new expansion items at the **existing wake-\* convention (cost 12)**: `wake-pellucid` (wakeRegionId 6) and `wake-vantage` (wakeRegionId 11), `kind: 'expansion'` — the same mechanism as wake-laguna/wake-brumal (which are unchanged: 12 / regions 4, 9). No new interface, no new economy, no new currency: purchases go through the existing `buy` action and `LAW_SLOTS` shelf.
+- **All existing prices otherwise unchanged** — my full price dump: mycorrhiza:6 seed-vaults:8 barter-routes:5 canopy-choir:10 stone-masonry:16 open-canals:14 fourth-counsel:12 fifth-counsel:18 wake-laguna:12 wake-brumal:12 (+ the two new 12s).
+- **Browser-purchased** (worker's acceptance, re-run by me): the Wake Vantage offer advertised "Poker bonus when awake: +6 Growth on exact Flush hands, +1 per 2 development (cap +4); currently dormant."; buying it (30 → 18 Seeds) awakened exactly Vantage (id 11) and the flush bonus went live (+6 at dev 0, +7 at dev 2).
+- Caveat (honest): the market deals 3 random offers per epoch from a 12-item pool, so a specialization wake is not guaranteed to appear in any given epoch — the mechanism exists and works, but availability is luck, as it already was for wake-laguna/brumal. The solver's documented buy policy still skips expansions entirely, so its bounded runs play with Auralia only.
+
+## 5. Save — HOLDS
+
+- `SAVE_VERSION = 4` (SCHEMA_VERSION stays 3 — layout unchanged, rules generation bumped). History comment updated.
+- `validateState` now rejects any region whose `specialization` is not `null | 'pair' | 'twopair' | 'flush'` — my probes: `'quads'` rejected, `'high'` rejected, `'pairX'` rejected, **missing field rejected**, fresh v4 state accepted.
+- **Old-version rejection + preservation proven byte-for-byte**: unit test crafts a real v3 envelope (version 3, specialization fields deleted) → `loadGameDetailed` returns null with a "version 3" reason, the original key untouched, and the raw blob preserved **verbatim** under `worldhand.save.legacy.<ts>`; browser proof (worker's script, re-run by me) shows the reject panel naming engine v3 vs v4 and the legacy key; my screenshot confirms the panel text verbatim including "The old save was NOT deleted or reinterpreted".
+- **Quit / reset confirmation / reload intact**: qa.mjs (both viewports) exercises Save→Quit→menu→Load Saved World; Clear Save and Back-to-Menu confirm gates are untouched by the diff (no changes to those code paths); `review-save-lives-browser` 15/15, `review-autosave` PASS, `review-browser` PASS (`errors: []`, quit-preserves-save), no-emoji PASS.
+- **Reload cannot duplicate rewards**: engine-level, rewards apply once inside the commit; the winning final state passes validateState and every action on it is inert (`review-playtest-fixes`, `review-independent-v5-browser`, and the new regional reload test all assert run-state byte-identity after reload on the frozen revision; all pass).
+
+## 6. UI — HOLDS
+
+Verified live (worker's acceptance run re-executed by me, isolated browser storage) and by screenshot inspection (`shots-review/regional-preview-match.png`):
+- **Preview/breakdown**: Growth hero **71** with `+64 poker · 0 laws · +7 regions`; summary `Banks 71 Growth (chips 32 x 2 mult = base 64 +7 region). Gains 18 Seeds (Credited 6; overflow 12).` — parts reconcile on screen.
+- **Region-match banner**: "Regional bonus active: Pellucid (Two Pair) +7 — highlighted on the globe."
+- **Globe tooltip (no clicks)**: "Pellucid: Two Pair +7 Growth — gold rings mark the matching regions", rendered automatically whenever the previewed hand's exact category matches; the cropped globe screenshot shows the gold ring on the matching patch.
+- **Legend badges**: Auralia carries a "Pair" badge; Pellucid "Two Pair" (gold, match-highlighted with glow when matching); Vantage "Flush" (dimmed while dormant); dormant z-mark suppressed on the matching dormant note. Tooltips give the full sentence (category, current bonus, development scaling +1/2 up to +4, dormant/active).
+- **map-detail inspector**: "Poker specialization: Two Pair — active: +7 Growth on exact Two Pair hands (base +4 + development 6 → +3 of the +4 cap; +1 per 2 development)."
+- **Shop offers**: both wake offers carry the exact poker-bonus note + dormant state (screenshot `regional-market-offers.png`).
+- Commit echoes the preview verbatim in the chronicle (`Banks 71 Growth … +7 region`), HUD Seeds 30/30 after the capped credit.
+
+## 7. Strategic acceptance — HOLDS (labeled design fixtures, genuine reversal)
+
+The two fixtures are pinned in `tests/regional-bonus.test.ts` and clearly labeled "design tests, not ordinary playtests". I reproduced both **independently from source** (my own `/tmp` probe, same constructions re-derived):
+
+- **Fixture 1 (pair vs two-pair, no laws)** — same 10 cards; pair `A♠A♥K♦Q♣J♥` = 64 chips × 1.5 = **96** and two-pair `A♠9♠9♥8♦8♣` = 48 × 2 = **96** — an exact tie without regions. Build A (awake maxed Pair region dev 8 → +7): pair **103** > twopair 96 → **PAIR favored**. Build B (awake maxed Two-Pair region dev 8 → +8, Pair dormant): pair 96 < twopair **104** → **TWO-PAIR favored — REVERSAL confirmed** (my probe printed `REVERSED=YES`; the flip is exactly the +8 bonus).
+- **Fixture 2 (flush vs pair, Open Canals ×1.2 in BOTH builds)** — pair 96 → ×1.2 = **115**; flush 92 → ×1.2 = **110**; pair wins without regions. Build A: pair **122** > flush 110 → PAIR favored. Build B (awake maxed Flush region dev 8 → +10): flush 110+10 = **120** > pair 115 → **FLUSH favored — REVERSAL confirmed** (margin +5; the bonus is added after the law multiplier — flush is 120, not 142 — so the flip is purely the once-applied regional bonus).
+- Both are correctly **not claimed** as ordinary playtest or human-performance evidence anywhere in the diff's docs.
+
+## 8. Ordinary run — HOLDS (limitation reported honestly)
+
+One full run, seed `regional-ordinary-1`, driven through the real UI only (every play = real preview + click; the engine import only READS the auto-saved state to enumerate candidates — read-only, isolated Playwright profile, user's real save untouched). Re-executed by me on the frozen revision: **WIN — Flourishing 1225 vs final target 360, lives 3/3, 0 console/page errors.** 12 plays, 4 buys (Fourth Counsel 12, Wake Laguna 12, Stone Masonry 16, Mycorrhiza Network 6), 0 discards.
+- **A regional bonus DID change a real card selection — once (1 of 12 plays, P10 epoch 3):** holding 6♦6♣7♠K♣J♥(+4♠4♥), the no-regions best was the two-pair 6♦6♣4♠K♣4♥ (G=72), but awake Auralia's pair bonus made the pair 6♦6♣7♠K♣J♥ best (65 base +6 laws +4 region = **75**) — the chronicle line shows `base 65 +6 laws +4 region`. The other 11 plays the bonus padded the already-winning hand (e.g. P3 pair 60 → 63) without flipping the argmax.
+- Verdict screenshot inspected: "A Flourishing World — The world flourishes at 1225 after 3 epochs (lives remaining: 3)."
+
+## 9. Independent gate on the frozen revision (all run by me, this session, at HEAD `785556a`)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | **clean**, exit 0 (baseline `f89d397` also clean) |
+| `npx vitest run` | **139/139 passed** (4 files) — was **108/108** at baseline `f89d397` (re-verified by me mid-session on a checkout of `f89d397`); +31 from the new `tests/regional-bonus.test.ts`. I diffed the 4 modified assertions in `tests/worldhand.test.ts` line by line: all four are pure version-pin updates (3→4) forced by the deliberate SAVE_VERSION bump — no existing assertion was weakened or deleted. |
+| `npm run build` | **green** (dist/assets/index-iJFkLVup.js 775.31 kB, gzip 208.99 kB; only the pre-existing >500 kB chunk warning) |
+| `node scripts/qa.mjs` | **ALL PLAYWRIGHT CHECKS PASSED at 1280×800 AND 480×800**, zero console/page errors (script throws on any error — gate confirmed at qa.mjs:74) |
+| `node scripts/review-planet3d.mjs` | **PLANET3D CHECKS PASSED** (canvas mount + pixel sample, legend → map-detail, keyboard, reduced-motion rotation stop, raycast) both viewports, zero errors |
+| `npx vite-node scripts/review-regional.mjs` (worker's new acceptance) | **REGIONAL BONUS CHECKS PASSED** — preview reconcile 64+0+7=71, banner/tooltip/legend-highlight, Wake Pellucid/Vantage offers with poker notes, Wake Vantage purchase awakens the right region+bonus, v3 blob byte-preserved |
+| My independent engine probe (`/tmp/rev-probe.mts`, vite-node) | map determinism across different seeds, 637-subset reconcile sweep (0 failures), 7-category exact-match negatives, no-remultiplication arithmetic, dormant-commit-zero, validateState legality ×4, prices, reversal reproduction — **all as reported above** |
+| Regression scripts re-run by me | review-probe ✓, review-pvcommit `MATCH: true` ✓, review-browser ✓ (`errors: []`), review-autosave ✓, drought-legibility ✓, review-fullrun ✓ (`errors: []`), review-save-lives-browser **15/15**, review-independent **10/10**, review-independent-v5 **20/20**, review-independent-v5-browser ✓, review-playtest-fixes ✓ |
+| `python3 scripts/check-no-emoji.py` | PASSED |
+| 4 modified review scripts | diffed individually: three are the forced `version: 3→4` envelope bump in crafted fixtures; one is a comment-only reword (`v2→v4 game`); **no probe removed, no assertion weakened** |
+| Bounded solver (re-measured by me, LOOK=30, eval set; policy untouched) | **20/30 wins (67%)** — final F min 330 / median 366 / max 429 (baseline at `f89d397` was 16/30, 53%). Matches the worker's claim and RULES.md's post-v4 note; formula was not retuned (constants identical to declared). A bounded solver result, NOT a human-performance estimate. |
+| Dev server / real save | HTTP 200 at 127.0.0.1:5177 throughout; all browser probes used isolated Playwright profiles / cleared-and-crafted localStorage keys — **the user's real save was never touched** (the in-app Hermes browser could not be used for a live drive because its real-profile mode requires a Chromium default browser and I must not change global config; the Playwright acceptance scripts cover the same gate against the same dev server) |
+
+## 10. Remaining limitations (recorded, NOT fixed here)
+
+- **Difficulty**: the naive highest-Growth policy still wins comfortably (F1225 vs 360; solver 67%). The regional bonus adds decision texture, not difficulty; no tuning was applied and none is claimed.
+- **Shop availability**: 3-of-12 random offers per epoch mean a specialization wake can fail to appear in a given epoch (pre-existing randomness, unchanged); the solver's buy policy skips expansions, so bounded runs never wake Pellucid/Vantage.
+- **Development is not targetable**: a specialization's bonus grows only passively (+1 per 2 epochs, cap +4); no way to invest in a specific region (deliberately out of scope).
+- **The dormant-note banner** only appears while a matching hand is previewed; system explanation outside the select phase rests on the legend/inspector tooltips (minor legibility nit).
+- One cosmetic carry-over from the previous pass: the epoch-end chronicle line always shows the `(Credited C; overflow O)` clause even when overflow is 0 — truthful but verbose (pre-existing, unchanged).
+
+**Bottom line: on the frozen revision `785556a`, the regional-bonus system is correctly implemented — exact-category matching with dormant-zero, the declared constants and formula, additive once-after-laws application, an exact three-part reconciliation to the committed Growth, a deterministic three-region map with only Pair awake at start, two obtainable specializations at the existing 12-Seed expansion convention, a clean v4 save cut with verbatim legacy preservation, full preview-time UI legibility including a click-free globe highlight, and a demonstrated A-vs-B choice reversal in labeled design fixtures — and every choice reconciles to the committed total. The ordinary run shows the bonus can and did change one real selection (1 of 12). Gate fully green: tsc clean, 139/139 (from 108, nothing weakened), build clean, QA both viewports 0 errors, planet3d green, solver re-measured honestly at 20/30. No balance claim is made.**
+
+*Reviewer artifacts (this addendum): `/tmp/rev-probe.mts` (independent engine probe, outside the repo) + this dated addendum. No source/test/doc files were modified by me.*
