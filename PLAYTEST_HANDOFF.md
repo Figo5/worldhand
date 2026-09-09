@@ -1,6 +1,6 @@
 # Worldhand — Playtest Handoff (v2 core, three-epoch vertical slice)
 
-## Status: READY FOR PLAYTEST (v2.1 balance + tie-commit fix)
+## Status: READY FOR PLAYTEST (v2.2 bounded-calibrated balance + Drought legibility)
 
 Commit replaces the v1 (8-epoch, one-card-per-play) contract with the corrected v2 core. The old contract was deliberately incompatible and has been removed.
 
@@ -20,8 +20,8 @@ Commit replaces the v1 (8-epoch, one-card-per-play) contract with the corrected 
 - One-card suit action → **1–5 card poker selection** with exact scoring (cards + precedence + Ace-low wheel).
 - Text-panel regions → **SVG planet map** with terrain/development/adjacency and accessible (tabbable, labeled) controls.
 - Discard didn't refill → **discard 1–5 with refill** and a tested card-conservation invariant.
-- Hidden challenge → **explicit previewed Drought** in epoch 3 (log + HUD + previewed every epoch long).
-- Fixed target → **three escalating targets** (20/20 → 36/30 → 52/40) on **capped** stats (stability 10, Seeds 30), calibrated by `scripts/balance-sweep.mjs` so a competent greedy policy wins ~70% of seeds (was 100% at 5/14 → 8/22 → 12/30). A **Survival pool** (3, −1 per missed epoch-1/2 target, halved market income on a miss, withered at 0) makes every epoch target live.
+- Hidden challenge → **explicit previewed Drought** in epoch 3 (log + HUD + previewed every epoch long; shown as an *upcoming* condition from epoch 1).
+- Fixed target → **three escalating targets** (12/20 → 24/30 → 32/40) on **capped** stats (stability 10, Seeds 30), recalibrated in v2.2 by `scripts/solve.mjs` under the **bounded LOOK=30 policy** so the reference bounded player lands in the 40–60% win band (17/30 = 57%; the old 20/36/52 gave a bounded player 0/30). A **Survival pool** (3, −1 per missed epoch-1/2 target, halved market income on a miss, withered at 0) makes every epoch target live.
 - No preview/commit chain → one **deterministic ResolutionPlan** shared by preview and commit.
 - Quit cleared save → **quit preserves the save**; version 2 envelope; v1 saves rejected, not mis-migrated.
 - 8 epochs/4 hands → **3 epochs × (4 plays + 3 discards)** vertical slice.
@@ -49,11 +49,82 @@ Played `bloom-1`, `bloom-2`, `bloom-3` (Bloom-heavy, single-card plays) to the e
 - **At the moment of waking**, the preview shows only e.g. `Bloom: +3 Flourishing. Laguna wakes.` / `Ozurn wakes.` — a pure reward. Nothing states the newly awake region must later hold stability 3+, or that the wake raises the Drought bar.
 - **The `⚔ Drought — on track/at risk` HUD item exists but only renders while `state.challenge` is set, which is only during epoch 3** (`App.tsx:125-129`; `state.challenge = droughtChallenge(3)` is set in `advanceToNextEpoch` at epoch 3 only). During the epochs where Bloom decisions happen, the threat is not displayed at all. It materializes only once those decisions are locked in.
 - **Outcome under the new targets:** all three naive-Bloom seeds died at epoch 3 with `Final Flourishing 16/17 fell short of 52` — a direct, reproducible instance of "the wake decisions felt like pure upside, then turned out to be a Drought liability only in hindsight."
-- **Concrete fix direction (not yet implemented):** the Bloom preview should state the wake's drought implication at the point of decision (e.g. append `— Laguna will need stability 3+ during Drought`, or show a projected `regions needing stability 3+ : X` while a wake is pending). This is the single highest-value readability change for the one mechanic that "works."
+- **Concrete fix direction (implemented in v2.2 below):** the Bloom preview should state the wake's drought implication at the point of decision (e.g. append `— Laguna will need stability 3+ during Drought`, or show a projected `regions needing stability 3+ : X` while a wake is pending). This is the single highest-value readability change for the one mechanic that "works."
 
 ## Known scope boundaries (intentional)
 
 - No betting, no backend, no AI opponents, no deployment — local browser only.
 - Development is now mechanical on Roots plays: each Roots play adds +1 development to its target, and every 3 development grants +1 stability on future Roots plays there; living neighbors receive half the Roots amount (adjacency spread). Other suits' development economy remains post-slice.
 - 1–4-card selections intentionally cannot form straights/flushes (poker-correct).
-- Drought legibility gap documented above; proposed preview change deferred.
+
+## v2.2 — bounded recalibration + Drought legibility (worker, Sep 2026)
+
+### LOOK — the bounded reference policy
+
+`scripts/solve.mjs` now accepts `LOOK=<n>` (env) or `--look <n>`: per play it considers at most `n` candidate card-selections — **all length-1 and length-2 selections first** (8 + 28 = 36 of them when the hand is full), topped up to `n` with a seeded random sample of the longer selections. The sample is **deterministic**: it is keyed on the world seed text plus a per-play counter (mulberry32, same generator as the engine), so the same seed reproduces the exact same run, while different plays see different longer-selection samples. Unset (or `LOOK=218` for an 8-card hand) keeps the old exhaustive behaviour; `score()`/`bestPlay()` are untouched — only the candidate list they scan is capped.
+
+**LOOK=30 is the bounded-human reference: it sees every 1–2 card play plus 17 sampled 3–5 card plays per decision — the working memory a human holding one hand of 8 can actually scan, an order of magnitude less than the oracle's 218.**
+
+### Sweep (full grid) — every candidate set × LOOK=30 / LOOK=12 / exhaustive
+
+`LOOK=30 npx vite-node scripts/solve.mjs` (and LOOK=12 / unset) per candidate; targets written to `EPOCH_TARGETS`/`STABILITY_SUM_TARGETS`, Survival pool and the Drought untouched, loss gate at `worldhand.ts:624` untouched. Wins/30 on the `probe-0..29` seeds:
+
+| Flourishing need | Stability sums | LOOK=30 | LOOK=12 | exhaustive |
+|---|---|---|---|---|
+| [12,22,30] | [10,18,26] | 21/30 (70%) | 8/30 | 30/30 |
+| [12,22,30] | [20,30,40] | 21/30 (70%) | 8/30 | 30/30 |
+| [12,23,31] | [20,30,40] | 20/30 (67%) | 5/30 | 30/30 |
+| [12,24,31] | [20,30,40] | 20/30 (67%) | 5/30 | 30/30 |
+| **[12,24,32]** | **[20,30,40]** | **17/30 (57%)** | **3/30 (10%)** | **30/30 (100%)** |
+| [12,23,32] | [20,30,40] | 17/30 (57%) | 3/30 | 30/30 |
+| [12,24,32] | [16,26,36] | 16/30 (53%) | 3/30 | 30/30 |
+| [12,24,32] | [10,16,22] | 17/30 (57%) | 3/30 | 30/30 |
+| [12,24,32] | [26,36,46] | 17/30 (57%) | 3/30 | 30/30 |
+| [12,24,32] | [0,0,0] (probe) | 17/30 (57%) | 3/30 | 30/30 |
+| [12,24,33] | [20,30,40] | 14/30 (47%) | 3/30 | 30/30 |
+| [12,25,33] | [20,30,40] | 14/30 (47%) | 3/30 | 30/30 |
+| [13,25,33] | [20,30,40] | 14/30 (47%) | 3/30 | 30/30 |
+| [13,26,34] | [20,30,40] | 8/30 (27%) | 1/30 | 30/30 |
+| [14,24,34] | [20,30,40] | 8/30 (27%) | 1/30 | 30/30 |
+| [14,26,34] | [14,22,30] | 8/30 (27%) | 1/30 | 30/30 |
+| [14,26,34] | [20,30,40] | 8/30 (27%) | 1/30 | 30/30 |
+| [16,26,34] | [12,20,28] | 8/30 (27%) | 0/30 | 30/30 |
+| [16,28,36] | [16,24,32] | 3/30 (10%) | 0/30 | 30/30 |
+| [16,28,36] | [20,30,40] | 3/30 (10%) | 0/30 | 30/30 |
+| [12,24,36] | [16,24,32] | 3/30 (10%) | 0/30 | 30/30 |
+| [18,30,38] | [18,26,34] | 1/30 (3%) | 0/30 | 30/30 |
+| [20,32,40] | [20,28,36] | 0/30 | 0/30 | 30/30 |
+| [20,32,40] | [20,30,40] | 0/30 | 0/30 | 30/30 |
+| [20,36,52] (old) | [20,30,40] | 0/30 | 0/30 | 21/30 (70%) |
+
+Reading: the band edge is sharp — Flourishing need dominates (stability sums from [10,16,22] to [26,36,46] barely move the numbers; the [0,0,0] probe confirms they are non-binding on this policy). Exactly one grid point sits in the 40–60% band: **[12,24,32]**.
+
+### Before / after (the shipped targets)
+
+| Policy | Old targets [20,36,52]/[20,30,40] | New targets [12,24,32]/[20,30,40] |
+|---|---|---|
+| LOOK=30 (bounded reference) | 0/30 (0%) | **17/30 (57%) — in band** |
+| LOOK=12 (very bounded) | 0/30 (0%) | 3/30 (10%) |
+| Exhaustive (LOOK unset / 218) | 21/30 (70%) | 30/30 (100%) |
+
+The LOOK=30 win rate is itself in band — the targets are **not** only reachable by exhaustive search (exhaustive is 100%, trivially above band; the band is verified at the bounded reference). Note the band is intentionally asymmetric across policies: bounded players miss more, exhaustive play now always wins — the challenge lives where humans actually are.
+
+### Drought legibility — implemented
+
+- **Wake cost at decision time** (`buildPlan`, worldhand.ts:252-260 — shared by preview and commit): a Bloom play that wakes a region now summarizes e.g. `Bloom: +3 Flourishing. Laguna wakes - it will need stability 3+ during the epoch-3 Drought.` Regression-tested for every wake order (`tests/worldhand.test.ts` — the plan must carry the warning whenever a wake effect is present).
+- **Upcoming Drought HUD from epoch 1** (`App.tsx`): when `state.challenge` is unset (epochs 1–2) the HUD shows a dashed `⚔ Upcoming: Drought in epoch 3 — keep every living region at stability 3+` item; the live `⚔ Drought — on track/at risk` item still renders only in epoch 3. Engine export `UPCOMING_DROUGHT_EPOCH = 3` keeps the number truthful in one place.
+- **Browser re-run** (`node scripts/drought-legibility.mjs`, dev server 127.0.0.1:5177): all three naive-Bloom seeds now see the wake cost **before losing** — every wake preview carries the warning from play 1 (epoch 1). Exact captured preview text (Playwright, zero console errors):
+  - `bloom-1` play 1: `Resolution preview ♥ High Card +1 pts single card K♥ Bloom: +3 Flourishing. Laguna wakes - it will need stability 3+ during the epoch-3 Drought.`
+  - `bloom-2` play 1: `Resolution preview ♥ High Card +1 pts single card A♥ Bloom: +3 Flourishing. Laguna wakes - it will need stability 3+ during the epoch-3 Drought.`
+  - `bloom-3` play 12 (first wake): `Resolution preview ♥ High Card +1 pts single card A♥ Bloom: +3 Flourishing. Laguna wakes - it will need stability 3+ during the epoch-3 Drought.` (and play 13: `...Ozurn wakes - it will need stability 3+ during the epoch-3 Drought.`)
+  - Verdicts unchanged in kind: all three naive-Bloom runs still wither at epoch 3 (`Final Flourishing 17/16/18 fell short of 32`) — but now with the cost visible at every decision that created the liability, and the Drought HUD present from epoch 1. The earlier "fixed fix direction" note above is now implemented.
+
+### Verification (v2.2)
+
+- `npx tsc --noEmit` — clean.
+- `npx vitest run` — **77/77** (76 + 1 new wake-warning regression test; the two target-value assertions updated 20/36/52 → 12/24/32 with the measurement comment rewritten around LOOK=30; assertions not weakened).
+- `node scripts/qa.mjs` — ALL PLAYWRIGHT CHECKS PASSED at 1280×800 and 420×820, zero console/page errors, no horizontal overflow.
+
+### Disposition
+
+Balanced for the bounded reference (LOOK=30, 57%), not for the oracle. Survival pool, loss gate, Drought, and all scoring internals untouched. Commit: `balance+legibility: LOOK-bounded recalibration (12/24/32) + Drought wake-cost preview warning + upcoming-Drought HUD`.

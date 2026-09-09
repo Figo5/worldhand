@@ -96,6 +96,7 @@ button.danger:hover:not(:disabled) { background: #3d1a1a; }
 .hud-item strong { color: var(--text); margin-left: 6px; font-size: 1.05rem; }
 .hud-item.ok { border-color: var(--accent); }
 .hud-item.warn { border-color: var(--bad); color: var(--bad); }
+.hud-item.upcoming { border-style: dashed; opacity: 0.85; }
 
 .effects { display: flex; gap: 8px; flex-wrap: wrap; }
 .effect-chip {

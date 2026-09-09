@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   newGame, applyAction, checkWithering, preview,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_EPOCHS, TOTAL_REGIONS,
-  STABILITY_MAX, SEEDS_CAP, EPOCH_TARGETS,
+  STABILITY_MAX, SEEDS_CAP, EPOCH_TARGETS, UPCOMING_DROUGHT_EPOCH,
   type Action, type GameState, type Region,
 } from './engine/worldhand'
 import type { Suit } from './engine/poker'
@@ -122,11 +122,15 @@ export default function App() {
         <div className="hud-item">▶ Plays <strong>{state.playsLeft}/{PLAYS_PER_EPOCH}</strong></div>
         <div className="hud-item">🗑 Discards <strong>{state.discardsLeft}/{DISCARDS_PER_EPOCH}</strong></div>
         <div className="hud-item">🗺 Living <strong>{awakened.length}/{TOTAL_REGIONS}</strong></div>
-        {state.challenge && (
+        {state.challenge ? (
           <div className={`hud-item ${planOrChallengeOk(state) ? 'ok' : 'warn'}`} title="This epoch's challenge — resolution at epoch end">
             ⚔ {state.challenge.desc} — {planOrChallengeOk(state) ? 'on track' : 'at risk'}
           </div>
-        )}
+        ) : state.epoch < UPCOMING_DROUGHT_EPOCH ? (
+          <div className="hud-item upcoming" title="Upcoming challenge — every living region must hold stability 3+ when it resolves">
+            ⚔ Upcoming: Drought in epoch {UPCOMING_DROUGHT_EPOCH} — keep every living region at stability 3+
+          </div>
+        ) : null}
       </section>
 
       {state.laws.length > 0 && (
