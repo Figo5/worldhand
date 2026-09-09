@@ -139,3 +139,16 @@ The 53% bounded win rate is in the intended band and brackets correctly (10% ver
 - All pre-existing review scripts re-run and green (list in § 1).
 
 — End of independent review v3.
+
+---
+
+## 10. Post-fix note (same day, implementation pass)
+
+The four issues documented above were fixed in commit `d8eae6c` on this same tree:
+
+1. **Save versioning/validation** — `SAVE_VERSION=3` + `SCHEMA_VERSION=3`, `validateState()` structural gate, incompatible saves preserved verbatim under `worldhand.save.legacy.<ts>` with a fresh-run explanation (`[data-testid=save-reject]`), two-step confirmation on Clear Save / Back-to-Menu. The § 7 suggested minimal fix was implemented in full (plus legacy-blob preservation, which the suggestion left out).
+2. **solve.mjs** — fully rewritten: current-mechanics score, category-spanning 1–5-card candidates, discard evaluation, documented purchase order, disjoint CALIB (`probe-*`) / EVAL (`eval-*`) seed sets, "bounded solver result" wording. The recalibrated [30, 70, 320] measures LOOK=30: 83% (eval) / 80% (calib), LOOK=12: 3%/10%, exhaustive 100%.
+3. **Lives** — the § 4 note that epoch-3 miss "costs no life" is now outdated by design: EVERY missed target (all three epochs) costs 1 life; the run ends only at 0 lives; the win check is separate. Regression-tested (3 misses → 0 lives).
+4. **Scoring labels** — plan now carries `chips` (= rankSum, pre-mult) and the UI shows `chips × mult = base`; kickers' contribution is documented in RULES.md/README and pinned by a mutual-consistency test.
+
+Suite: 87/87 tests, tsc/build/qa/review scripts green at commit time.
