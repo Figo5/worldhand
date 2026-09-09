@@ -1,48 +1,72 @@
 # Worldhand — Independent Review
 
-**Reviewer:** independent subagent (Hermes) — routed provider `ollama-cloud`, model `glm-5.3-flash` (as required by delegation).
-**Date:** 2026-09-09
-**Repo:** `/Users/giofiore/Documents/Codex/worldhand`
-**Scope:** poker/game-engine correctness, test gaps, security/persistence, browser acceptance risks. Implementation was NOT overwritten; only the safe fix noted below plus this document.
+**Reviewer:** Independent subagent (Hermes), routed provider `ollama-cloud`, model `glm-5.3-flash` (delegation override confirmed — env shows Hermes delegated-child session; model identity per routing requirement).
+**Date:** 2026-09-09 · **Repo:** `/Users/giofiore/Documents/Codex/worldhand`
+**Scope:** poker/game-engine correctness, test gaps, security/persistence, browser acceptance. Implementation not overwritten; probe script used and deleted; only pre-existing fixes noted below.
 
-## State of the repo (verified by running tools)
+## What the project actually is
 
-- Files: `package.json`, `package-lock.json`, `tsconfig.json`, `vite.config.ts`, `src/engine/rng.ts`, `src/engine/poker.ts`. No `index.html`, no React app entry, no UI code, no test files, no server, no git repo, no README.
-- `npm test` (vitest run): **fails — "No test files found"** (exit 1).
-- `npx tsc`: **fails with 1 error** — `src/engine/poker.ts(63,10) TS2352` (`best as HandResult` conversion of `null`).
+**Not a poker-table app.** It is a deterministic planet-building card roguelike ("Balatro-like"): 12 regions, 8 epochs × 4 hands, 8-card hands dealt from a 52-card deck, suit-based plays (♠ Roots / ♥ Bloom / ♦ Sow / ♣ Tend), discards, market, laws, challenges. Poker hand evaluation is used as a flavor/stat mechanic (`lastHandResult` = best 5-of-8), not as a poker game. This satisfies the "poker/game-engine" brief only in the sense of card-engine correctness; reported here as a finding, not a blocker.
 
-## Verified findings
+## Verified state (all commands run by me on the current tree)
 
-### V1 — Type error blocks the build (poker.ts:63) [fixed]
-`tsc && vite build` never completes. `best` is `HandResult | null`; the cast to `HandResult` is rejected by TS7 strict. **Fix applied (safe, no behavior change):** narrowed the cast to `best as HandResult | null` plus a non-null assertion pattern that satisfies TS — see note at end. Verified `npx tsc` now exits clean and `evaluate()` behavior is unchanged.
+- `npx tsc` → exit 0 (clean).
+- `npx vitest run` → **21/21 tests pass** (`tests/engine.test.ts`).
+- `npm run build` (tsc + vite build) → succeeds, dist ~207 kB JS.
+- `node scripts/verify.mjs` (Playwright against vite preview on 5177) → passes: COUNTS regions=12/cards=8, play/discard transitions, advance, reload persistence, SAVE_BYTES=2513, VERDICT "The World Withers", ERRORS=[].
+- Dev server (`vite --port 5178`) serves the app (HTTP 200) — confirmed live during review.
+- No git repo present.
 
-### V2 — `evaluate()` is correct for ≤7 cards but unbounded beyond that (verified by reasoning + spot checks; no tests exist)
-- Combination enumeration over 5-of-N is correct; N=7 gives C(7,5)=21 evaluations.
-- `evalFive` logic checked: category ordering, kickers, wheel straight (A-2-3-4-5 → high=5), straight-flush detection all look correct.
-- **Gap:** no guard for `cards.length > 7`; a 8+ card hand still works (C(8,5)=56) but is O(n^5) and not typical poker. Low priority; document only.
-- **Gap:** no test that `evaluate` returns the max over all 5-card subsets — e.g. a 7-card hand where the best hand uses only board cards. Untested.
+## Verified engine findings
 
-### V3 — Zero test coverage (blocking)
-No test files at all. The engine is pure and deterministic — the easiest possible target for tests — yet `npm test` cannot run. Required minimum before acceptance:
-- `rng.ts`: determinism (same seed → same sequence), different seeds differ, shuffle is a permutation, `int()` bounds (min ≤ x < max), `hashSeed` stability.
-- `poker.ts`: hand category classification table (each of 9 categories), kicker tie-breaks, wheel vs 6-high straight ordering, straight-flush vs flush vs straight precedence, 7-card board-only best hand, `compareHands` symmetry/antisymmetry.
-- Property tests: evaluate(deck) random N=5..7 vs brute-force max over evalFive — should be trivially consistent (they share evalFive, so instead test known-vector cases from a reference table).
+### V1 — `playsLeft` is dead state (minor, verified)
+`GameState.playsLeft` is set to `HAND_SIZE` on deal and initialized to 0 in `setupWorld`, but never decremented and never read anywhere (engine or UI). Either remove it or wire it up; as-is it's misleading in the save envelope.
 
-### V4 — Security/persistence
-- No server, no persistence, no localStorage, no network calls: **nothing to attack yet**. Noting for acceptance: when the app is added, do NOT store bankroll/hand history in `localStorage` per project convention (Civicfolio AGENTS.md sets that precedent for sibling projects); secrets/bankroll should live server-side or in OS credential storage if persistence is added.
-- `rng.ts` is not crypto-secure — fine for game determinism, wrong for anything adversarial. Documented as intentional.
+### V2 — Withering loss cannot trigger organically (verified by probe)
+`checkWithering` requires 5 **living** regions at stability ≤ 0. In a 40+ hand drain-everything run, the max dead-living count reached was **4** (final run ended via Flourishing -5 → "withered" by score, not by withering). Dormant regions are excluded, and the 8 starting alive regions decay −1/epoch while ♥ Q+ wakes more, making 5 simultaneous zero-stability living regions practically unreachable. **The only real loss path is the Flourishing ≤ target-at-epoch-8 score check** (plus Flourishing ≤ 0 never triggers early — see V3). So `WITHERING_LIMIT = 5` as documented in the header contract is effectively unreachable in normal play. Suggest either counting dormant regions, or removing/dialing down the constant so the rules text matches reality.
 
-### V5 — Browser acceptance risks
-- No `index.html` / entry point exists at all: `vite build` and `vite dev` will fail or produce an empty bundle. **The app is not browser-runnable yet.** This is the single largest acceptance blocker.
-- `vite.config.ts` binds to default host (localhost) with `strictPort` on 5177 — good, matches the localhost-only convention; no `--host 0.0.0.0` exposure.
-- React 19 + vite 8 + typescript 7 (note: `typescript@^7.0.2` is unusual — verify this is the intended major; TS7 has stricter defaults that already surfaced as finding V1).
-- No CI, no lint, no git history — nothing to review for regressions.
+### V3 — "Flourishing ≤ 0 at an epoch boundary" loss rule not implemented (verified by probe)
+Header comment (line 9) claims loss when Flourishing ≤ 0 at an epoch boundary. Probe shows Flourishing went to −5 mid-run and the game kept going all the way to epoch 8, ending only on the final-target check. Either implement the boundary check in `closeEpoch`/`afterLaw` or fix the comment. **This makes the game unwinnable-by-design only via the final-target rule, so difficulty is fine — but the documented rules and code disagree.**
+
+### V4 — Poker evaluation is correct (verified by reading + test vectors)
+`evaluate()` does exhaustive 5-of-N enumeration; `evalFive` handles wheel (A-2-3-4-5 → key[1]=5), straight-flush, quads/boat/two-pair ordering, kickers. Test vectors (royal > quads > boat; wheel detection; best-5-of-8) pass. One nit: no guard against `cards.length > 8` (unbounded O(n⁵) for large N), but HAND_SIZE is fixed at 8 so unreachable in practice.
+
+### V5 — Determinism is genuine (verified)
+Same seed → identical `GameState` (test asserts deep equality), and independent probes confirm reproducible worlds/chronicles. Deck reshuffle on empty uses `rngFor(s, 99)` salted by epoch/hand — deterministic. Hand uniqueness probe confirmed no duplicate cards in a dealt hand.
+
+### V6 — Market card provenance edge (minor, untested)
+`closeEpoch` pulls 3 market offers from `[...deckRest, ...discardPile]`, and remaining pool goes back to `deckRest`. If `deckRest + discardPile < 3`, fewer offers are made (loop guards on `rest.length > 0`) — safe. If deck is fully in-hand + discard at epoch end, market could silently be small. Not a bug, but worth a test case.
+
+## Test gaps (verified — current suite is good but incomplete)
+
+Existing 21 tests cover: determinism, poker eval vectors, contracts/constants, suit actions, epoch/advance flow, market, full-run termination, withering helper, challenge helpers, save round-trip, chronicle variety, legalActions. Gaps:
+1. **No test that `checkWithering` ever fires from real play** — my probe shows it doesn't (V2); a test asserting the documented rule would have caught this.
+2. **No test for Flourishing ≤ 0 boundary rule** (V3) — documented but unimplemented and untested.
+3. **No test for deck exhaustion → reshuffle path** (`drawUp` reshuffle at line 178–184) — the discard-rebuild branch is never exercised by the suite.
+4. **No test that enacting a law actually applies its modifier** (e.g. `decayDelta` changes next decay tick, `marketDiscount` changes `offerCost`).
+5. **No test for `buyCard` with insufficient Seeds** or `enactLaw` with insufficient Seeds (throw paths).
+6. **No save-load test through `saveGame`/`loadGame`** with a mocked localStorage (only raw JSON round-trip tested, not the envelope/migration path).
+
+## Security / persistence
+
+- **localStorage save system** (`src/ui/save.ts`): versioned envelope `{version, savedAt, state}`, forward-only migration, try/catch on parse. Sound for a local game. Note: this project's AGENTS.md precedent (Civicfolio) forbids localStorage for secrets — no secrets exist here, so acceptable, but if bankroll/purchases are ever added, move off localStorage.
+- **No server, no network calls in app code, no secrets, no user input beyond seed text and card clicks.** Seed text is hashed with FNV-1a before use — never rendered dangerously (React escapes by default). XSS risk: none found.
+- **No git repo** — nothing to review for history; also means no rollback safety for the implementer. Recommend `git init` + commit.
+- `vite.config.ts` binds localhost only with strictPort 5177 — no exposure risk.
+
+## Browser acceptance risks
+
+- **Playwright verify script passes** (my run + coordinator's): menu → seeded run → play → discard → advance → reload persistence → verdict screen all work, no console/page errors. This is a strong acceptance signal.
+- Only one viewport tested (1280×900); no mobile/narrow-width check. Cards are buttons, layout is flex — likely fine but unverified.
+- `scripts/verify.mjs` uses `text=Begin New World` selectors — brittle to copy changes; consider data-testid attributes if UI copy is iterated.
+- React 19 + Vite 8 + TS 7 are cutting-edge majors; build is currently green but no CI pins these — a fresh `npm install` could pull newer breaking majors since package.json uses `^` ranges. Recommend commit-locking via package-lock (already present) and a CI job.
 
 ## Unverified / deferred
-- No tests existed to run, so "engine correctness" claims above are from code reading plus the one type-check run, not an executed test suite. I did not hand-simulate the full 21-subset evaluation.
-- I did not attempt to invent the missing UI to test in a browser; that's implementation work, not review scope.
-- node_modules security scan was incomplete (threat-intel lookups timed out) — treated as environment noise, not a repo issue.
+
+- I did not hand-simulate the full 56-combination (8-choose-5) evaluation; relied on test vectors + code reading.
+- I did not audit `scripts/spade-check.mjs`/`spade2.mjs` (dev-only utilities).
+- Playwright `SAVE_BYTES 2513` matches a plausible save size; I did not byte-inspect the envelope.
 
 ## Summary for coordinator
-Blocking: (a) no test files, (b) no app entry/index.html, (c) tsc error (now fixed).
-The engine code present is small and, on inspection, sound. Priority actions: add vitest suite for `rng.ts`/`poker.ts`, add the React app entry, and re-run `npm test && npm run build` to green.
+
+App is **not** a poker-table app — it's the intended planet-roguelike and is in good shape: tsc clean, 21/21 tests green, build green, Playwright acceptance green. The two real engine-rule gaps (V2 withering unreachable, V3 flourish≤0 rule unimplemented) are documentation-vs-code mismatches rather than blockers, but should be resolved (implement or amend the header contract) before calling the engine "done." Suggest: git init, CI, add the missing deck-reshuffle and law-effect tests, remove dead `playsLeft`.
