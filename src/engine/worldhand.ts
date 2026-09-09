@@ -213,11 +213,25 @@ export function buildPlan(
   const weakest = living.reduce((a, b) => (b.stability < a.stability ? b : a), living[0])
 
   switch (maj.suit) {
-    case 'S': { // Roots: stability to a region
+    case 'S': { // Roots: stability to a region; adjacency spreads it, development deepens it
       const target = regions.find((r) => r.id === (tieChoice as number | undefined) && !r.dormant) ?? weakest
-      const gain = Math.max(1, Math.round(sum / 4)) + lawBonus('rootsBonus')
+      const devBonus = Math.floor(target.development / 3)
+      const gain = Math.max(1, Math.round(sum / 4)) + lawBonus('rootsBonus') + devBonus
       effects.push({ kind: 'stability', regionId: target.id, amount: gain })
-      summary = `Roots in ${target.name}: +${gain} stability.`
+      // a Roots play deepens the soil it steadies (+1 development, feeds future Roots gains)
+      effects.push({ kind: 'develop', regionId: target.id, amount: 1 })
+      summary = `Roots in ${target.name}: +${gain} stability${devBonus > 0 ? ` (incl. +${devBonus} development)` : ''}.`
+      // root network: living neighbors of the target share half the gain (dormant neighbors get nothing)
+      const spread = Math.floor(gain / 2)
+      if (spread > 0) {
+        for (const nid of target.adjacency) {
+          const n = regions.find((r) => r.id === nid)
+          if (n && !n.dormant && n.id !== target.id) {
+            effects.push({ kind: 'stability', regionId: n.id, amount: spread })
+            summary += ` Roots spread to ${n.name}: +${spread}.`
+          }
+        }
+      }
       break
     }
     case 'H': { // Bloom: Flourishing; Q+ cards may wake a dormant region

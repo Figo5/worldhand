@@ -13,7 +13,7 @@ Commit replaces the v1 (8-epoch, one-card-per-play) contract with the corrected 
 5. **Planet map** — click any region node (mouse or keyboard): terrain color, stability pips, development ring, and adjacency lines/detail appear. Dormant regions render dimmed with "z".
 6. **Epoch flow** — 4 plays closes the epoch: target check, challenge, decay, income, market. Buy laws/upgrades/expansions with Seeds or continue.
 7. **Epoch 3 Drought** — explicitly announced at epoch start in the log and HUD; keep every living region at stability 3+ through epoch end or the world withers.
-8. **Save/Quit** — Save persists a versioned envelope; **Quit keeps the save** (menu → Load Saved World restores). Only "Clear Save" deletes.
+8. **Save/Quit** — the game **auto-saves after every committed action** (the Save button remains as an explicit checkpoint); **Quit keeps the save** (menu → Load Saved World restores). Only "Clear Save" deletes. Rewards are applied once in the engine commit, so auto-saving cannot duplicate them.
 
 ## What changed vs the previous slice (v1 → v2)
 
@@ -29,12 +29,12 @@ Commit replaces the v1 (8-epoch, one-card-per-play) contract with the corrected 
 
 ## Verification performed
 
-- `npx vitest run` — **59 tests, all passing** (poker categories, precedence, wheel; selection scoring; majority/tie; plan determinism preview==commit; discard/refill/conservation; 4 plays + 3 discards; targets; drought; market; caps; withering; save version).
+- `npx vitest run` — **64 tests, all passing** (poker categories, precedence, wheel; selection scoring; majority/tie; plan determinism preview==commit; discard/refill/conservation; 4 plays + 3 discards; targets; drought; market; caps; withering; save version; Roots adjacency spread & development bonus/growth/cap).
 - `node scripts/qa.mjs` — real Playwright runs at **1280×800 and 420×820**: new world → select 2 → preview → play (3/4) → discard (refill to 8, 2/3) → map click (adjacency detail) → save → quit → load; no console errors; no horizontal overflow.
 - Screenshots in `shots/`: `before-*.png` (menu), `after-*-selected.png`, `after-*-map.png`.
 
 ## Known scope boundaries (intentional)
 
 - No betting, no backend, no AI opponents, no deployment — local browser only.
-- Development rings currently render but only Bloom/expansion paths move region state; deeper development economy is post-slice.
+- Development is now mechanical on Roots plays: each Roots play adds +1 development to its target, and every 3 development grants +1 stability on future Roots plays there; living neighbors receive half the Roots amount (adjacency spread). Other suits' development economy remains post-slice.
 - 1–4-card selections intentionally cannot form straights/flushes (poker-correct).

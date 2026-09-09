@@ -27,7 +27,9 @@ Each epoch:
 
 ## Actions per suit
 
-- **♠ Roots** — stability to a living region, `1 + floor(rankSum/4)` (+ law bonuses). The weakest living region is targeted unless specified. Caps at stability 10.
+- **♠ Roots** — stability to a living region, `1 + floor(rankSum/4)` (+ law bonuses + `floor(development/3)` development bonus). The weakest living region is targeted unless specified. Caps at stability 10.
+  - **Adjacency matters**: living neighbors of the target each gain `floor(gain/2)` stability ("roots spread"). Dormant neighbors gain nothing.
+  - **Development matters**: the play adds +1 development to the target (capped at 10); every 3 development on a target grants +1 stability on future Roots plays there.
 - **♥ Bloom** — `1 + floor(rankSum/5)` Flourishing (+ law bonuses). If **any Q+ card** is in the selection, the first dormant region wakes.
 - **♦ Sow** — `1 + floor(rankSum/3)` Seeds (+ law bonuses). Caps at 30 Seeds.
 - **♣ Tend** — +1 stability to *every* living region (+ Communal Tending upgrade makes it +2).
@@ -61,3 +63,7 @@ When epoch 3 begins, the game announces it in the World Chronicle and the HUD: *
 ## Determinism
 
 Same seed phrase → identical world, shuffles, deals, and chronicle. All randomness flows from the hashed seed; the engine is pure (no DOM, no clock, no Math.random).
+
+## Saving
+
+**Auto-save**: the game persists the state to localStorage after every committed state-changing action (play, discard, buy, end-market, epoch close — and selection changes), so quitting or reloading never loses progress. Rewards are applied exactly once inside the engine's commit; saving the resulting state cannot double-apply them. Quit still never clears the save — only "Clear Save" is destructive.

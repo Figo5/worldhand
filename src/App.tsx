@@ -25,6 +25,15 @@ export default function App() {
     if (existing) setState(existing)
   }, [])
 
+  // Auto-save: every committed state-changing action persists immediately.
+  // Selection toggles also trigger this (cheap, idempotent) so a quit or reload
+  // never loses progress. Rewards are applied once inside the engine commit —
+  // saving the resulting state cannot double-apply them, and the Save button
+  // stays as an explicit no-op-safe checkpoint. Quit still never clears the save.
+  useEffect(() => {
+    if (state) saveGame(state)
+  }, [state])
+
   const act = useCallback((a: Action) => {
     try {
       setState((s) => (s ? checkWithering(applyAction(s, a)) : s))
@@ -158,6 +167,18 @@ export default function App() {
           <div className="row controls-row">
             <button className="advance" onClick={() => act({ type: 'endMarket' })}>
               Continue → close epoch {state.epoch}
+            </button>
+          </div>
+        </section>
+      ) : state.phase === 'epoch-end' ? (
+        <section className="panel" data-testid="epoch-end">
+          <h2>Epoch {state.epoch} closed</h2>
+          <p>
+            {state.log.filter((l) => l.at === `e${state.epoch}`).slice(-3).map((l) => l.text).join(' · ') || 'Epoch resolved.'}
+          </p>
+          <div className="row controls-row">
+            <button className="advance" data-testid="close-epoch-btn" onClick={() => act({ type: 'closeEpoch' })}>
+              Continue → begin epoch {state.epoch + 1}
             </button>
           </div>
         </section>

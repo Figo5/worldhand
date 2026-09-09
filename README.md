@@ -15,7 +15,7 @@ A deterministic seeded planet-building card roguelike with a poker-scored engine
 
 | Suit | Action |
 |---|---|
-| ♠ Roots | Stability to a living region (magnitude scales with rank sum; weakest region by default) |
+| ♠ Roots | Stability to a living region (magnitude scales with rank sum; weakest region by default). **Adjacency**: living neighbors of the target gain half the amount ("roots spread"). **Development**: +1 development to the target; every 3 development grants +1 stability on future Roots plays there. |
 | ♥ Bloom | +Flourishing; any Q+ card in a Bloom play wakes a dormant region |
 | ♦ Sow | +Seeds |
 | ♣ Tend | +1 stability to *every* living region |
@@ -32,7 +32,7 @@ At each epoch end you may spend **Seeds** on up to 3 offers: **laws** (persisten
 
 ## Saves
 
-Versioned (`version: 2`) localStorage envelope. Loading a forward-only version or an incompatible v1 save is rejected, not guessed. **Quit never clears your save** — Quit returns to the menu with the save intact; "Clear Save" is the only destructive action.
+Versioned (`version: 2`) localStorage envelope with **auto-save**: every committed state-changing action persists immediately (the Save button remains as an explicit checkpoint). Loading a forward-only version or an incompatible v1 save is rejected, not guessed. **Quit never clears your save** — Quit returns to the menu with the save intact; "Clear Save" is the only destructive action. Rewards are applied once inside the engine commit, so auto-saving cannot duplicate them.
 
 ## Development
 

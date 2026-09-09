@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   newGame, applyAction, preview, buildPlan, suitMajority, cardConservation,
-  checkWithering, droughtChallenge, EPOCH_TARGETS, STABILITY_SUM_TARGETS,
+  checkWithering, droughtChallenge, applyPlanEffects, EPOCH_TARGETS, STABILITY_SUM_TARGETS,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, HAND_SIZE, TOTAL_EPOCHS, TOTAL_REGIONS,
   STABILITY_BASE, STABILITY_MAX, SEEDS_CAP, START_REGIONS,
 } from '../src/engine/worldhand'
@@ -193,6 +193,50 @@ describe('suit actions — two meaningful actions per suit', () => {
     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
     s = applyAction(s, { type: 'play' })
     expect(s.regions.filter((r) => !r.dormant)).toHaveLength(5)
+  })
+
+  // Adjacency/development are mechanical (v2.1 fix): Roots spreads to living
+  // neighbors and gains from target development, and plays deepen development.
+  it('♠ Roots spreads stability to living neighbors (adjacency matters)', () => {
+    const s0 = newGame('adjacency')
+    const s1 = forceHand(s0, [C(10, 'S'), C(5, 'H')])
+    const plan = buildPlan(s1.hand, [0], s1.regions, [])
+    const stab = plan.effects.filter((e) => e.kind === 'stability')
+    // region 0's neighbors are 1, 7, 8 — at start only 1 is living (7 and 8 dormant)
+    const targetAmount = (plan.effects[0] as any).amount
+    expect(plan.effects[0]).toEqual({ kind: 'stability', regionId: 0, amount: targetAmount })
+    expect(stab.map((e) => (e as any).regionId).sort()).toEqual([0, 1])
+    for (const e of stab.slice(1)) expect((e as any).amount).toBe(Math.floor(targetAmount / 2))
+    expect(plan.summary).toContain('Roots spread to')
+  })
+  it('♠ Roots does not spread to dormant neighbors', () => {
+    const s0 = newGame('adjacency-dormant')
+    const s1 = forceHand(s0, [C(10, 'S'), C(5, 'H')])
+    const plan = buildPlan(s1.hand, [0], s1.regions, [])
+    const regionIds = plan.effects.filter((e) => e.kind === 'stability').map((e) => (e as any).regionId)
+    expect(regionIds).not.toContain(8)
+    expect(regionIds).not.toContain(6)
+  })
+  it('development deepens Roots: +1 stability per 3 development', () => {
+    const s0 = newGame('development')
+    s0.regions[0].development = 3
+    const base = buildPlan([C(10, 'S')], [0], s0.regions.map((r) => ({ ...r, development: 0 })), [])
+    const dev = buildPlan([C(10, 'S')], [0], s0.regions, [])
+    expect((dev.effects[0] as any).amount).toBe((base.effects[0] as any).amount + 1)
+    expect(dev.summary).toContain('development')
+  })
+  it('a Roots play adds +1 development to the target (feeding future Roots)', () => {
+    let s = newGame('devgrow')
+    s = forceHand(s, [C(14, 'S')])
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    expect(s.regions[0].development).toBe(1)
+  })
+  it('development caps at STABILITY_MAX via applyPlanEffects', () => {
+    const s = newGame('devcap')
+    s.regions[0].development = STABILITY_MAX
+    applyPlanEffects(s, { cards: [], category: 'high', categoryLabel: '', categoryPoints: 0, suit: 'S', suitDecision: 'single', suitCounts: { S: 1, H: 0, D: 0, C: 0 }, rankSum: 10, effects: [{ kind: 'develop', regionId: 0, amount: 1 }], summary: '', valid: true, invalidReason: '' })
+    expect(s.regions[0].development).toBe(STABILITY_MAX)
   })
 })
 
