@@ -138,8 +138,19 @@ button.danger:hover:not(:disabled) { background: #3d1a1a; }
 .action { color: var(--accent2); font-size: 0.8rem; }
 .action.allin { color: var(--bad); }
 
+.seat.region-btn { text-align: left; font: inherit; color: inherit; padding: 14px; }
+.seat.region-btn.playable { border-color: var(--accent); cursor: pointer; }
+.seat.region-btn.playable:hover { background: #1a2620; }
+.seat.region-btn.sel { border-color: var(--accent2); box-shadow: 0 0 8px rgba(88, 166, 255, 0.4); }
+.seat.region-btn:disabled { cursor: default; border-color: var(--edge); }
+
 .hand { background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 14px; }
 .hand-cards { display: flex; gap: 8px; flex-wrap: wrap; }
+.pcard-btn { background: none; border: none; padding: 0; border-radius: 7px; }
+.pcard-btn.sel .pcard { outline: 3px solid var(--accent2); outline-offset: 2px; }
+.pcard-btn.sel { box-shadow: 0 0 8px rgba(88, 166, 255, 0.6); }
+.controls-row { margin-top: 10px; }
+button.advance { border-color: var(--accent2); }
 .pcard {
   display: inline-flex;
   align-items: center;

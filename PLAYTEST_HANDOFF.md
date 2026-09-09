@@ -1,65 +1,61 @@
 # Playtest Handoff — Worldhand
 
-**Status**: vertical slice complete. Engine + UI + tests verified. No known blockers.
+**Status**: vertical slice complete and verified in a real browser (Playwright/Chromium).
+Engine contracts: 12 regions, 8 epochs × 4 hands, 8-card hands, 3 discards, explicit
+Play/Discard/Advance, suit-specific actions, Flourishing target 12, Seeds, stability base
+3, market, laws, challenges, versioned saves.
 
-## How to start
+## Start
 
 ```bash
 cd /Users/giofiore/Documents/Codex/worldhand
-npm install   # if node_modules missing
-npm run dev   # http://localhost:5177 (strict port)
+npm install          # if needed
+npm run dev          # http://localhost:5177 (strict port)
 ```
 
-Verify first:
+## Verified evidence (this build)
 
-```bash
-npx tsc --noEmit   # → clean
-npx vitest run     # → 19/19 passed
-npx vite build     # → dist/ emitted
-```
+Commands run and results:
 
-## What to playtest (30 min)
+- `npx tsc --noEmit` → clean.
+- `npx vitest run` → **21/21 passed** (determinism, suit actions, epoch/law/market flow,
+  withering, challenge evaluation, full-run termination in < 1s).
+- `npm run build` → production bundle emitted (dist/).
+- `node scripts/verify.mjs` (dev server on 127.0.0.1:5177, headless Chromium):
+  - COUNTS: 12 regions, 8 cards, HUD `Flourishing 3/12 | Seeds 8 | Discards 3/3 | Living 4/12`.
+  - Play verified: hand shrank 8 → 7 after card select + Play; Seeds 8 → 9 via ♦ Sow.
+  - Discard verified: counter 3 → 2.
+  - Reload verified: HUD identical after `page.reload()`; `localStorage['worldhand.save']` = 2513 bytes.
+  - Full Advance-only run to epoch 8 → verdict screen rendered
+    ("🍂 The World Withers — Final Flourishing −5 fell short of 12").
+  - Zero page errors (`pageerror`/console.error = []).
+  - Screenshots in `shots/`: menu, first hand, after-play, region-selected, mid-hand,
+    after-reload, game-over.
 
-1. **Determinism**: start a run with seed `auralia-the-first`. Note your 8-card hand.
-   Quit, clear save, restart with the same seed — the hand and 3 starting regions must
-   be identical.
-2. **Action economy**: Prosper on a region → Order rises by `3 + strength×2`; actions
-   tick 3 → 0; epoch advances automatically after the third action.
-3. **Law phase**: after each epoch end you must pick one of two laws; the enacted chip
-   appears in the HUD bar and persists next epoch.
-4. **Decay & fracture**: leave regions unfortified; they lose 1 stability per epoch and
-   fracture at 0. Repair (Fortify on fractured) restores to 3.
-5. **Market**: Trade opens 3 offers; buy one (−6 Order, −2 with Open Markets); bought
-   cards should surface in a later hand (deck reshuffle at epoch start).
-6. **Wonder path**: get a region to stability 6+, hold a flush-or-better hand, pay 12
-   Order → Wonder. Build 3 → win screen.
-7. **Loss path**: ignore everything; after 3 fractures (or epoch 15) you get the loss
-   screen with a reason string.
-8. **Saves**: mid-run, hit Save → reload the page → Load. State (hand, regions, Order,
-   laws, log) must be intact. Save envelope is `{version:1, savedAt, state}`.
-9. **Responsive**: narrow window to phone width — regions grid drops to 2 columns,
-   cards shrink, topbar stacks.
+## What to playtest (20 min)
 
-## Known balances to watch
+1. **Determinism**: run seed `auralia-the-first`, note hand; quit, Clear Save, restart
+   same seed → identical hand and world.
+2. **Region targeting**: select a ♠ card → regions become enabled buttons ("Click to
+   target…"); click one, Play; stability rises. Non-♠ plays need no target (hint shown).
+3. **Discard budget**: 3 per hand, resets each hand.
+4. **Epoch flow**: Advance through 4 hands → Challenge resolution, decay, market refresh,
+   law draft (pay Seeds or Skip Law).
+5. **Bloom wake**: play a ♥ Q/K/A → a dormant region wakes (Living count rises).
+6. **Save/Load**: Save → reload page → Load; state identical. Auto-save also runs every action.
+7. **Responsive**: narrow the window — regions drop to 2 columns, cards shrink.
 
-- Starting 3 actions/epoch may feel tight for a 6-region, 3-wonder goal — Great Works
-  (+1 action) is intended as a strong pick.
-- Stone Covenant (+3 Order / +1 decay) is deliberately swingy.
-- Survey base chance 45% + 5%×strength; feel free to tune in `worldhand.ts`.
+## Tuning notes
 
-## Where things live
+- Flourishing target 12 vs ♥ income `round(rank/5)` is tight — Canopy Choir matters.
+- Decay 1/epoch from base 3 gives ~3 idle epochs before regions start dying; the epoch
+  Challenge adds pressure to fortify.
+- Slow Ruin (+5 Seeds, +1 decay) is intentionally the aggressive open.
 
-- Rules: `RULES.md` · Overview: `README.md`
-- Engine: `src/engine/worldhand.ts` (all rules), `src/engine/poker.ts` (evaluation),
-  `src/engine/rng.ts` (mulberry32 + FNV-1a seed hash)
-- Saves: `src/ui/save.ts` (versioned localStorage, forward-only migration hook)
-- UI: `src/App.tsx`, `src/styles.css`
-- Tests: `tests/engine.test.ts`
+## Files
 
-## Extending
-
-- New laws: add to `LAWS` in `src/engine/worldhand.ts` and wire their effect where
-  `s.laws.reduce(...)` appears.
-- New actions: extend the `Action` union, the `applyAction` switch, and `legalActions`.
-- Save version bump: increment `SAVE_VERSION` + `CURRENT_VERSION` and add a migration
-  step in `migrate()`.
+- Engine: `src/engine/worldhand.ts` (rules), `poker.ts` (5-of-8 evaluation), `rng.ts`.
+- UI: `src/App.tsx`, `src/styles.css`; saves: `src/ui/save.ts`.
+- Tests: `tests/engine.test.ts`; browser check: `scripts/verify.mjs`.
+- Extend: add laws to `LAWS`, actions to the `Action` union + `applyAction` + UI buttons;
+  bump `SAVE_VERSION`/`CURRENT_VERSION` and add a `migrate()` step for save changes.

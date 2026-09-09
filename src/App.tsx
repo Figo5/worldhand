@@ -2,17 +2,25 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   newGame,
   applyAction,
-  legalActions,
+  checkWithering,
+  challengeMet,
+  suitActionName,
+  FLOURISH_TARGET,
+  TOTAL_EPOCHS,
+  HANDS_PER_EPOCH,
+  STABILITY_MAX,
   type Action,
   type GameState,
   type Region,
 } from './engine/worldhand'
-import { cardName, type Card } from './engine/poker'
+import { cardName } from './engine/poker'
 import { saveGame, loadGame, clearSave } from './ui/save'
 
 export default function App() {
   const [state, setState] = useState<GameState | null>(null)
   const [seedText, setSeedText] = useState('')
+  const [selected, setSelected] = useState<number | null>(null)
+  const [targetRegion, setTargetRegion] = useState<number | undefined>(undefined)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
 
@@ -27,7 +35,7 @@ export default function App() {
 
   const act = useCallback((a: Action) => {
     try {
-      setState((s) => (s ? applyAction(s, a) : s))
+      setState((s) => (s ? checkWithering(applyAction(s, a)) : s))
       setError('')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -37,6 +45,8 @@ export default function App() {
   const start = useCallback(() => {
     const t = seedText.trim() || `world-${Date.now()}`
     setState(newGame(t))
+    setSelected(null)
+    setTargetRegion(undefined)
     setError('')
   }, [seedText])
 
@@ -45,11 +55,13 @@ export default function App() {
       <main className="shell intro">
         <h1>Worldhand</h1>
         <p className="tagline">
-          A deterministic planet-building roguelike. Shape regions across epochs, raise wonders,
-          and hold the world together — your 8-card hand decides how strong your actions are.
+          A deterministic planet-building card roguelike. Across 8 epochs of 4 hands you play
+          an 8-card hand against a living world: ♠ Roots steadies regions, ♥ Bloom raises
+          Flourishing, ♦ Sow gathers Seeds, ♣ Tend tends everything. Reach a Flourishing
+          world before decay wins.
         </p>
         <div className="card panel">
-          <label htmlFor="seed">Seed phrase (same seed = same world, same cards)</label>
+          <label htmlFor="seed">Seed phrase — same seed, same world, same cards</label>
           <input
             id="seed"
             placeholder="e.g. auralia-the-first"
@@ -63,26 +75,24 @@ export default function App() {
             <button className="danger" onClick={clearSave}>Clear Save</button>
           </div>
         </div>
-        <p className="hint">
-          Best 5-of-8 poker hand powers your World Actions — flushes fortify harder, straights
-          raise wonders. No betting, no gambling: just civilization under a ticking clock.
-        </p>
       </main>
     )
   }
 
-  const wonders = state.regions.filter((r) => r.wonder).length
-  const fractured = state.regions.filter((r) => r.fractured).length
+  const awakened = state.regions.filter((r) => !r.dormant)
+  const chOk = state.challenge ? challengeMet(state, state.challenge) : null
   const over = state.phase === 'game-over'
-  const actions = legalActions(state)
 
+  const discardsLeft = state.discardsLeft
+  const targetNeeded = selected !== null && state.hand[selected]?.s === 'S' && targetRegion === undefined
   return (
     <main className="shell">
       <header className="topbar">
         <div>
           <h1>Worldhand</h1>
           <span className="seed">
-            seed: {state.seedText} · epoch {state.epoch}/15
+            seed: {state.seedText} · epoch {state.epoch}/{TOTAL_EPOCHS} · hand{' '}
+            {Math.max(1, state.handInEpoch)}/{HANDS_PER_EPOCH}
           </span>
         </div>
         <div className="row">
@@ -95,11 +105,15 @@ export default function App() {
       </header>
 
       <section className="hud">
-        <div className="hud-item">🪙 Order <strong>{state.order}</strong></div>
-        <div className="hud-item">⚡ Actions <strong>{state.actionsLeft}</strong></div>
-        <div className="hud-item">🏛 Wonders <strong>{wonders}/3</strong></div>
-        <div className="hud-item">💔 Fractured <strong>{fractured}/3</strong></div>
-        {state.bestHand && <div className="hud-item">🃏 Hand <strong>{state.bestHand.category}</strong></div>}
+        <div className="hud-item">🌱 Flourishing <strong>{state.flourishing}/{FLOURISH_TARGET}</strong></div>
+        <div className="hud-item">🌰 Seeds <strong>{state.seeds}</strong></div>
+        <div className="hud-item">🃏 Discards <strong>{state.discardsLeft}/3</strong></div>
+        <div className="hud-item">🗺 Living <strong>{awakened.length}/12</strong></div>
+        {state.challenge && (
+          <div className={`hud-item ${chOk ? 'ok' : 'warn'}`} title="This epoch's challenge (resolution at epoch end)">
+            ⚔ {state.challenge.desc} — {chOk ? 'on track' : 'behind'}
+          </div>
+        )}
       </section>
 
       {state.laws.length > 0 && (
@@ -111,8 +125,8 @@ export default function App() {
       )}
 
       {over ? (
-        <section className={`panel verdict ${state.outcome === 'won' ? 'win' : 'lose'}`}>
-          <h2>{state.outcome === 'won' ? '🏆 The Worldhand Stands' : '💀 The Worldhand Crumbles'}</h2>
+        <section className={`panel verdict ${state.outcome === 'flourishing' ? 'win' : 'lose'}`}>
+          <h2>{state.outcome === 'flourishing' ? '🌸 A Flourishing World' : '🍂 The World Withers'}</h2>
           <p>{state.outcomeReason}</p>
           <div className="row">
             <button className="primary" onClick={() => setState(newGame(state.seedText))}>Replay Same Seed</button>
@@ -121,58 +135,97 @@ export default function App() {
         </section>
       ) : state.phase === 'law' ? (
         <section className="panel">
-          <h2>Enact a Law</h2>
+          <h2>Enact a Law (pay with Seeds)</h2>
           <div className="row">
             {state.lawDraft.map((l) => (
-              <button key={l.id} className="law-btn" onClick={() => act({ type: 'enactLaw', lawId: l.id })}>
-                <strong>{l.title}</strong>
+              <button key={l.id} className="law-btn" disabled={state.seeds < l.cost} onClick={() => act({ type: 'enactLaw', lawId: l.id })}>
+                <strong>{l.title} — {l.cost} Seeds</strong>
                 <span>{l.desc}</span>
               </button>
             ))}
+            <button onClick={() => act({ type: 'skipLaw' })}>Skip Law</button>
           </div>
         </section>
       ) : (
         <>
           <section className="regions">
             {state.regions.map((r) => (
-              <RegionCard key={r.id} r={r} actions={actions} act={act} />
+              <RegionCard
+                key={r.id}
+                r={r}
+                selected={targetRegion === r.id}
+                onSelect={() => setTargetRegion(r.id)}
+                playable={selected !== null && (state.hand[selected]?.s === 'S') && !r.dormant}
+              />
             ))}
           </section>
 
-          <section className="hand">
-            <h2>Your Hand of 8</h2>
+          <section className="hand panel">
+            <h2>
+              Your hand of 8 — pick a card, then Play, Discard ({state.discardsLeft} left), or Advance
+            </h2>
             <div className="hand-cards">
               {state.hand.map((c, i) => (
-                <span key={i} className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>{cardName(c)}</span>
+                <button
+                  key={i}
+                  className={`pcard-btn ${selected === i ? 'sel' : ''}`}
+                  onClick={() => setSelected(i)}
+                  title={suitActionName(c.s)}
+                >
+                  <span className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>{cardName(c)}</span>
+                </button>
               ))}
+            </div>
+            <div className="row controls-row">
+              <button
+                className="primary"
+                disabled={selected === null}
+                onClick={() => {
+                  if (selected === null) return
+                  if (targetNeeded) { setError('♠ Roots needs a region target — click a region first.'); return }
+                  act({ type: 'play', cardIdx: selected, regionId: targetRegion })
+                  setSelected(null)
+                  setTargetRegion(undefined)
+                }}
+              >
+                Play {selected !== null ? suitActionName(state.hand[selected].s) : ''}
+              </button>
+              <button
+                disabled={selected === null || state.discardsLeft <= 0}
+                onClick={() => { if (selected !== null) { act({ type: 'discard', cardIdx: selected }); setSelected(null) } }}
+              >
+                Discard ({discardsLeft})
+              </button>
+              <button className="advance" onClick={() => { act({ type: 'advance' }); setSelected(null); setTargetRegion(undefined) }}>
+                Advance → {state.handInEpoch < HANDS_PER_EPOCH ? `hand ${state.handInEpoch + 1}` : 'end of epoch'}
+              </button>
             </div>
           </section>
 
           {state.market.length > 0 && (
             <section className="panel market">
-              <h2>Market — buy cards into the world deck</h2>
+              <h2>Market — buy cards into the deck (Seeds)</h2>
               <div className="row">
-                {state.market.map((m, i) => (
-                  <button key={i} onClick={() => act({ type: 'buyCard', offerIdx: i })}>
-                    {cardName(m.card)} · {Math.max(1, m.cost - state.laws.reduce((n, l) => n + (l.marketDiscount ?? 0), 0))} Order
-                  </button>
-                ))}
+                {state.market.map((m, i) => {
+                  const discount = state.laws.reduce((n, l) => n + (l.marketDiscount ?? 0), 0)
+                  const cost = Math.max(1, m.cost - discount)
+                  return (
+                    <button key={i} disabled={state.seeds < cost} onClick={() => act({ type: 'buyCard', offerIdx: i })}>
+                      {cardName(m.card)} · {cost} 🌰
+                    </button>
+                  )
+                })}
               </div>
             </section>
           )}
 
-          <section className="controls">
-            <div className="row">
-              <button className="primary" onClick={() => act({ type: 'survey' })} disabled={!actions.some((a) => a.type === 'survey')}>
-                Survey ({actions.some((a) => a.type === 'survey') ? '1⚡' : '—'})
-              </button>
-              <button onClick={() => act({ type: 'trade' })} disabled={!actions.some((a) => a.type === 'trade')}>
-                Open Market
-              </button>
-              <button className="danger" onClick={() => act({ type: 'endActions' })}>End Actions</button>
-            </div>
-            {error && <p className="error">{error}</p>}
-          </section>
+      {error && <p className="error">{error}</p>}
+      {!error && selected !== null && state.hand[selected]?.s === 'S' && targetRegion === undefined && (
+        <p className="hint">♠ Roots selected — click a living region above to target it, then Play.</p>
+      )}
+      {!error && selected !== null && state.hand[selected]?.s !== 'S' && (
+        <p className="hint">♥ Bloom / ♦ Sow / ♣ Tend need no region target — press Play.</p>
+      )}
         </>
       )}
 
@@ -180,7 +233,7 @@ export default function App() {
         <h2>World Chronicle</h2>
         <ul>
           {state.log.slice(-12).map((l, i) => (
-            <li key={i}><span className="street">E{l.epoch}</span> {l.text}</li>
+            <li key={i}><span className="street">{l.at}</span> {l.text}</li>
           ))}
         </ul>
       </section>
@@ -190,41 +243,44 @@ export default function App() {
 
 function RegionCard({
   r,
-  actions,
-  act,
+  selected,
+  onSelect,
+  playable,
 }: {
   r: Region
-  actions: Action[]
-  act: (a: Action) => void
+  selected: boolean
+  onSelect: () => void
+  playable: boolean
 }) {
-  const canProsper = actions.some((a) => a.type === 'prosper' && a.regionId === r.id)
-  const canFortify = actions.some((a) => a.type === 'fortify' && a.regionId === r.id)
-  const canWonder = actions.some((a) => a.type === 'wonder' && a.regionId === r.id)
+  const label = playable
+    ? `Select ${r.name} as Roots target`
+    : `${r.name} (${r.dormant ? 'dormant' : `stability ${r.stability}/${STABILITY_MAX}`})`
   return (
-    <div className={`seat region ${r.fractured ? 'folded' : ''} ${r.wonder ? 'wonder' : ''}`}>
+    <button
+      type="button"
+      className={`seat region region-btn ${r.dormant ? 'folded' : ''} ${selected ? 'sel' : ''} ${playable ? 'playable' : ''}`}
+      onClick={playable ? onSelect : undefined}
+      disabled={!playable}
+      aria-pressed={selected}
+      aria-label={label}
+      title={playable ? 'Click to target this region with ♠ Roots' : playable ? label : 'Select a ♠ card to enable region targeting'}
+    >
       <div className="seat-head">
         <strong>{r.name}</strong>
         <span className="muted">{r.terrain}</span>
       </div>
-      <div className="stab">
-        {r.wonder && <span className="action">🏛 Wonder</span>}
-        {!r.wonder && (
-          <span className="stab-bar" title={`stability ${r.stability}/10`}>
-            {Array.from({ length: 10 }, (_, i) => (
+      {r.dormant ? (
+        <span className="action allin">dormant — wake it with ♥ (Q+)</span>
+      ) : (
+        <div className="stab">
+          <span className="stab-bar" title={`stability ${r.stability}/${STABILITY_MAX}`} aria-hidden="true">
+            {Array.from({ length: STABILITY_MAX }, (_, i) => (
               <i key={i} className={i < r.stability ? 'on' : 'off'} />
             ))}
           </span>
-        )}
-        <span className="chips">{r.stability}/10</span>
-      </div>
-      {r.fractured && <span className="action allin">fractured</span>}
-      <div className="row">
-        {canProsper && <button onClick={() => act({ type: 'prosper', regionId: r.id })}>Prosper</button>}
-        {canFortify && <button onClick={() => act({ type: 'fortify', regionId: r.id })}>{r.fractured ? 'Repair' : 'Fortify'}</button>}
-        {canWonder && <button className="primary" onClick={() => act({ type: 'wonder', regionId: r.id })}>Wonder (12🪙)</button>}
-      </div>
-    </div>
+          <span className="chips">{r.stability}/{STABILITY_MAX}</span>
+        </div>
+      )}
+    </button>
   )
 }
-
-export type { Card }

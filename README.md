@@ -1,48 +1,52 @@
 # Worldhand
 
-A deterministic, seeded **planet-building roguelike** played with an 8-card hand.
-Pure engine, React + TypeScript + Vite UI, versioned localStorage saves. No backend,
-no external runtime dependency, no gambling/betting mechanics.
+A deterministic, seeded **planet-building card roguelike**. Pure engine, React +
+TypeScript + Vite UI, versioned localStorage saves. No backend, no gambling/betting.
 
 ## Run
 
 ```bash
 cd /Users/giofiore/Documents/Codex/worldhand
 npm install       # once
-npm run dev       # → http://localhost:5177
+npm run dev       # → http://localhost:5177 (strict port)
 ```
 
-Other commands: `npm run build` (typecheck + production build), `npm test` (vitest).
+Other commands: `npm run build`, `npm test`, `node scripts/verify.mjs` (Playwright smoke
+test against a running dev server; writes screenshots to `shots/`).
 
-## How it plays
+## The game
 
-- Each **epoch** you're dealt an **8-card hand**. Your best 5-card poker hand from
-  those 8 cards is your **hand strength** (0 = high card … 8 = straight flush).
-- You get **3 World Actions** per epoch to spend on regions:
-  - **Prosper** — convert strength into Order (your currency).
-  - **Fortify** — raise a region's stability (or **Repair** a fractured region).
-  - **Survey** — chance to reveal a new region (law-modifiable).
-  - **Trade** — open a 3-card market; buy cards into the world deck for Order.
-  - **Wonder** — build a wonder in a stability-6+ region; requires flush-or-better and 12 Order.
-- End of epoch: regions **decay 1 stability** (0 ⇒ fractured), you collect Order,
-  and you **enact one of two drafted laws** that modify future epochs.
-- **Win** by raising **3 wonders** before 3 regions fracture or 15 epochs pass.
-- **Same seed ⇒ identical world, cards, law drafts, survey rolls.** Every run with the
-  same seed and the same action sequence plays out identically.
+- A world of **12 regions** (4 awake at start) over **8 epochs × 4 hands** (32 hands).
+- Each hand deals **8 cards**. Suits are your verbs:
+  - ♠ **Roots** — +stability to a chosen region (click the region to target it).
+  - ♥ **Bloom** — +Flourishing (the win resource); Q+ also wakes a dormant region.
+  - ♦ **Sow** — +Seeds (currency for market and laws).
+  - ♣ **Tend** — +1 stability to every living region and +1 Flourishing.
+- Per hand: up to **3 Discards**, then explicit **Play** (select card → optional region →
+  Play) and **Advance** to move to the next hand / close the epoch.
+- At epoch end: regions **decay 1 stability** (base 3, max 10), an epoch **Challenge** is
+  resolved (+2 Flourishing if met, −1 if not), the **Market** refreshes (3 cards for
+  Seeds), and a **Law draft** of two is offered (paid with Seeds, or Skip Law).
+- **Win**: Flourishing ≥ **12** when epoch 8 ends. **Lose**: short of the target, or
+  Flourishing ≤ 0, or 5 living regions at 0 stability (Withering).
+
+## Determinism & saves
+
+Same seed phrase ⇒ identical world, hands, market, challenges, and law drafts. Saves are
+versioned `{version, savedAt, state}` envelopes in `localStorage` (`worldhand.save`),
+with a forward-only migration hook. The app auto-saves after every action.
 
 ## Architecture
 
 ```
 src/engine/     pure, DOM-free, deterministic (rng.ts, poker.ts, worldhand.ts)
-src/ui/         save.ts (versioned localStorage envelope)
-src/            React UI (App.tsx, styles.css, main.tsx)
-tests/          vitest engine tests (determinism, mechanics, full-run termination)
+src/ui/save.ts  versioned localStorage envelope
+src/App.tsx     React UI (explicit Play / Discard / Advance controls, ARIA-labelled regions)
+tests/          vitest engine tests (21: determinism, suits, epochs, market, laws, outcomes)
+scripts/        verify.mjs — Playwright end-to-end smoke test + screenshots
 ```
-
-The engine has zero UI or DOM imports; the UI holds no rules. Save files are
-versioned envelopes (`{version, savedAt, state}`) with a forward-only migration hook.
 
 ## Docs
 
 - `RULES.md` — full rules reference.
-- `PLAYTEST_HANDOFF.md` — what to verify when picking this up.
+- `PLAYTEST_HANDOFF.md` — verification checklist and evidence.

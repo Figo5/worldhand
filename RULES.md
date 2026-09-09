@@ -1,79 +1,62 @@
 # Worldhand — Rules
 
-Worldhand is a single-player, deterministic planet-building roguelike. There is **no
-betting, no gambling, and no opponents**: poker hands are used purely as a strength
-meter for your world-shaping actions.
+A single-player, deterministic planet-building card roguelike. No betting, no opponents:
+cards are verbs that act on a living world.
 
-## Components
+## World
 
-- **Regions** (max 6): each has a terrain, a **stability** score (0–10), and may be
-  **fractured** or hold a **Wonder**.
-- **Order** 🪙: the world's currency. Start with 10.
-- **The deck**: a standard 52-card deck. Each epoch you draw an **8-card hand**.
-- **Epochs**: the game runs at most **15 epochs**.
-- **Laws**: permanent modifiers, one enacted per epoch from a draft of two.
+- **12 regions**, each with a terrain and **stability** (base **3**, max **10**). Four
+  start awake; the rest are **dormant** until woken by a ♥ Queen-or-higher Bloom play.
+- **Flourishing** 🌱 — the win resource. Starts at 3. Target: **12**.
+- **Seeds** 🌰 — currency. Start with 8. Income each epoch end: +1 per living region,
+  plus law bonuses.
+- **8 epochs × 4 hands = 32 hands.** Each hand deals **8 cards** from a 52-card deck
+  (reshuffled from discards when empty).
 
-## The 8-card hand
+## Card suits = actions
 
-At the start of each epoch, 8 cards are dealt from the (seeded, deterministic) deck.
-Your **best 5-card poker hand** from those 8 cards determines your **strength tier**:
+Select a card in your hand, optionally click a target region (for ♠), then press **Play**:
 
-| Best hand       | Strength |
-|-----------------|----------|
-| high card       | 0        |
-| pair            | 1        |
-| two pair        | 2        |
-| three of a kind | 3        |
-| straight        | 4        |
-| flush           | 5        |
-| full house      | 6        |
-| four of a kind  | 7        |
-| straight flush  | 8        |
+| Suit | Action | Effect |
+|------|--------|--------|
+| ♠ | **Roots** | +`round(rank/4)` (min 1) stability to the targeted region. Requires a region target; +1 more with *Deep Taproots*. |
+| ♥ | **Bloom** | +`round(rank/5)` (min 1) Flourishing; +1 more with *Canopy Choir*. Q, K, A also wake the first dormant region. |
+| ♦ | **Sow** | +`round(rank/3)` (min 1) Seeds. |
+| ♣ | **Tend** | +1 stability to every living region and +1 Flourishing. |
 
-Strength scales Prosper gains and Fortify amounts, and is a hard requirement for Wonders.
-Discarding cards (via the market/discard action) reshapes your hand before you act.
-
-## World Actions
-
-You get **3 World Actions per epoch** (laws may add more). On each:
-
-- **Prosper (region)** — gain `3 + strength × 2` Order. Disabled on fractured regions.
-- **Fortify (region)** — stability `+2 + strength` (cap 10). On a fractured region this
-  instead **repairs** it to stability 3.
-- **Survey** — reveal a new region with probability `0.45 + strength × 0.05`
-  (always succeeds under *Sky Watch*). On failure (or a full world): +2 Order salvage.
-- **Trade** — open a market of **3 random cards**, each purchasable for 6 Order
-  (2 less under *Open Markets*, minimum cost 1). Bought cards go into the world deck,
-  improving future hands.
-- **Wonder (region)** — costs **12 Order**, requires region stability ≥ 6, no wonder
-  present, not fractured, and **strength ≥ 5** (flush or better).
-
-Spending your last action ends the epoch immediately. You may also **End Actions** early.
+Each hand allows up to **3 Discards** (throw cards back to reshape the hand), and
+**Advance** ends the hand — unplayed cards return to the discard pile and the next hand
+is dealt (or the epoch closes after hand 4).
 
 ## Epoch end
 
-1. **Income**: +1 per healthy region, plus law income (e.g. *Terra Fee* +2).
-2. **Decay**: every healthy region loses `1 + decay modifiers` stability. A region
-   reaching 0 **fractures** permanently (until repaired).
-3. **Law draft**: enact one of two offered laws (when any remain):
+1. **Challenge** (rolled for the coming epoch, shown in the HUD): e.g. "3+ regions at
+   stability 5+", "7+ regions awakened", or "total stability of 18+". Met: **+2
+   Flourishing**; missed: **−1**.
+2. **Decay**: every living region loses `1 + law modifiers` stability. Reaching 0 does
+   not kill instantly, but 5 dead regions = instant **Withering** loss.
+3. **Market refresh**: 3 random cards at 4–8 Seeds each (−2 with *Barter Routes*).
+   Bought cards join the world deck and reappear in later hands.
+4. **Law draft**: enact one of two laws by paying Seeds, or Skip.
 
-| Law             | Effect                                             |
-|-----------------|----------------------------------------------------|
-| Terra Fee       | +2 Order every epoch end                           |
-| Deep Roots      | decay reduced by 1                                 |
-| Open Markets    | market cards cost 2 less                           |
-| Sky Watch       | surveys always succeed                             |
-| Great Works     | +1 World Action every epoch                        |
-| Stone Covenant  | +3 Order each epoch, but decay +1 (aggressive)     |
+| Law | Cost | Effect |
+|-----|------|--------|
+| Mycorrhiza | 6 | decay −1 |
+| Seed Vaults | 8 | +3 Seeds each epoch end |
+| Barter Routes | 5 | market −2 Seeds |
+| Canopy Choir | 10 | ♥ plays +1 Flourishing |
+| Deep Taproots | 10 | ♠ plays +1 stability |
+| Slow Ruin | 4 | decay +1, +5 Seeds each epoch end |
 
 ## Win / Loss
 
-- **Win**: raise **3 Wonders** (or finish epoch 15 with ≥ 2 wonders).
-- **Lose**: **3 regions fracture** (or finish epoch 15 with < 2 wonders).
+- **Flourishing World (win)**: Flourishing ≥ **12** at the end of epoch 8.
+- **Withered (loss)**: short of 12 at epoch 8, Flourishing ≤ 0 at an epoch boundary,
+  or 5 living regions at 0 stability.
 
 ## Determinism & saves
 
-- All randomness flows from a seeded mulberry32 RNG keyed by seed phrase + epoch.
-- Same seed ⇒ same starting regions, hands, markets, law drafts, and survey rolls.
-- Saves are versioned `{version, savedAt, state}` envelopes in `localStorage`
-  under key `worldhand.save`. Older versions migrate forward; newer versions are ignored.
+- All randomness from a seeded mulberry32 RNG (seed phrase → FNV-1a → per-epoch/hand salts).
+- Same seed ⇒ same world, hands, market, challenges, law drafts — forever.
+- Saves: `{version: 1, savedAt, state}` under `localStorage['worldhand.save']`,
+  auto-saved after each action; newer/older versions are safely ignored/migratable.
