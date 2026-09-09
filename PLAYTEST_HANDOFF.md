@@ -1,82 +1,72 @@
 # Worldhand — Playtest Handoff (Balatro-simple edition, three-epoch slice)
 
-## Status: READY FOR PLAYTEST (no suit actions · auto-Seeds · lives · market shop)
+## Status: READY FOR PLAYTEST v3 (save validation · corrected bounded solver · uniform lives · honest scoring labels)
 
-This pass **executes the product owner's three decisions**: (1) remove all per-suit world actions — a play is now just "play a poker hand"; (2) auto-earn Seeds from hand quality on every play; (3) remove the Drought challenge and the stability-survival track entirely — survival is exactly Balatro-style lives. All emojis were removed from the UI. The poker evaluator, the deterministic plan pipeline, and the 3D globe are carried over; the four suit actions and their plumbing are deleted.
+This pass fixes the four issues Astra's independent playtest found, without changing the approved Balatro-simple design: (1) save versioning + structural validation with legacy preservation; (2) `scripts/solve.mjs` rewritten to score the CURRENT mechanics and evaluate real 1–5-card poker hands; (3) the lives contract made uniform — every missed target (including epoch 3) costs 1 life; (4) the scoring display honestly shows `chips × mult = base` and documents that kickers contribute. Targets were recalibrated to **[30, 70, 320]** (round integers — see Balance for the honest bounded-solver numbers; they were NOT band-forced).
 
-## The contract (what changed)
+## The contract (what changed in this pass)
 
-- **A play is just a poker hand**: select 1–5 cards, score them, bank one number. **No suit-decision, no region-choice, no tie-suit action selection.** `tieChoice`/`suitChoice`/`regionChoice` plumbing is gone from the engine, the UI, and the Action union.
-- **AUTO-EARN SEEDS (the money loop)** — no Mine action. Exact formula, documented in RULES.md:
-  `seedsGained = ceil(Growth × SEEDS_PER_GROWTH)`, `SEEDS_PER_GROWTH = 1/4` → **1 Seed per 4 Growth**, capped at the 30-Seeds cap. A 15-Growth hand pays 4 Seeds.
-- **NO DROUGHT ANYWHERE**: the epoch-3 Drought, the stability-3+ requirement, `UPCOMING_DROUGHT_EPOCH`, `DROUGHT_PENALTY_PER_REGION`, the `challengeMet`/`Challenge` struct, and the per-region `stability` field's gameplay use are all removed. `development` stays (it drives the 3D planet's evolution icons + globe size) and the dormant flag stays. Stability only decays as cosmetic pressure.
-- **Lives = Balatro lives**: start 3 (`state.lives`). Miss an epoch target → −1 life + halved epoch income; **0 → game over (withered)**. Winning = beat the epoch-3 target. The old Survival-pool loss gate (a miss drains the pool) is kept 1:1, just renamed `lives`.
-- **HERO GROWTH score** — every play resolves to ONE loud number:
-  `Growth = max(0, round(rankSum × CATEGORY_MULT[category]) × lawGrowthMult + lawGrowthFlat)`
-  - poker base (chips × mult via `CATEGORY_MULT`, kept: high ×1 … straight-flush ×8)
-  - **World-Law bonuses only** (Open Canals ×1.2 floored at 1; Canopy Choir +3 / Stone Masonry +6 flat). No region/drought modifiers exist.
-  `Flourishing` is the cumulative Growth toward the single epoch target. **preview == commit** still holds exactly through the single `buildPlan` pipeline (plan carries `growth` + `growthParts { poker, laws }` + effects, regression-tested).
-- **Market (Balatro shop)**: spend Seeds on poker-hand upgrades (Canopy Choir +3 flat, Stone Masonry +6 flat, Open Canals ×1.2 mult), **card additions** (Fourth Counsel → hand 9, Fifth Counsel → hand 10, new unique ids, deck conservation still exactly 52), **region expansion** (Wake Laguna/Brumal wake a dormant region → planet visibly grows), and **World Laws** (Mycorrhiza decay relief, Seed Vaults income, Barter Routes discount). All per-suit market items (Deep Taproots, Rich Soil, Communal Tending) are removed. **Max 5 owned items** with explicit removal (Remove buttons, no refund, buying blocked at the cap, no double-apply, no negative Seeds).
-- **Epoch-end civilization growth (presentation only)**: every living region gains +1 development — this is what makes the planet's evolution icons appear and the globe itself scale up (globe scale = 50% awakened fraction + 50% total development, 1.00 → 1.22).
+- **SAVE_VERSION 3 + structural validation**: `SAVE_VERSION = 3` marks the Balatro-simple rules generation, with a separate `SCHEMA_VERSION = 3` for the envelope layout. `validateState()` (engine) checks required fields and structure: `lives` present + numeric 0..3, phase is a valid Phase, every card has rank 2–14 and suit S/H/D/C, every market/owned item id is in the current `MARKET_ITEMS` (obsolete Deep-Taproots-era ids are rejected), deck conservation = exactly 52, region shape, 0-lives-only-in-game-over. On load, an incompatible save is **rejected, never migrated and never reinterpreted**: the raw blob is preserved **verbatim** under `worldhand.save.legacy.<ts>` (recoverable; a "Show preserved legacy blob" button is on the menu) and the UI explains a fresh run is needed because the engine rules changed.
+- **Quit preserves progress; destructives confirm**: Quit still never clears the save. "Clear Save" and the game-over "Back to Menu" now require an explicit two-step confirmation (Confirm/Cancel), no `window.confirm` dependency.
+- **Uniform lives contract**: **EVERY missed epoch target — epoch 1, 2, AND 3 — costs 1 life**; the run ends only when lives hit 0; the win check is separate (beat the final target while lives remain). Previously the epoch-3 miss skipped the life cost, so 3 lives could never reach 0 in ordinary play; now three misses drain exactly 3 lives (regression-tested). HUD tooltip, intro copy, RULES.md, and tests all state the same rule.
+- **Corrected bounded solver** (`scripts/solve.mjs`): the old `score()` still carried drought/stability-era terms and the bounded candidate list was filled entirely with 1–2-card combinations (36 of them in an 8-card hand — LOOK=30 never saw a 3+ card hand). The corrected policy evaluates deliberate poker-category candidates across 1–5 cards, scores only current mechanics (Growth toward target, Seeds, lives), discards weak hands sensibly, buys in a documented priority order, splits calibration (`probe-*`) from evaluation (`eval-*`) seeds, and labels its output **bounded solver result** — never a human win-rate estimate.
+- **Honest scoring labels**: the plan now carries `chips` (= rankSum, the true pre-multiplier sum) alongside `pokerBase` (= `round(chips × mult)`, the ALREADY-multiplied part). The UI shows **`{chips} chips × {mult} mult = {base} base`** — the old `{pokerBase} chips × {mult} mult` label implied a second multiplication that never happens. **Kickers contribute**: rankSum sums ALL selected cards, so unrelated kickers add their full rank value (pair K+K+Q = 38 chips × 1.5 = 57); stated plainly in RULES.md/README and pinned by a mutual-consistency test (`pokerBase === round(chips × mult)`).
+- **Targets recalibrated to [30, 70, 320]**: the corrected policy evaluates real poker hands, so it wins far more often than the old mis-focused one. The sweep measured (calibration set): 350 → 70%, 340 → 73%, 330 → 83% (with old e1/e2); the shipped 320 → 83% (eval set). Round integers were picked and the numbers reported honestly — no micro-sweeping to force a band.
 
-## Balance: how the targets were calibrated
+## Balance: bounded solver results (NOT a human win-rate estimate)
 
-Targets are **[45, 110, 360]**. The old [50, 120, 200] belonged to the region/drought-boosted Growth engine; under chips×mult-only Growth the exhaustive median final F is ~1246, so the ladder had to move up. Calibration uses the REFERENCE METHOD directly: `LOOK=30 npx vite-node scripts/solve.mjs` (bounded reference policy, heuristic **not** tuned):
+`LOOK=30 npx vite-node scripts/solve.mjs` (reference method) on the shipped [30, 70, 320]:
 
-| Policy | Result on shipped [45,110,360] |
-|---|---|
-| **LOOK=30** | **16/30 wins (53%) — in the 40–60% band** |
-| LOOK=12 | 3/30 (10%) |
-| Exhaustive | 30/30 (100%); final F min 1035 / median 1246 / max 1761 |
+| Seed set | LOOK=30 | LOOK=12 | Exhaustive |
+|---|---|---|---|
+| evaluation (`eval-*`) | **25/30 (83%)** | 1/30 (3%) | 30/30 (100%) |
+| calibration (`probe-*`) | 24/30 (80%) | 3/30 (10%) | 30/30 (100%) |
 
-The epoch-3 rung was swept by the reference method (e1/e2 fixed at 45/110): e3 340 → 73%, 350 → 67%, **360 → 53%**, 370 → 50%, 380 → 37%, 390 → 23%. **360 lands cleanly in the intended 40–60% band by the reference itself.** (An earlier shipping of e3=335 measured **24/30 = 80%** by the reference method — out of band — so e3 was corrected to 360.) LOOK=12 at 10% and exhaustive at 100% bracket it as intended.
+Final F (eval, LOOK=30): min 307 / median 330 / max 410. **The heuristic is not tuned to a band** — the corrected policy changed the win rate and the honest number is reported as-is. LOOK=12 (3%/10%) and exhaustive (100%) bracket LOOK=30 (83%/80%). Balance judgement is left to playtest.
 
 ## The UI (Balatro-fied, zero emojis)
 
-- **Centerpiece**: the 8-card hand plus **ONE huge Growth readout** (`Growth: 15`, huge gold) with the ordered **breakdown line** (`+15 poker · +0 laws`) and a clear **`15 chips × 1 mult`** pill beside it. Shown even before selection (muted "select 1–5 cards" state).
+- **Centerpiece**: the 8-card hand plus **ONE huge Growth readout** (`Growth: 15`, huge gold) with the ordered **breakdown line** (`+15 poker · +0 laws`) and the honest **`15 chips × 1 mult = 15 base`** pill beside it. Shown even before selection (muted "select 1–5 cards" state).
 - **Rich cards**: cream/white faces, saturated red (♥♦) / blue (♠♣) suits, bold ranks; selection = thick gold outline + ✓ glyph + glow (`.pcard-btn.sel`); cards lift on hover.
-- **Deep dark celestial background**: fixed nebula gradients; the 3D planet (three.js globe) sits beside the hand with its region legend, the new `planet-growth` caption (`0/40 development across 4 living regions — the planet grows with it`), and the `map-detail` inspector.
-- **De-emphasized HUD**: small grey chips — Flourishing/target, Seeds, **Lives 3/3**, Plays, Discards, Living regions. No Drought HUD item (removed entirely).
-- **ALL EMOJIS REMOVED**: HUD labels are plain text ("Flourishing", "Seeds", "Lives", …), effect chips show a text kind label (Law/Upgrade/…), market items show cost as "— 12 Seeds" and a kind tag, verdicts are "A Flourishing World" / "The World Withers", Save button shows "Saved" instead of "Saved ✓" (the ✓ kept on cards/legend is a typographic checkmark, not an emoji). `scripts/check-no-emoji.py` audits the rendered-UI sources (excludes suit glyphs + text checkmark by design) and passes.
-- All review-script hooks kept: `input#seed`, `Begin New World`, `.pcard-btn`, `[data-testid=play-btn]`, `[data-testid=preview]`/`.preview`, `.market`/`.market-btn`, Continue/Close buttons, `.pcard-btn.sel`, `.log li`, `.map-detail`, `.verdict`, Quit / Clear Save, region legend + reduced-motion. `.tie-btn` remains in CSS for compat but no tie UI exists (nothing can tie anymore — suits don't act).
+- **Deep dark celestial background**: fixed nebula gradients; the 3D planet (three.js globe) sits beside the hand with its region legend, the `planet-growth` caption, and the `map-detail` inspector.
+- **De-emphasized HUD**: small grey chips — Flourishing/target, Seeds, **Lives 3/3**, Plays, Discards, Living regions. Lives tooltip: "EVERY missed epoch target (all 3 epochs) costs 1; 0 ends the run".
+- **ALL EMOJIS REMOVED**: HUD labels are plain text; effect chips show a text kind label; market items show "— N Seeds"; verdicts are "A Flourishing World" / "The World Withers"; the ✓ on cards is a typographic checkmark. `scripts/check-no-emoji.py` audits the rendered-UI sources and passes.
+- All review-script hooks kept: `input#seed`, `Begin New World`, `.pcard-btn`, `[data-testid=play-btn]`, `[data-testid=preview]`/`.preview`, `.market`/`.market-btn`, Continue/Close buttons, `.pcard-btn.sel`, `.log li`, `.map-detail`, `.verdict`, Quit / Clear Save, region legend + reduced-motion. NEW hooks: `[data-testid=save-reject]` (incompatible-save panel), `Confirm: Clear Save` (destructive gate).
 
 ## Review-script selector changes (coverage preserved, nothing weakened)
 
-- `scripts/review-probe.mjs` — rewritten for the new contract; the hardcoded expected-target string is now **`'45,110,360'`**; new probes: auto-Seeds formula, Growth laws, no-suit-choice, lives-zero; all 24 assertions true.
-- `scripts/review-pvcommit.mjs` — summary regex `(Mine|Grow|Study|Settle)[^+]*\+(\d+)` → `Banks (\d+) Growth` (suit names are gone). Same extraction/assertion shape, `MATCH: true`.
-- `scripts/review-browser.mjs` — preview-amount regex → `Banks (\d+) Growth`; `preview-equals-commit: true` at both viewports.
-- `scripts/drought-legibility.mjs` — repurposed: now asserts the **absence** of any Drought text in UI/log across 3 seeds (`NO-DROUGHT ASSERTION: PASSED`).
-- `scripts/solve.mjs` / `balance-sweep.mjs` — buildPlan call sites updated (no regions/tie args) + market buy order updated to the new item ids; **the solve heuristic/scoring is untouched**.
-- `scripts/check-no-emoji.py` — new audit script.
-- `scripts/qa.mjs`, `review-planet3d.mjs`, `review-autosave.mjs`, `review-fullrun.mjs` — **no selector changes needed**; all pass unchanged. (review-fullrun's epoch-end phase shows as "unknown" in its phase probe because that probe predates `data-testid="epoch-end"`; the Close/Continue fallback handles it and the run completes — verified separately that Continue advances the epoch.)
+- `scripts/review-probe.mjs` — expected-target string updated **`'30,70,320'`**; all 24 assertions still true.
+- `scripts/review-pvcommit.mjs` / `review-browser.mjs` — the `Banks (\d+) Growth` regex still matches (the summary still starts `Banks N Growth`); no weakening.
+- `scripts/review-save-lives-browser.mjs` (new in the review pass) — its v1/v2 legacy fixtures are now genuinely legacy under v3 and still pass: rejected + preserved.
+- `scripts/solve.mjs` — fully rewritten (see above); `balance-sweep.mjs` retains its own exhaustive policy (unchanged oracle).
+- `scripts/qa.mjs`, `review-planet3d.mjs`, `review-autosave.mjs`, `review-fullrun.mjs`, `drought-legibility.mjs`, `check-no-emoji.py` — pass unchanged.
 
 ## What a playtester should exercise
 
 1. **Start** — enter any seed phrase (same seed = same world, tested). 12 regions on the globe; 4 awake.
-2. **Select 1–5 cards** — the **big Growth number** updates live (`poker → laws` breakdown + chips × mult); the committed play banks exactly the previewed number **and pays Seeds instantly** (watch the Seeds HUD tick up).
-3. **Play hands** — try weak singles (high card, ×1) vs pairs (×1.5) vs a flush (×4): the Growth number and the Seed payout both scale with hand quality. No suit decision ever appears.
+2. **Select 1–5 cards** — the big Growth number updates live (`poker → laws` breakdown + `chips × mult = base`); the committed play banks exactly the previewed number and pays Seeds instantly.
+3. **Play hands** — try weak singles (high, ×1) vs pairs (×1.5) vs a flush (×4). Note the kickers: every selected rank adds chips.
 4. **Discard** — 1–5 at once, refill to 8, budget 3 per epoch.
 5. **Planet map** — legend buttons or the globe itself; `map-detail` shows adjacency; the `planet-growth` caption tracks development.
-6. **Epoch flow** — 4 plays closes the epoch: single-target check, decay, +1 development everywhere (watch the planet's icons and size grow), income, market. Miss a target → −1 life + halved income.
-7. **Market** — buy Growth upgrades (watch every later play jump), a card addition (hand deals 9, conservation holds), or a Wake expansion (planet visibly grows). At 5 owned items buying locks until you Remove one.
-8. **Lives** — miss three epoch targets → withered at 0 lives. Beat 360 at epoch 3 → flourishing win.
-9. **Save/Quit** — auto-save after every action; Quit keeps the save; only "Clear Save" deletes.
+6. **Epoch flow** — 4 plays closes the epoch: single-target check, decay, +1 development everywhere, income, market. **Miss ANY target (all three epochs) → −1 life + halved income.** 0 lives → withered.
+7. **Market** — buy Growth upgrades, a card addition (hand deals 9), or a Wake expansion. At 5 owned items buying locks until you Remove one.
+8. **Lives** — three missed targets → withered at 0 lives. Beat 320 at epoch 3 with lives to spare → flourishing win (the win reason now reports lives remaining).
+9. **Save/Quit** — auto-save after every action; Quit keeps the save; "Clear Save"/"Back to Menu" confirm first. A v2-era save loads to a clear "fresh run needed" explanation with the original blob preserved.
 
 ## Verification performed (this pass)
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run` — **70/70** (worldhand suite rewritten for the new contract: no suit actions, auto-Seeds formula + cap, Growth=chips×mult+laws with preview==commit, lives decrement/game-over/win, deck conservation [52] incl. card additions, market slot cap/removal/no-double-apply; poker suite untouched and green). Before: 80/80 on the previous contract.
+- `npx vitest run` — **87/87** (was 70). New/updated: structural-validation suite (missing lives, non-numeric lives, obsolete era items, unknown ids, invalid phase, malformed cards ×5, old versions v1/v2/99, conservation break, 0-lives-outside-game-over, legacy-blob preservation byte-for-byte + valid-save acceptance via `loadGameDetailed`), lives-contract additions (epoch-3 miss costs its life via a real epoch; win while lives remain; 3 misses → 0 lives full-drain regression), chips×mult×base mutual-consistency test. Targets test updated to [30, 70, 320].
 - `npm run build` — green.
-- `node scripts/qa.mjs` — **ALL PLAYWRIGHT CHECKS PASSED at 1280×800 and 480×800**, zero console/page errors, no horizontal overflow.
-- `node scripts/review-planet3d.mjs` — **PASSED** (canvas mount + pixel sample, legend → map-detail, keyboard, reduced-motion rotation stop, raycast) at both viewports, zero errors.
-- `review-pvcommit / review-browser / review-autosave / review-fullrun / drought-legibility` — all pass, zero errors; `preview-equals-commit: true` both viewports; no Drought text anywhere.
-- `python3 scripts/check-no-emoji.py` — PASSED (no emoji in rendered-UI sources).
-- `LOOK=30` solve: **16/30 wins (53%)** on shipped targets; LOOK=12: 3/30; exhaustive: 30/30.
-- Fresh screenshots: `shots-review/ui-wide-growth.png`, `ui-wide-growth-full.png`, `ui-narrow-growth.png`, `ui-narrow-growth-full.png` (card-first UI, big Growth number, chips×mult pill, 3D planet, no emojis) + `planet3d-*.png` from the 3D acceptance run.
+- `node scripts/qa.mjs` — ALL PLAYWRIGHT CHECKS PASSED at 1280×800 and 480×800, zero console/page errors.
+- `node scripts/review-planet3d.mjs` — PASSED (canvas mount + pixel sample, legend → map-detail, keyboard, reduced-motion rotation stop, raycast) at both viewports, zero errors.
+- `review-probe / review-pvcommit / review-browser / review-autosave / review-fullrun / drought-legibility / review-save-lives-browser / review-independent` — all pass, zero errors.
+- Corrected solver (bounded solver results, NOT human win-rate estimates): LOOK=30 eval 25/30 (83%), calib 24/30 (80%); LOOK=12 eval 1/30 (3%), calib 3/30 (10%); exhaustive 30/30 both sets.
+- Fresh screenshots: `shots-review/ui-wide-growth.png` + `-full`, `ui-narrow-growth.png` + `-full` (honest chips×mult=base pill, 3D planet, no emojis) + `planet3d-*.png` from the 3D acceptance run.
 
 ## Known scope boundaries (intentional)
 
 - No betting, no backend, no AI opponents, no deployment — local browser only.
 - 1–4-card selections intentionally cannot form straights/flushes (poker-correct).
-- Region stability/development have **no gameplay read** — they feed only the planet's presentation and the Seeds income headcount (living healthy regions). This is the intended Balatro-simplification.
-- The LOOK=30 bounded win rate is **53% (in band)** at the shipped [45,110,360]; LOOK=12 at 10% and exhaustive at 100% bracket it as intended.
+- Region stability/development have **no gameplay read** — they feed only the planet's presentation and the Seeds income headcount.
+- The LOOK=30 bounded-solver result is **83%/80%** at the shipped [30, 70, 320] — higher than the old 53% because the corrected policy actually evaluates poker hands. This is not "balanced" by fiat: the number is honestly reported and balance judgement is left to playtest.

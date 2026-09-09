@@ -105,6 +105,9 @@ button.danger { border-color: #7a2c2c; }
 button.danger:hover:not(:disabled) { background: #3d1a1a; }
 
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.confirm-row { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.save-reject { border-color: var(--gold, #c9a24a); }
+.save-reject code { color: var(--gold, #c9a24a); word-break: break-all; }
 
 /* ---------- HUD: deliberately quiet — grey, small, out of the way ---------- */
 .hud { display: flex; gap: 8px; flex-wrap: wrap; }

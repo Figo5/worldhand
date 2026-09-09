@@ -7,7 +7,7 @@ import {
 } from './engine/worldhand'
 import { cardName, SUIT_NAMES } from './engine/poker'
 import type { Suit } from './engine/poker'
-import { saveGame, loadGame, clearSave } from './ui/save'
+import { saveGame, loadGame, loadGameDetailed, clearSave, listLegacySaves } from './ui/save'
 import Planet3D from './components/Planet3D'
 
 const SUIT_GLYPH: Record<Suit, string> = { S: '♠', H: '♥', D: '♦', C: '♣' }
@@ -47,10 +47,15 @@ export default function App() {
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [mapFocus, setMapFocus] = useState<number | null>(null)
+  // Incompatible-save report: the load attempt's explanation + legacy key.
+  const [rejected, setRejected] = useState<{ reason: string; legacyKey: string | null } | null>(null)
+  // Confirmation gate for destructive actions (Clear Save / Back to Menu).
+  const [confirmClear, setConfirmClear] = useState<null | 'clear' | 'back'>(null)
 
   useEffect(() => {
-    const existing = loadGame()
-    if (existing) setState(existing)
+    const res = loadGameDetailed()
+    if (res.state) setState(res.state)
+    else if (res.rejectedReason) setRejected({ reason: res.rejectedReason, legacyKey: res.legacyKey })
   }, [])
 
   // Auto-save: every committed state-changing action persists immediately.
@@ -83,6 +88,7 @@ export default function App() {
   )
 
   if (!state) {
+    const legacyCount = listLegacySaves().length
     return (
       <main className="shell intro">
         <h1>Worldhand</h1>
@@ -92,8 +98,34 @@ export default function App() {
           poker hand, and bank one big <strong>Growth</strong> number toward the epoch target.
           Every play also earns <strong>Seeds</strong> — spend them in the market on upgrades,
           extra cards, and new regions to make the civilization smarter and the planet grow.
-          Miss an epoch target and you lose a life; three misses and the world withers.
+          Every missed epoch target costs a life; at 0 lives the world withers.
         </p>
+        {rejected && (
+          <div className="card panel save-reject" data-testid="save-reject" role="alert">
+            <h2>Saved world is incompatible — a fresh run is needed</h2>
+            <p>{rejected.reason}</p>
+            {rejected.legacyKey && (
+              <p className="muted">
+                The old save was NOT deleted or reinterpreted: the original blob is preserved
+                under the localStorage key <code>{rejected.legacyKey}</code>
+                {legacyCount > 0 ? ` (${legacyCount} preserved legacy save${legacyCount > 1 ? 's' : ''} in total)` : ''}.
+              </p>
+            )}
+            <button
+              onClick={() => {
+                if (rejected.legacyKey) {
+                  const raw = localStorage.getItem(rejected.legacyKey)
+                  if (raw) window.alert('Preserved legacy save blob (unchanged):\n\n' + raw.slice(0, 400))
+                }
+              }}
+            >
+              Show preserved legacy blob
+            </button>
+          </div>
+        )}
+        {!rejected && legacyCount > 0 && (
+          <p className="muted">{legacyCount} legacy save{legacyCount > 1 ? 's' : ''} from older engine versions {legacyCount > 1 ? 'are' : 'is'} preserved in localStorage (recoverable, never erased).</p>
+        )}
         <div className="card panel">
           <label htmlFor="seed">Seed phrase — same seed, same world, same cards</label>
           <input
@@ -105,8 +137,15 @@ export default function App() {
           />
           <div className="row">
             <button className="primary" onClick={start}>Begin New World</button>
-            <button onClick={() => { const s = loadGame(); if (s) setState(s); else setError('No saved world found.') }}>Load Saved World</button>
-            <button className="danger" onClick={clearSave}>Clear Save</button>
+            <button onClick={() => { const res = loadGameDetailed(); if (res.state) { setState(res.state); setRejected(null) } else if (res.rejectedReason) setRejected({ reason: res.rejectedReason, legacyKey: res.legacyKey }); else setError('No saved world found.') }}>Load Saved World</button>
+            {confirmClear !== 'clear' ? (
+              <button className="danger" onClick={() => setConfirmClear('clear')}>Clear Save</button>
+            ) : (
+              <span className="confirm-row">
+                <button className="danger" onClick={() => { clearSave(); setConfirmClear(null); setError('Save cleared.') }}>Confirm: Clear Save</button>
+                <button onClick={() => setConfirmClear(null)}>Cancel</button>
+              </span>
+            )}
           </div>
           {error && <p className="error">{error}</p>}
         </div>
@@ -151,7 +190,7 @@ export default function App() {
           <span className="hud-label">Seeds</span>
           <strong>{state.seeds}<span className="hud-of">/{SEEDS_CAP}</span></strong>
         </div>
-        <div className="hud-item" title="Lives — a missed epoch target costs 1; 0 ends the run">
+        <div className="hud-item" title="Lives — EVERY missed epoch target (all 3 epochs) costs 1; 0 ends the run">
           <span className="hud-label">Lives</span>
           <strong>{state.lives}/{SURVIVAL_START}</strong>
         </div>
@@ -185,7 +224,14 @@ export default function App() {
           <p>{state.outcomeReason}</p>
           <div className="row">
             <button className="primary" onClick={() => setState(newGame(state.seedText))}>Replay Same Seed</button>
-            <button onClick={() => { clearSave(); setState(null) }}>Back to Menu</button>
+            {confirmClear !== 'back' ? (
+              <button className="danger" onClick={() => setConfirmClear('back')}>Back to Menu</button>
+            ) : (
+              <span className="confirm-row">
+                <button className="danger" onClick={() => { clearSave(); setState(null); setConfirmClear(null) }}>Confirm: Back to Menu (clears the finished run's save)</button>
+                <button onClick={() => setConfirmClear(null)}>Cancel</button>
+              </span>
+            )}
           </div>
         </section>
       ) : state.phase === 'market' ? (
@@ -248,7 +294,7 @@ export default function App() {
                   <h2>Resolution preview</h2>
                   <p className="pv-line">
                     <span className={`pv-cat pv-cat-plain`}>{plan.categoryLabel}</span>
-                    <span className="pv-pts">{plan.pokerBase} chips × {plan.mult} mult</span>
+                    <span className="pv-pts">{plan.chips} chips × {plan.mult} mult = {plan.pokerBase} base</span>
                     <span className="pv-dec">
                       {plan.cards.map((c) => cardName(c)).join(' ')}
                     </span>
@@ -268,8 +314,8 @@ export default function App() {
                   <div className="growth-hero" data-testid="growth-hero" aria-live="polite">
                     <span className="growth-hero-label">Growth</span>
                     <span className="growth-hero-num">{plan.growth}</span>
-                    <span className="growth-hero-chips" title="chips × mult — the poker base">
-                      {plan.pokerBase} chips × {plan.mult} mult
+                    <span className="growth-hero-chips" title="chips = rank sum of ALL selected cards (kickers included); base = round(chips × mult) — shown as the full honest equation">
+                      {plan.chips} chips × {plan.mult} mult = {plan.pokerBase} base
                     </span>
                     <span className="growth-hero-breakdown" title="ordered breakdown: poker → laws">
                       {fmtPart(plan.growthParts.poker)} poker · {fmtPart(plan.growthParts.laws)} laws

@@ -16,10 +16,12 @@ A deterministic seeded planet-building card roguelike with a poker-scored engine
 
 Computed in one place (`buildPlan`), in a fixed order:
 
-1. **poker (chips × mult)** = `round(rankSum × CATEGORY_MULT[category])` — high ×1, pair ×1.5, two-pair ×2, trips ×2.5, straight ×3, flush ×4, full-house ×5, quads ×6, straight-flush ×8.
+1. **poker** = `round(chips × CATEGORY_MULT[category])` where **chips = rankSum = the sum of the ranks of ALL selected cards (kickers included — see below)** — high ×1, pair ×1.5, two-pair ×2, trips ×2.5, straight ×3, flush ×4, full-house ×5, quads ×6, straight-flush ×8.
 2. **World-Law bonuses only**: × owned `growthMult` (floored at 1, e.g. Open Canals ×1.2), then + owned `growthFlat` (Canopy Choir +3, Stone Masonry +6).
 
-`Growth = max(0, round(pokerBase × lawMult) + lawFlat)`. Breakdown displayed as `+15 poker · +2 laws`. No region, stability, or drought modifiers exist anymore. **Flourishing is the cumulative sum of banked Growth** toward the epoch target.
+`Growth = max(0, round(pokerBase × lawMult) + lawFlat)` where `pokerBase = round(chips × mult)` is the already-multiplied base. The UI shows the full honest equation — **`{chips} chips × {mult} mult = {base} base`** — so the multiplication is never implied twice. Breakdown displayed as `+15 poker · +2 laws`. No region, stability, or drought modifiers exist anymore. **Flourishing is the cumulative sum of banked Growth** toward the epoch target.
+
+**Kickers contribute**: `rankSum` sums ALL selected cards, not just the scoring combination — an unrelated kicker adds its full rank to the chips (a pair K♠K♥ + Q♦ is `38 chips × 1.5 = 57`, not `26 × 1.5 = 39`). This is deliberate, documented, and pinned by a test (`pokerBase === round(chips × mult)`) so display and formula cannot drift.
 
 ## The auto-Seeds formula (money from hand quality)
 
@@ -33,8 +35,8 @@ i.e. **1 Seed per 4 Growth** (a 15-Growth hand pays 4 Seeds), capped by the 30-S
 
 ## Lives, epochs, winning
 
-- **3 epochs, ONE cumulative-Growth target each: 45 → 110 → 360** (strictly escalating; see Balance).
-- **Balatro-style lives: start 3.** Miss an epoch target → lose 1 life **and** that epoch's market income is halved. **0 lives → game over (withered).** The epoch-3 miss is already terminal (final-target check), so it costs no extra life.
+- **3 epochs, ONE cumulative-Growth target each: 30 → 70 → 320** (strictly escalating; see Balance).
+- **Balatro-style lives: start 3.** Missing ANY epoch target — epoch 1, 2, **or 3** — costs 1 life **and** halves that epoch's market income. **0 lives → game over (withered).** The epoch-3 miss is also terminal for the win (final-target check) but still costs its life; the win check is separate: beat the final target while lives remain.
 - **Winning = beat the epoch-3 target.** Flourishing collapsed to 0 also ends the run.
 - Stability decays 1 per living region at epoch end (Mycorrhiza softens it) — **cosmetic pressure only**; nothing in scoring reads stability, and there is **no Drought, no challenge, no stability requirement of any kind**.
 
@@ -56,7 +58,7 @@ three.js globe (untouched mechanics): terrain patches, evolution icons that appe
 ## The UI (Balatro-fied, zero emojis)
 
 - Rich cream/white cards, saturated red (♥♦) / blue (♠♣) suits, bold ranks; selection = thick gold outline + glow (`.pcard-btn.sel`).
-- **ONE huge `Growth: N` hero number** per hand with the small ordered breakdown (`+15 poker · 0 laws`) and a clear **`15 chips × 1 mult`** readout.
+- **ONE huge `Growth: N` hero number** per hand with the small ordered breakdown (`+15 poker · 0 laws`) and the honest **`15 chips × 1 mult = 15 base`** equation readout (chips = full rank sum, base = the already-multiplied poker part).
 - Deep dark celestial background; greyed/minimal secondary HUD (Flourishing/target, Seeds, Lives, Plays, Discards, Living regions).
 - **No emojis anywhere in the rendered UI** (labels are plain text; suit symbols are typographic glyphs).
 - Full keyboard support and reduced-motion/accessibility preserved.
@@ -67,7 +69,7 @@ three.js globe (untouched mechanics): terrain patches, evolution icons that appe
 
 ## Saves
 
-Versioned (`version: 2`) localStorage envelope with **auto-save** after every committed action. Quit never clears the save; "Clear Save" is the only destructive action. Rewards are applied once inside the engine commit, so auto-saving cannot double-apply them.
+Versioned localStorage envelope (`schema: 3` + state `version: 3` — v3 is the Balatro-simple rules generation) with **auto-save** after every committed action. On load, a save whose version or structure is incompatible with the current engine (old version, missing/non-numeric `lives`, obsolete era market items, invalid phase, malformed cards, broken 52-card conservation) is **rejected — never migrated, never reinterpreted, never erased**: the raw blob is preserved verbatim under a `worldhand.save.legacy.<ts>` key and the menu explains that a fresh run is needed because the engine rules changed. Quit never clears the save; "Clear Save" (and the game-over "Back to Menu") are destructive and both require an explicit confirmation. Rewards are applied once inside the engine commit, so auto-saving cannot double-apply them.
 
 ## Development
 
@@ -78,7 +80,8 @@ npm test           # vitest — engine + poker contracts
 node scripts/qa.mjs  # Playwright browser checks at 1280x800 and 480x800
 node scripts/review-planet3d.mjs  # 3D planet acceptance + screenshots (shots-review/)
 node scripts/capture-ui-shots.mjs # card-first UI + big-Growth screenshots (shots-review/)
-LOOK=30 npx vite-node scripts/solve.mjs  # bounded balance probe (win rate over 30 seeds)
+npx vite-node scripts/solve.mjs --set=eval --look=30  # bounded solver result over the eval-* seed set
+npx vite-node scripts/solve.mjs --set=calib --look=30 # calibration set (target sweeps only)
 python3 scripts/check-no-emoji.py # emoji audit of rendered-UI sources
 npm run build
 ```

@@ -1,22 +1,63 @@
-// Headless balance probe: can a competent player reach the epoch targets?
-// Greedy: each play, try candidate 1-5 card subsets, keep the one the heuristic likes.
-// LOOK (env) / --look <n>: cap how many candidates are considered per play.
-// Unset (or >= the full space, 218 for an 8-card hand) = exhaustive behaviour.
-// The capped sample is deterministic (same world seed reproduces it exactly)
-// and biased toward short selections: every length-1 and length-2 selection is
-// considered first, and only the remaining budget is filled with a seeded
-// random sample of longer selections.
+// Bounded solver probe for the CURRENT Balatro-simple contract (three epochs,
+// poker-hand plays, auto-Seeds, market shop, lives = every missed target −1).
+//
+// NOT a human win-rate estimate: this is an automated BOUNDED SOLVER RESULT —
+// a greedy policy over a bounded candidate set. Where this file (or the docs)
+// says "bounded solver result", that is exactly what it is. Human playtest
+// judgement is a separate, out-of-scope exercise.
+//
+// Policy (current mechanics ONLY — no drought/stability-era terms):
+//   score(before, after) ranks a candidate play by what the live engine pays:
+//     - Growth banked toward the epoch target: df (chips×mult + laws) —
+//       primary term, and the target-shortfall penalty once the banked total
+//       can no longer reach the current epoch target with the plays left.
+//     - Seeds gained (ds), discounted when seeds are already near the cap.
+//     - Lives state: losing a life is heavily penalized; staying alive at
+//       0 lives pending the boundary is avoided.
+//   Candidates span 1–5 cards across poker categories: all short selections
+//   PLUS deliberate category candidates (pairs, trips, quads, straights,
+//   flushes, full houses, 3/4/5-card hands) — an 8-card hand has 36 two-card
+//   subsets, so a LOOK of 30 filled only with 1–2-card combos would never
+//   evaluate a real poker hand. With LOOK unset the candidate list is the full
+//   space (exhaustive oracle behaviour).
+//   Discarding: when every candidate scores weak and a discard remains, the
+//   policy dumps the cards the best play did NOT want (up to 5) and refills —
+//   evaluated by re-running bestPlay after the discard and keeping it only if
+//   the new best beats the old one by a margin.
+//   Purchases (documented, deterministic priority order):
+//     1. canopy-choir   — +3 flat Growth on EVERY play (12 plays/run): the
+//                         cheapest per-play Growth per Seed.
+//     2. seed-vaults    — +3 Seeds/epoch compounds the shop itself.
+//     3. barter-routes  — −2 on all later purchases (discounts discount).
+//     4. open-canals    — ×1.2 Growth every play: strongest late multiplier.
+//     5. stone-masonry  — +6 flat every play: bought when Seeds allow.
+//     6. fourth-counsel — 9-card hands find more/better poker shapes.
+//   Expansions (wake-*) are skipped: they cost Seeds and only pay via Seed
+//   income headcount, never toward the Growth targets the solver must hit.
+//   mycorrhiza / fifth-counsel are skipped (cosmetic decay relief / hand 10 is
+//   not worth the Seeds under the Growth targets).
+//
+// Seeds:
+//   - CALIBRATION seeds (default, `--set calib`): probe-0..14 — used when
+//     sweeping epoch targets; never quoted as the headline result.
+//   - EVALUATION seeds (`--set eval`): eval-0..19 — a DISJOINT set; the honest
+//     reported bounded-solver result is measured here only.
+//   - Default (no flags): runs BOTH sets and reports them separately.
 import { newGame, applyAction, buildPlan, EPOCH_TARGETS, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
 import { hashSeed } from '../src/engine/rng.ts'
+import { evaluateSelection } from '../src/engine/poker.ts'
 
 // ---- LOOK: bounded candidate cap -------------------------------------------
 // --look <n> flag overrides the LOOK env var; both accept a positive integer.
 const rawArgs = process.argv.slice(2)
 let LOOK = process.env.LOOK !== undefined && process.env.LOOK !== '' ? Number(process.env.LOOK) : undefined
+let SEED_SET = process.env.SEED_SET !== undefined && process.env.SEED_SET !== '' ? String(process.env.SEED_SET) : 'both'
 const seedArgs = []
 for (let i = 0; i < rawArgs.length; i++) {
   if (rawArgs[i] === '--look') { LOOK = Number(rawArgs[i + 1]); i++; continue }
   if (rawArgs[i].startsWith('--look=')) { LOOK = Number(rawArgs[i].slice(7)); continue }
+  if (rawArgs[i] === '--set') { SEED_SET = rawArgs[i + 1]; i++; continue }
+  if (rawArgs[i].startsWith('--set=')) { SEED_SET = rawArgs[i].slice(6); continue }
   seedArgs.push(rawArgs[i])
 }
 if (LOOK !== undefined && (!Number.isFinite(LOOK) || LOOK < 1 || !Number.isInteger(LOOK))) {
@@ -53,16 +94,121 @@ const subsets = (n) => {
   return out
 }
 
-// Candidate cap: short selections first, remainder sampled with a seeded rng.
-function candidateSubsets(n, look, salt) {
-  const all = subsets(n)
+/** Poker-category candidates: deliberate hand shapes across 1–5 cards, not
+ *  just all 1–2-card combinations. Built purely from the dealt hand's ranks/
+ *  suits (deterministic; the same hand always yields the same candidates):
+ *   - every length-1 and length-2 selection (cheap, exact);
+ *   - every pair/trips/quads group (all cards sharing a rank, up to 4);
+ *   - two-pair candidates (two ranks, all their cards);
+ *   - 5-card flushes (4+ same-suit cards + the best filler) and every
+ *     5-card same-suit subset if the suit has exactly 5;
+ *   - straights: consecutive-rank runs of 5 (+ ace-low wheels), best suits;
+ *   - full-house candidates (trips rank + pair rank);
+ *   - straight-flush attempts (same-suit runs).
+ *  The list is deduped and capped: when LOOK < list length, the cap keeps
+ *  shorts first, then category candidates in the order above, then a seeded
+ *  random sample of whatever remains. */
+function pokerCandidates(hand) {
+  const seen = new Set()
+  const out = []
+  const add = (idxs) => {
+    if (idxs.length < 1 || idxs.length > 5) return
+    const k = [...idxs].sort((a, b) => a - b).join(',')
+    if (seen.has(k)) return
+    seen.add(k)
+    out.push(idxs)
+  }
+  const n = hand.length
+  // all 1- and 2-card selections first (cheap, exact, the shorts bias)
+  for (let i = 0; i < n; i++) add([i])
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) add([i, j])
+  // rank groups: pairs / trips / quads (+ two-pair, + full-house)
+  const byRank = new Map()
+  hand.forEach((c, i) => {
+    if (!byRank.has(c.r)) byRank.set(c.r, [])
+    byRank.get(c.r).push(i)
+  })
+  const groups = [...byRank.values()].sort((a, b) => b.length - a.length)
+  for (const g of groups) {
+    if (g.length >= 2) add(g.slice(0, Math.min(4, g.length)))
+  }
+  for (let a = 0; a < groups.length; a++) {
+    for (let b = a + 1; b < groups.length; b++) {
+      if (groups[a].length >= 2 && groups[b].length >= 2) add([...groups[a], ...groups[b]].slice(0, 5))
+      if (groups[a].length >= 3 && groups[b].length >= 2) add([...groups[a], ...groups[b]].slice(0, 5))
+    }
+  }
+  // flushes: group indices by suit; 5-card same-suit subsets
+  const bySuit = new Map()
+  hand.forEach((c, i) => {
+    if (!bySuit.has(c.s)) bySuit.set(c.s, [])
+    bySuit.get(c.s).push(i)
+  })
+  for (const suitIdxs of bySuit.values()) {
+    if (suitIdxs.length >= 5) {
+      // best 5 by rank + one straight-flush attempt (lowest ranks keep runs)
+      const sorted = [...suitIdxs].sort((x, y) => hand[y].r - hand[x].r)
+      add(sorted.slice(0, 5))
+      add([...suitIdxs].sort((x, y) => hand[x].r - hand[y].r).slice(0, 5))
+    }
+  }
+  // straights: consecutive runs of distinct ranks (incl. ace-low wheel)
+  const rankIdx = new Map()
+  hand.forEach((c, i) => {
+    if (!rankIdx.has(c.r)) rankIdx.set(c.r, [])
+    rankIdx.get(c.r).push(i)
+  })
+  const uniqRanks = [...rankIdx.keys()].sort((a, b) => a - b)
+  for (let start = 0; start < uniqRanks.length; start++) {
+    const run = [uniqRanks[start]]
+    for (let j = start + 1; j < uniqRanks.length && run.length < 5; j++) {
+      if (uniqRanks[j] === run[run.length - 1] + 1) run.push(uniqRanks[j])
+    }
+    if (run.length === 5) {
+      // prefer suited cards for a straight-flush chance, else highest ranks
+      const idxs = run.map((r) => rankIdx.get(r)[0])
+      const suited = run.map((r) => {
+        const cards = rankIdx.get(r)
+        const suitCount = new Map()
+        for (const ci of cards) suitCount.set(hand[ci].s, (suitCount.get(hand[ci].s) ?? 0) + 1)
+        const bestSuit = [...suitCount.entries()].sort((a, b) => b[1] - a[1])[0][0]
+        return cards.find((ci) => hand[ci].s === bestSuit)
+      })
+      add(idxs)
+      const flushable = suited.every((ci, k) => k === 0 || hand[ci].s === hand[suited[0]].s)
+      if (!flushable) add(suited)
+    }
+  }
+  // ace-low wheel A-2-3-4-5
+  const wheel = [14, 2, 3, 4, 5].filter((r) => rankIdx.has(r))
+  if (wheel.length === 5) {
+    const idxs = wheel.map((r) => rankIdx.get(r)[0])
+    add(idxs)
+    const suitCount = new Map()
+    for (const ci of idxs) suitCount.set(hand[ci].s, (suitCount.get(hand[ci].s) ?? 0) + 1)
+    const bestSuit = [...suitCount.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    const suited = wheel.map((r) => (rankIdx.get(r).find((ci) => hand[ci].s === bestSuit) ?? rankIdx.get(r)[0]))
+    add(suited)
+  }
+  // generic 3/4/5-card fillers so longer shapes are actually represented
+  const sortedByRank = hand.map((_, i) => i).sort((a, b) => hand[b].r - hand[a].r)
+  add(sortedByRank.slice(0, 3))
+  add(sortedByRank.slice(0, 4))
+  add(sortedByRank.slice(0, 5))
+  return out
+}
+
+// Candidate cap: category candidates first, then seeded sample of the rest.
+function candidateSubsets(hand, look, salt) {
+  const all = subsets(hand.length)
+  const cands = pokerCandidates(hand)
+  const candKeys = new Set(cands.map((s) => s.sort((a, b) => a - b).join(',')))
+  const rest = all.filter((s) => !candKeys.has(s.sort((a, b) => a - b).join(',')))
   if (!look || look >= all.length) return all
-  const shorts = all.filter((s) => s.length <= 2)
-  const longs = all.filter((s) => s.length > 2)
-  const out = shorts.slice(0, look)
+  const out = cands.slice(0, look)
   if (out.length >= look) return out
   const rng = mulberry32(salt)
-  const pool = longs.slice()
+  const pool = rest.slice()
   const need = look - out.length
   for (let i = 0; i < need && i < pool.length; i++) {
     const j = i + Math.floor(rng() * (pool.length - i))
@@ -72,28 +218,33 @@ function candidateSubsets(n, look, salt) {
   return out
 }
 
-const living = (s) => s.regions.filter((r) => !r.dormant)
-// Only two things decide the ending: final Flourishing >= 12, and the epoch-3
-// drought (every living region at stability 3+). Score for exactly those.
+// ---- CURRENT-mechanics scoring ----------------------------------------------
+// Everything scored here exists in the live engine: banked Growth toward the
+// epoch target (chips×mult + laws), Seeds gained, lives state. No stability,
+// no drought, no wake terms — those mechanics do not exist anymore.
+const needOf = (epoch) => EPOCH_TARGETS[Math.min(epoch, TOTAL_EPOCHS) - 1].need
 function score(before, after) {
-  const df = after.flourishing - before.flourishing
-  const ds = after.seeds - before.seeds
-  const stab = living(after).reduce((n, r) => n + r.stability, 0) - living(before).reduce((n, r) => n + r.stability, 0)
-  const woke = living(after).length - living(before).length
-  const droughtRisk = after.epoch === 3 ? living(after).filter((r) => r.stability < 4).length : 0
-  // waking a region in epoch 3 is a drought liability, not a win
-  const wakePenalty = after.epoch === 3 ? -60 * woke : 0.5 * woke
-  if (after.epoch === 3) {
-    // Flourishing 12 is already banked long before here; epoch 3 is the drought.
-    const shortfall = living(after).reduce((n, r) => n + Math.max(0, 3 - r.stability), 0)
-    return -shortfall * 100 + wakePenalty - droughtRisk * 5 + df * 2 + stab * 1.5
-  }
-  return df * 10 + stab * 1.2 + ds * 0.4 + wakePenalty - droughtRisk * 2
+  const df = after.flourishing - before.flourishing // Growth banked this play
+  const ds = after.seeds - before.seeds             // Seeds gained this play
+  const dl = after.lives - before.lives             // lives change (usually 0)
+  const need = needOf(after.epoch)
+  const playsLeft = after.playsLeft
+  // banked-Growth potential: can the epoch target still be reached?
+  const gap = Math.max(0, need - after.flourishing)
+  const reachable = playsLeft > 0 ? gap <= playsLeft * 40 : gap <= 0 // ~40/play practical ceiling
+  const reachPenalty = reachable ? 0 : 300
+  // seeds are only worth so much once near the 30 cap
+  const seedsWorth = after.seeds >= 30 ? ds * 0.1 : ds * 0.4
+  // a life is precious: losing one here is bad; a second loss (0 lives) is terminal-ish
+  const lifePenalty = dl < 0 ? (after.lives === 0 ? 400 : 120) : 0
+  // surplus above the target is worth much less than closing a gap
+  const surplus = after.flourishing >= need ? Math.min(df, 30) : 0
+  return df * 3 + surplus * 0.5 + seedsWorth - reachPenalty - lifePenalty
 }
 
 function bestPlay(state) {
   let best = null
-  for (const sel of candidateSubsets(state.hand.length, LOOK, sampleSalt())) {
+  for (const sel of candidateSubsets(state.hand, LOOK, sampleSalt())) {
     const plan = buildPlan(state.hand, sel, state.laws)
     if (!plan.valid) continue
     let next
@@ -108,6 +259,21 @@ function bestPlay(state) {
   return best
 }
 
+// Discard evaluation: when the best play is weak and a discard remains, dump
+// the cards the winning play did NOT want (up to 5), refill, and re-evaluate.
+// The discard is kept only if the post-refill best play clearly beats the
+// pre-discard one — otherwise the (known) play is preferred over a gamble.
+function maybeDiscard(state, best) {
+  if (!best || best.v >= 12 || state.discardsLeft <= 0) return null
+  const junk = state.hand.map((_, i) => i).filter((i) => !best.sel.includes(i)).slice(0, 5)
+  if (!junk.length) return null
+  let after
+  try { after = applyAction(state, { type: 'discard', cardIdxs: junk }) } catch { return null }
+  const post = bestPlay(after)
+  if (!post) return null
+  return post.v > best.v + 8 ? after : null
+}
+
 function playSeed(seedText) {
   CURRENT_SEED_TEXT = seedText
   PLAY_NO = 0
@@ -115,21 +281,19 @@ function playSeed(seedText) {
   let guard = 0
   while (s.phase !== 'game-over' && guard++ < 400) {
     if (s.phase === 'select') {
-      // spend a discard when the best play is weak and we can afford it
       const b = bestPlay(s)
       if (!b) break
-      if (b.v < 6 && s.discardsLeft > 0) {
-        // dump the cards the winning play didn't want, up to 5
-        const junk = s.hand.map((_, i) => i).filter((i) => !b.sel.includes(i)).slice(0, 5)
-        if (junk.length) { s = applyAction(s, { type: 'discard', cardIdxs: junk }); continue }
-      }
+      const afterDiscard = maybeDiscard(s, b)
+      if (afterDiscard) { s = afterDiscard; continue }
       s = b.next
     } else if (s.phase === 'market') {
+      // documented purchase policy (see header): priority order below, bought
+      // greedily while affordable; expansions and mycorrhiza are skipped
+      // because they pay nothing toward the Growth targets.
       let bought = true
       while (bought) {
         bought = false
-        // flourishing-per-seed first; expansions only outside epoch 3
-        const order = ['canopy-choir', 'seed-vaults', 'barter-routes', 'mycorrhiza', 'open-canals', 'stone-masonry']
+        const order = ['canopy-choir', 'seed-vaults', 'barter-routes', 'open-canals', 'stone-masonry', 'fourth-counsel']
         for (const id of order) {
           const item = s.market.find((m) => m.id === id)
           if (!item) continue
@@ -144,16 +308,38 @@ function playSeed(seedText) {
   return s
 }
 
-const seeds = seedArgs.length ? seedArgs
-  : Array.from({ length: 30 }, (_, i) => `probe-${i}`)
-let wins = 0
-const finals = []
-for (const seed of seeds) {
-  const s = playSeed(seed)
-  finals.push(s.flourishing)
-  if (s.outcome === 'flourishing') wins++
-  console.log(`${seed.padEnd(10)} ${String(s.outcome).padEnd(11)} F=${String(s.flourishing).padStart(3)}  ${s.outcomeReason}`)
+// ---- Calibration vs evaluation seeds (DISJOINT sets) ------------------------
+const CALIB_SEEDS = Array.from({ length: 30 }, (_, i) => `probe-${i}`)   // target-sweep set
+const EVAL_SEEDS = Array.from({ length: 30 }, (_, i) => `eval-${i}`)     // headline set
+
+function pickSeeds() {
+  if (seedArgs.length) return { set: 'explicit', seeds: seedArgs }
+  if (SEED_SET === 'calib') return { set: 'calibration (probe-*)', seeds: CALIB_SEEDS }
+  if (SEED_SET === 'eval') return { set: 'evaluation (eval-*)', seeds: EVAL_SEEDS }
+  return { set: 'both', seeds: null }
 }
-finals.sort((a, b) => a - b)
-const need = EPOCH_TARGETS[TOTAL_EPOCHS - 1].need
-console.log(`\n${wins}/${seeds.length} wins (need F>=${need}, LOOK=${LOOK ?? 'exhaustive'}). final F: min ${finals[0]}, median ${finals[finals.length >> 1]}, max ${finals[finals.length - 1]}`)
+
+function runSet(seedList, label) {
+  console.log(`\n=== ${label} — bounded solver result (NOT a human win-rate estimate) ===`)
+  let wins = 0
+  const finals = []
+  for (const seed of seedList) {
+    const s = playSeed(seed)
+    finals.push(s.flourishing)
+    if (s.outcome === 'flourishing') wins++
+    console.log(`${seed.padEnd(10)} ${String(s.outcome).padEnd(11)} F=${String(s.flourishing).padStart(3)}  lives=${s.lives}  ${s.outcomeReason}`)
+  }
+  finals.sort((a, b) => a - b)
+  const need = EPOCH_TARGETS[TOTAL_EPOCHS - 1].need
+  console.log(`${wins}/${seedList.length} wins (${(100 * wins / seedList.length).toFixed(0)}%) — bounded solver (LOOK=${LOOK ?? 'exhaustive'}, need F>=${need}). final F: min ${finals[0]}, median ${finals[finals.length >> 1]}, max ${finals[finals.length - 1]}`)
+  return wins
+}
+
+const picked = pickSeeds()
+if (picked.seeds) {
+  runSet(picked.seeds, `${picked.set} seed set`)
+} else {
+  const calibWins = runSet(CALIB_SEEDS, 'CALIBRATION (probe-*) — for target sweeps only')
+  const evalWins = runSet(EVAL_SEEDS, 'EVALUATION (eval-*) — the reported result')
+  console.log(`\nSummary: calibration ${calibWins}/30, evaluation ${evalWins}/30 (disjoint seed sets; LOOK=${LOOK ?? 'exhaustive'}).`)
+}

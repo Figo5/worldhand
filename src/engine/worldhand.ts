@@ -12,14 +12,18 @@
 //       2. World Laws = owned flat bonus laws (growBonus)
 //     Growth = max(0, pokerBase + lawBonus). No region/drought modifiers.
 //   Flourishing (the single epoch target) is the cumulative sum of Growth.
-// - Survival is exactly Balatro-style lives: start 3; miss an epoch target →
-//   lose 1; 0 → game over (withered). Winning = beat the epoch-3 target.
+// - Survival is exactly Balatro-style lives: start 3; EVERY missed epoch
+//   target (all three epochs) costs 1 life; 0 → game over (withered).
+//   Winning = beat the epoch-3 target while lives remain.
 // - Market (Balatro shop): spend Seeds on poker-hand upgrades, card additions
 //   (deck conservation still holds — added cards are real 52+ cards), region
 //   expansion (wake a dormant region → planet visibly grows), and World Laws.
 // - Deterministic ResolutionPlan: preview() and commit() share one scoring
 //   pipeline; the plan carries `growth` plus the ordered `growthParts`.
-// - Versioned saves; quitting never destroys the save.
+// - Versioned saves: SAVE_VERSION tracks the engine-RULES generation and
+//   SCHEMA_VERSION the envelope layout. Incompatible saves are preserved as
+//   recoverable legacy data on load — never silently reinterpreted or erased;
+//   quitting never destroys the save.
 import { Rng, hashSeed, type Seed } from './rng'
 import {
   deck, evaluateSelection, CATEGORY_POINTS, CATEGORY_MULT, categoryLabel,
@@ -28,7 +32,23 @@ import {
 
 export type { Suit } from './poker'
 
-export const SAVE_VERSION = 2
+/** SAVE_VERSION: the engine RULES generation this save was produced by.
+ *  History: 1 = old 8-epoch/suit-action contract, 2 = three-epoch no-suit
+ *  contract (survival-pool rename), 3 = Balatro-simple engine — auto-Seeds
+ *  economy, market shop, and the every-miss-costs-a-life lives rule. A save
+ *  whose version or structure does not match the CURRENT engine is rejected
+ *  (never reinterpreted) and preserved as recoverable legacy data — see
+ *  `validateState` + src/ui/save.ts. */
+export const SAVE_VERSION = 3
+/** SCHEMA_VERSION: envelope/layout generation, tracked separately from the
+ *  rules so a pure layout change does not imply a rules change. */
+export const SCHEMA_VERSION = 3
+/** Obsolete market ids from pre-Balatro-simple eras (suit-action era). A save
+ *  containing any of these is structurally incompatible with the current
+ *  engine and must be rejected, not migrated. */
+export const OBSOLETE_ITEM_IDS: readonly string[] = [
+  'deep-taproots', 'rich-soil', 'communal-tending', 'drought', 'stability-charter',
+]
 export const HAND_SIZE = 8
 export const DISCARDS_PER_EPOCH = 3
 export const PLAYS_PER_EPOCH = 4
@@ -46,12 +66,16 @@ export const MARKET_SIZE = 3
 export const LIVES_CAP = 3
 
 /** The 3 escalating epoch targets: cumulative Growth (Flourishing), one per
- *  epoch, strictly increasing. Calibrated with `LOOK=30 npx vite-node
- *  scripts/solve.mjs` into the 40–60% win-rate band (see RULES.md / Balance). */
+ *  epoch, strictly increasing. Recalibrated with the CORRECTED bounded solver
+ *  (scripts/solve.mjs: category-spanning candidates, current-mechanics score):
+ *  the corrected policy evaluates real poker hands, so it wins far more often
+ *  than the old mis-focused one — the shipped [30, 70, 320] measures 83% at
+ *  LOOK=30 on the eval-* set (see RULES.md / Balance for the full honest
+ *  table). Targets are round integers, not band-forced percentages. */
 export const EPOCH_TARGETS: EpochTarget[] = [
-  { epoch: 1, desc: 'Growth 45 (cumulative Flourishing)', need: 45 },
-  { epoch: 2, desc: 'Growth 110 (cumulative Flourishing)', need: 110 },
-  { epoch: 3, desc: 'Growth 360 (cumulative Flourishing)', need: 360 },
+  { epoch: 1, desc: 'Growth 30 (cumulative Flourishing)', need: 30 },
+  { epoch: 2, desc: 'Growth 70 (cumulative Flourishing)', need: 70 },
+  { epoch: 3, desc: 'Growth 320 (cumulative Flourishing)', need: 320 },
 ]
 
 export type Phase = 'select' | 'market' | 'epoch-end' | 'game-over'
@@ -152,14 +176,20 @@ export interface ResolutionPlan {
   categoryPoints: number
   /** per-suit counts among selected cards (informational display only) */
   suitCounts: Record<Suit, number>
-  /** rank sum of selected cards ("chips") */
+  /** rank sum of ALL selected cards ("chips" — includes every kicker; an
+   *  unrelated side card's rank adds to the score exactly like a scoring card) */
   rankSum: number
-  /** poker base = rankSum × CATEGORY_MULT (chips × mult) */
+  /** the true pre-multiplier rank sum — identical to rankSum; exposed so a
+   *  display can honestly show "chips × mult = base" with no hidden rounding */
+  chips: number
+  /** poker base = round(rankSum × mult) — the ALREADY-MULTIPLIED poker part.
+   *  It is NOT "chips": showing pokerBase next to "× mult" would imply a
+   *  second multiplication that never happens. */
   pokerBase: number
   /** the hand's multiplier (CATEGORY_MULT[category]) */
   mult: number
   /** HERO SCORE: the one big number this play resolves to (>= 0).
-   *  Growth = max(0, pokerBase × multLaw + flatLaw). */
+   *  Growth = max(0, pokerBase × lawMult + lawFlat). */
   growth: number
   /** ordered breakdown of `growth`: poker → laws (mult + flat). */
   growthParts: { poker: number; laws: number }
@@ -200,11 +230,15 @@ export function handSizeOf(laws: Law[]): number {
 /** Build the deterministic ResolutionPlan for a selection (pure; no state mutation).
  *
  * The HERO SCORE 'Growth' is computed here, in ONE place, in a stable order:
- *   1. poker base  = rankSum ("chips") × CATEGORY_MULT[category] (chips × mult)
+ *   1. poker base  = round(rankSum ("chips") × CATEGORY_MULT[category])
+ *      — rankSum sums ALL selected ranks, so kickers DO contribute
  *   2. World Laws  = ×(owned growthMult, floored at 1) then +(owned growthFlat)
  *   Growth = max(0, round(pokerBase × lawMult) + lawFlat). The plan carries the
  * final number (`growth`) plus the ordered parts (`growthParts`); preview and
  * commit both go through this function, so they can never disagree.
+ * Invariant (display-honesty contract): plan.chips == plan.rankSum and
+ * plan.pokerBase == round(plan.chips × plan.mult) — a UI may honestly show
+ * "chips × mult = base" or "base" alone, but never "base × mult".
  *
  * The SAME plan also carries the auto-Seeds effect: every play earns
  * ceil(Growth × SEEDS_PER_GROWTH) Seeds (capped by SEEDS_CAP at apply time). */
@@ -216,7 +250,7 @@ export function buildPlan(
   const base: ResolutionPlan = {
     cards: [], category: 'high', categoryLabel: '—', categoryPoints: 0,
     suitCounts: { S: 0, H: 0, D: 0, C: 0 },
-    rankSum: 0, pokerBase: 0, mult: 1, growth: 0, growthParts: { poker: 0, laws: 0 },
+    rankSum: 0, chips: 0, pokerBase: 0, mult: 1, growth: 0, growthParts: { poker: 0, laws: 0 },
     effects: [], summary: '', valid: false, invalidReason: '',
   }
   if (selected.length < 1 || selected.length > 5) {
@@ -237,7 +271,8 @@ export function buildPlan(
   const sum = cards.reduce((n, c) => n + c.r, 0)
 
   // ---- HERO SCORE: Growth, in the fixed order poker → laws (mult → flat)
-  // 1. poker base: rankSum ("chips") × CATEGORY_MULT[category] (the hand mult)
+  // 1. poker base: rankSum ("chips", ALL selected ranks incl. kickers)
+  //    × CATEGORY_MULT[category] (the hand mult)
   const mult = CATEGORY_MULT[res.category]
   const pokerBase = Math.round(sum * mult)
   // 2. World Laws: × owned growthMult (floored at 1), then + owned growthFlat
@@ -256,7 +291,9 @@ export function buildPlan(
     { kind: 'flourishing', amount: growth },
     { kind: 'seeds', amount: seedsGain },
   ]
-  const summary = `Banks ${growth} Growth (${pokerBase} chips x ${mult} mult${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}). Gains ${seedsGain} Seeds.`
+  // Honest summary: rankSum × mult (the true chips×mult equation) then the
+  // already-multiplied base. e.g. "chips 30 x 4 mult = base 120".
+  const summary = `Banks ${growth} Growth (chips ${sum} x ${mult} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}). Gains ${seedsGain} Seeds.`
 
   return {
     cards,
@@ -265,6 +302,7 @@ export function buildPlan(
     categoryPoints: CATEGORY_POINTS[res.category],
     suitCounts,
     rankSum: sum,
+    chips: sum,
     pokerBase,
     mult,
     growth,
@@ -513,6 +551,128 @@ export function cardConservation(s: GameState): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Save validation: structural checks against the CURRENT engine contract.
+// A save that fails any check is INCOMPATIBLE — it is never migrated, never
+// silently reinterpreted, and never erased (save.ts archives it as legacy).
+// ---------------------------------------------------------------------------
+
+const VALID_PHASES: readonly Phase[] = ['select', 'market', 'epoch-end', 'game-over']
+const VALID_OUTCOMES: readonly string[] = ['flourishing', 'withered', '']
+const VALID_LAW_KINDS: readonly Law['kind'][] = ['law', 'upgrade', 'expansion', 'cards']
+const VALID_SUIT_SET = new Set<string>(['S', 'H', 'D', 'C'])
+
+/** Structural validator for a deserialized GameState under the CURRENT rules
+ *  (SAVE_VERSION). Returns a plain-language rejection reason, or null when the
+ *  state is acceptable. Deliberately strict: an incompatible save must be
+ *  rejected wholesale (preserved as legacy data), never partially migrated —
+ *  a half-migrated state would silently reinterpret the player's old run. */
+export function validateState(v: unknown): string | null {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return 'not a state object'
+  const s = v as Record<string, unknown>
+  const missing = (k: string) => `missing required field "${k}"`
+  const bad = (k: string, why: string) => `field "${k}" ${why}`
+
+  if (typeof s.version !== 'number') return missing('version')
+  if (s.version !== SAVE_VERSION) {
+    return `state version ${JSON.stringify(s.version)} is not the current engine rules version (${SAVE_VERSION})`
+  }
+  for (const k of ['seed', 'seedText', 'epoch', 'phase', 'flourishing', 'lives', 'seeds'] as const) {
+    if (!(k in s)) return missing(k)
+  }
+  if (typeof s.seed !== 'number' || !Number.isFinite(s.seed)) return bad('seed', 'must be a finite number')
+  if (typeof s.seedText !== 'string') return bad('seedText', 'must be a string')
+  if (!Number.isInteger(s.epoch) || (s.epoch as number) < 1 || (s.epoch as number) > TOTAL_EPOCHS) {
+    return bad('epoch', `must be an integer 1..${TOTAL_EPOCHS}`)
+  }
+  if (!VALID_PHASES.includes(s.phase as Phase)) {
+    return `phase "${String(s.phase)}" is not a valid Phase (${VALID_PHASES.join(' | ')})`
+  }
+  for (const k of ['flourishing', 'seeds'] as const) {
+    if (typeof s[k] !== 'number' || !Number.isFinite(s[k])) return bad(k, 'must be a finite number')
+  }
+  // lives: present and numeric is the load-bearing check (the pre-v3 contract
+  // could serialize a save without it).
+  if (typeof s.lives !== 'number' || !Number.isFinite(s.lives)) {
+    return 'lives is missing or not a number — the current engine requires the lives contract'
+  }
+  if (!Number.isInteger(s.lives) || (s.lives as number) < 0 || (s.lives as number) > LIVES_CAP) {
+    return bad('lives', `must be an integer 0..${LIVES_CAP}`)
+  }
+  for (const k of ['playsLeft', 'discardsLeft'] as const) {
+    if (!Number.isInteger(s[k]) || (s[k] as number) < 0) return bad(k, 'must be a non-negative integer')
+  }
+  if (!Array.isArray(s.hand) || !Array.isArray(s.deckRest) || !Array.isArray(s.discardPile)) {
+    return 'hand, deckRest and discardPile must be arrays'
+  }
+  if (!Array.isArray(s.selected) || !s.selected.every((i: unknown) => typeof i === 'number')) {
+    return bad('selected', 'must be an array of card indices')
+  }
+  if (!Array.isArray(s.regions) || s.regions.length !== TOTAL_REGIONS) {
+    return bad('regions', `must have exactly ${TOTAL_REGIONS} entries`)
+  }
+  if (!Array.isArray(s.market) || !Array.isArray(s.laws)) return 'market and laws must be arrays'
+  if (!Array.isArray(s.log)) return bad('log', 'must be an array')
+  if (s.lastResolution !== null && typeof s.lastResolution !== 'object') {
+    return bad('lastResolution', 'must be null or an object')
+  }
+  if (s.outcome !== null && !VALID_OUTCOMES.includes(s.outcome as string)) {
+    return `outcome "${String(s.outcome)}" is not a valid outcome`
+  }
+
+  // cards: every card must have a legal rank and suit (and be a real 52-card
+  // card — no invented ranks from older engines)
+  const isCard = (c: unknown): c is { r: number; s: string } =>
+    !!c && typeof c === 'object' && typeof (c as any).r === 'number' && typeof (c as any).s === 'string'
+  for (const pile of ['hand', 'deckRest', 'discardPile'] as const) {
+    for (const c of s[pile] as unknown[]) {
+      if (!isCard(c)) return `${pile} contains a malformed card`
+      if (!Number.isInteger(c.r) || c.r < 2 || c.r > 14) return `${pile} has a card with invalid rank ${JSON.stringify((c as any).r)}`
+      if (!VALID_SUIT_SET.has(c.s)) return `${pile} has a card with invalid suit "${c.s}"`
+    }
+  }
+  // deck conservation under the current 52-card contract
+  const total = (s.hand.length as number) + (s.deckRest.length as number) + (s.discardPile.length as number)
+  if (total !== 52) return `deck conservation violated: hand+deck+discard = ${total}, expected 52`
+
+  // laws / market items: every id must exist in the CURRENT MARKET_ITEMS pool,
+  // and no obsolete (suit-action era) ids may survive anywhere.
+  const validIds = new Set(MARKET_ITEMS.map((m) => m.id))
+  for (const listName of ['market', 'laws'] as const) {
+    for (const it of s[listName] as unknown[]) {
+      if (!it || typeof it !== 'object') return `${listName} contains a malformed item`
+      const id = (it as any).id
+      if (typeof id !== 'string') return `${listName} contains an item without an id`
+      if ((OBSOLETE_ITEM_IDS as readonly string[]).includes(id)) {
+        return `obsolete era item "${id}" is not part of the current engine (found in ${listName})`
+      }
+      if (!validIds.has(id)) {
+        return `unknown market item "${id}" is not in the current MARKET_ITEMS (found in ${listName})`
+      }
+      const kind = (it as any).kind
+      if (!VALID_LAW_KINDS.includes(kind)) return `${listName} item "${id}" has invalid kind "${String(kind)}"`
+    }
+  }
+  if ((s.laws.length as number) > LAW_SLOTS) return bad('laws', `exceeds the ${LAW_SLOTS}-slot cap`)
+
+  // regions: ids, adjacency references and dormancy flags must be well-formed
+  for (const r of s.regions as unknown[]) {
+    if (!r || typeof r !== 'object') return 'regions contains a malformed entry'
+    const rr = r as any
+    if (!Number.isInteger(rr.id) || rr.id < 0 || rr.id >= TOTAL_REGIONS) return 'a region has an invalid id'
+    if (typeof rr.dormant !== 'boolean') return bad('regions', 'a region is missing its dormant flag')
+    if (!Array.isArray(rr.adjacency) || !rr.adjacency.every((a: unknown) => typeof a === 'number' && (a as number) >= 0 && (a as number) < TOTAL_REGIONS)) {
+      return bad('regions', 'a region has malformed adjacency')
+    }
+  }
+
+  // phase-consistency: dead runs must already be in game-over
+  if (s.phase !== 'game-over' && (s.lives as number) <= 0) {
+    return 'a run with 0 lives must be in the game-over phase'
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // Epoch end / targets / lives
 // ---------------------------------------------------------------------------
 
@@ -531,15 +691,23 @@ function endEpoch(state: GameState): GameState {
     text: `Epoch ${s.epoch} target "${target.desc}": ${metTarget ? 'met' : 'missed'} (Flourishing ${s.flourishing}).`,
   })
 
-  // Balatro-style lives: a missed epoch target costs 1 life; 0 ends the run.
+  // Balatro-style lives: EVERY missed epoch target (epochs 1, 2 AND 3) costs
+  // 1 life; the run ends only when lives reach 0. The epoch-3 miss is ALSO the
+  // loss check for the final target (the win is decided separately below), but
+  // it still costs its life like every other epoch — 3 lives is a real,
+  // exhaustible resource, not a free pass at the final rung.
   let missedTarget = false
   if (!metTarget) {
+    s.lives -= 1
+    missedTarget = true
+    s.log.push({
+      at: `e${s.epoch}`,
+      text: `Missed the epoch-${s.epoch} target: a life is lost (now ${s.lives}) and this epoch's market income is halved.`,
+    })
     if (s.epoch < TOTAL_EPOCHS) {
-      s.lives -= 1
-      missedTarget = true
       s.log.push({
         at: `e${s.epoch}`,
-        text: `Missed the epoch-${s.epoch} target: a life is lost (now ${s.lives}) and this epoch's market income is halved.`,
+        text: `Flourishing ${s.flourishing} fell short of ${target.need} — the next epoch's market opens with the penalty applied.`,
       })
     }
   }
@@ -584,7 +752,7 @@ function advanceToNextEpoch(state: GameState): GameState {
       s.outcomeReason = `Out of lives (${s.lives}): too many epoch targets missed. The world withers.`
     } else if (s.flourishing >= EPOCH_TARGETS[TOTAL_EPOCHS - 1].need) {
       s.outcome = 'flourishing'
-      s.outcomeReason = `The world flourishes at ${s.flourishing} after ${TOTAL_EPOCHS} epochs.`
+      s.outcomeReason = `The world flourishes at ${s.flourishing} after ${TOTAL_EPOCHS} epochs (lives remaining: ${s.lives}).`
     } else if (s.flourishing <= 0) {
       s.outcome = 'withered'
       s.outcomeReason = 'Flourishing collapsed to 0.'

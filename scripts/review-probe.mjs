@@ -109,7 +109,7 @@ const log = (k, v) => out.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v
 }
 
 // 6. Three-epoch progression + escalating targets (ONE Growth target per epoch)
-log('epoch-targets-escalating', EPOCH_TARGETS.map(t => t.need).join(',') === '45,110,360')
+log('epoch-targets-escalating', EPOCH_TARGETS.map(t => t.need).join(',') === '30,70,320')
 log('total-epochs', TOTAL_EPOCHS)
 log('plays-per-epoch', PLAYS_PER_EPOCH)
 log('lives-start', SURVIVAL_START)
