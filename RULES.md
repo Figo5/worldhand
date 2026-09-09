@@ -2,7 +2,7 @@
 
 ## Objective
 
-Play poker hands. Bank Growth. Beat the final epoch target: **cumulative Growth (Flourishing) 335+** across three escalating epochs (45 → 110 → 335). Lose if your **3 lives** run out, or Flourishing collapses to 0. There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
+Play poker hands. Bank Growth. Beat the final epoch target: **cumulative Growth (Flourishing) 360+** across three escalating epochs (45 → 110 → 360). Lose if your **3 lives** run out, or Flourishing collapses to 0. There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
 
 ## Lives (Balatro-style)
 
@@ -50,7 +50,7 @@ seedsGained = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 ## Epoch end
 
-1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 45**; epoch 2 needs **110**; epoch 3 needs **335**. **Missing an epoch-1/2 target costs 1 life and halves that epoch's Seed income.** Missing the epoch-3 target ends the run short of the win (no life cost — it's terminal already).
+1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 45**; epoch 2 needs **110**; epoch 3 needs **360**. **Missing an epoch-1/2 target costs 1 life and halves that epoch's Seed income.** Missing the epoch-3 target ends the run short of the win (no life cost — it's terminal already).
 2. **Decay**: every living region loses 1 stability (Mycorrhiza reduces this). Regions at 0 stay at 0 — cosmetic pressure only; nothing reads stability.
 3. **Civilization growth**: every living region gains +1 development — this drives the 3D planet's evolution icons and the globe's visible size. No gameplay read.
 4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target).
@@ -67,15 +67,15 @@ seedsGained = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 ## Balance (how the targets were calibrated)
 
-`scripts/solve.mjs` plays a greedy policy over 30 `probe-*` seeds. `LOOK=<n>` bounds its candidate selections per play (all 1–2-card selections first, plus a seeded random sample of longer ones) — **LOOK=30 is the bounded-human reference**; unset is exhaustive (oracle). The heuristic is fixed — targets move, the probe doesn't. The shipped [45, 110, 335] ladder measures:
+`scripts/solve.mjs` plays a greedy policy over 30 `probe-*` seeds. `LOOK=<n>` bounds its candidate selections per play (all 1–2-card selections first, plus a seeded random sample of longer ones) — **LOOK=30 is the bounded-human reference**; unset is exhaustive (oracle). The heuristic is fixed — targets move, the probe doesn't. Calibration uses the reference method directly: `LOOK=30 npx vite-node scripts/solve.mjs`. The shipped [45, 110, 360] measures:
 
 | Policy | Result |
 |---|---|
-| LOOK=30 (bounded reference) | **24/30 wins (80% is out of band; measured 24/30 — see note)** |
-| LOOK=12 (very bounded) | 9/30 (30%) |
+| LOOK=30 (bounded reference) | **16/30 wins (53%) — in the 40–60% band** |
+| LOOK=12 (very bounded) | 3/30 (10%) |
 | Exhaustive (oracle) | 30/30 (100%) |
 
-Note: the LOOK=30 bounded reference lands at the top edge of the intended 40–60% band on this ladder walk (e3 rungs measured: 330 → 57%, 335 → 53%, 340–350 → 43%, 355 → 40% on the standalone ladder script; the shipped solve.mjs measures 24/30 at [45,110,335] because its buy order and discard timing differ slightly from the ladder harness). If a stricter in-band read is needed, e3 350 measures 43% at LOOK=30 on the same heuristic.
+The epoch-3 rung was swept by the reference method: e3 340 → 73%, 350 → 67%, **360 → 53%**, 370 → 50%, 380 → 37%, 390 → 23%. **360 lands cleanly in the intended 40–60% band by the reference itself.** (An earlier shipping of e3=335 was revised: the reference method measured 24/30 = 80% there, which is out of band; e3 was corrected to 360.)
 
 ## Determinism
 

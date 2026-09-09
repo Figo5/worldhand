@@ -51,7 +51,7 @@ export const LIVES_CAP = 3
 export const EPOCH_TARGETS: EpochTarget[] = [
   { epoch: 1, desc: 'Growth 45 (cumulative Flourishing)', need: 45 },
   { epoch: 2, desc: 'Growth 110 (cumulative Flourishing)', need: 110 },
-  { epoch: 3, desc: 'Growth 335 (cumulative Flourishing)', need: 335 },
+  { epoch: 3, desc: 'Growth 360 (cumulative Flourishing)', need: 360 },
 ]
 
 export type Phase = 'select' | 'market' | 'epoch-end' | 'game-over'

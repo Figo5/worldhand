@@ -48,7 +48,7 @@ describe('worldhand core contracts (Balatro-simple)', () => {
   })
   it('ONE escalating Flourishing (Growth) target per epoch, strictly increasing', () => {
     expect(EPOCH_TARGETS).toHaveLength(3)
-    expect(EPOCH_TARGETS.map((t) => t.need)).toEqual([45, 110, 335])
+    expect(EPOCH_TARGETS.map((t) => t.need)).toEqual([45, 110, 360])
     expect(EPOCH_TARGETS[0].need).toBeLessThan(EPOCH_TARGETS[1].need)
     expect(EPOCH_TARGETS[1].need).toBeLessThan(EPOCH_TARGETS[2].need)
     for (const t of EPOCH_TARGETS) expect(typeof t.need).toBe('number')
@@ -57,7 +57,7 @@ describe('worldhand core contracts (Balatro-simple)', () => {
     // scripts/solve.mjs with LOOK=30 (bounded policy: all 1-2 card selections +
     // seeded longer ones, 30 probe-* seeds, lives active) measured the shipped
     // ladder inside the intended 40-60% band — the heuristic is NOT tuned.
-    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBe(335)
+    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBe(360)
     for (let i = 1; i < EPOCH_TARGETS.length; i++) {
       expect(EPOCH_TARGETS[i].need).toBeGreaterThan(EPOCH_TARGETS[i - 1].need)
     }
@@ -343,7 +343,7 @@ describe('Balatro-style lives', () => {
     expect(s2.outcomeReason).toContain('fell short')
     expect(s2.lives).toBe(SURVIVAL_START)
   })
-  it('winning = beating the epoch-3 target (final Flourishing >= 335)', () => {
+  it('winning = beating the epoch-3 target (final Flourishing >= 360)', () => {
     let s = newGame('win')
     s.epoch = 3
     s.phase = 'epoch-end'

@@ -21,15 +21,15 @@ This pass **executes the product owner's three decisions**: (1) remove all per-s
 
 ## Balance: how the targets were calibrated
 
-Targets are **[45, 110, 335]**. The old [50, 120, 200] belonged to the region/drought-boosted Growth engine; under chips×mult-only Growth the exhaustive median final F is ~1246, so the ladder had to move up. Measured with `LOOK=30 npx vite-node scripts/solve.mjs` (bounded reference policy, heuristic **not** tuned):
+Targets are **[45, 110, 360]**. The old [50, 120, 200] belonged to the region/drought-boosted Growth engine; under chips×mult-only Growth the exhaustive median final F is ~1246, so the ladder had to move up. Calibration uses the REFERENCE METHOD directly: `LOOK=30 npx vite-node scripts/solve.mjs` (bounded reference policy, heuristic **not** tuned):
 
-| Policy | Result on shipped [45,110,335] |
+| Policy | Result on shipped [45,110,360] |
 |---|---|
-| **LOOK=30** | **24/30 wins (80%)** |
-| LOOK=12 | 9/30 (30%) |
+| **LOOK=30** | **16/30 wins (53%) — in the 40–60% band** |
+| LOOK=12 | 3/30 (10%) |
 | Exhaustive | 30/30 (100%); final F min 1035 / median 1246 / max 1761 |
 
-A standalone ladder walk (e1/e2 fixed at 45/110, sweeping e3) measured: 330 → 17/30 (57%), **335 → 16/30 (53%)**, 340–350 → 13/30 (43%), 355 → 12/30 (40%), 390 → 5/30 (17%), 420+ → 0/30. **Honest note**: 335 was picked from the ladder's 53% (in band), but the shipped solve.mjs measures it at 80% — its buy order (adds Open Canals/Stone Masonry Growth upgrades) and slightly different discard timing outperform the ladder harness. If the coordinator wants a strict in-band solve.mjs read, **e3 = 350 measures 43% at LOOK=30** on the ladder and ~mid-band on shipped solve; [45,110,335] is shipped as the ladder-in-band rung with the discrepancy documented. LOOK=12 at 30% and exhaustive at 100% bracket it as intended.
+The epoch-3 rung was swept by the reference method (e1/e2 fixed at 45/110): e3 340 → 73%, 350 → 67%, **360 → 53%**, 370 → 50%, 380 → 37%, 390 → 23%. **360 lands cleanly in the intended 40–60% band by the reference itself.** (An earlier shipping of e3=335 measured **24/30 = 80%** by the reference method — out of band — so e3 was corrected to 360.) LOOK=12 at 10% and exhaustive at 100% bracket it as intended.
 
 ## The UI (Balatro-fied, zero emojis)
 
@@ -42,7 +42,7 @@ A standalone ladder walk (e1/e2 fixed at 45/110, sweeping e3) measured: 330 → 
 
 ## Review-script selector changes (coverage preserved, nothing weakened)
 
-- `scripts/review-probe.mjs` — rewritten for the new contract; the hardcoded expected-target string is now **`'45,110,335'`**; new probes: auto-Seeds formula, Growth laws, no-suit-choice, lives-zero; all 24 assertions true.
+- `scripts/review-probe.mjs` — rewritten for the new contract; the hardcoded expected-target string is now **`'45,110,360'`**; new probes: auto-Seeds formula, Growth laws, no-suit-choice, lives-zero; all 24 assertions true.
 - `scripts/review-pvcommit.mjs` — summary regex `(Mine|Grow|Study|Settle)[^+]*\+(\d+)` → `Banks (\d+) Growth` (suit names are gone). Same extraction/assertion shape, `MATCH: true`.
 - `scripts/review-browser.mjs` — preview-amount regex → `Banks (\d+) Growth`; `preview-equals-commit: true` at both viewports.
 - `scripts/drought-legibility.mjs` — repurposed: now asserts the **absence** of any Drought text in UI/log across 3 seeds (`NO-DROUGHT ASSERTION: PASSED`).
@@ -59,7 +59,7 @@ A standalone ladder walk (e1/e2 fixed at 45/110, sweeping e3) measured: 330 → 
 5. **Planet map** — legend buttons or the globe itself; `map-detail` shows adjacency; the `planet-growth` caption tracks development.
 6. **Epoch flow** — 4 plays closes the epoch: single-target check, decay, +1 development everywhere (watch the planet's icons and size grow), income, market. Miss a target → −1 life + halved income.
 7. **Market** — buy Growth upgrades (watch every later play jump), a card addition (hand deals 9, conservation holds), or a Wake expansion (planet visibly grows). At 5 owned items buying locks until you Remove one.
-8. **Lives** — miss three epoch targets → withered at 0 lives. Beat 335 at epoch 3 → flourishing win.
+8. **Lives** — miss three epoch targets → withered at 0 lives. Beat 360 at epoch 3 → flourishing win.
 9. **Save/Quit** — auto-save after every action; Quit keeps the save; only "Clear Save" deletes.
 
 ## Verification performed (this pass)
@@ -71,7 +71,7 @@ A standalone ladder walk (e1/e2 fixed at 45/110, sweeping e3) measured: 330 → 
 - `node scripts/review-planet3d.mjs` — **PASSED** (canvas mount + pixel sample, legend → map-detail, keyboard, reduced-motion rotation stop, raycast) at both viewports, zero errors.
 - `review-pvcommit / review-browser / review-autosave / review-fullrun / drought-legibility` — all pass, zero errors; `preview-equals-commit: true` both viewports; no Drought text anywhere.
 - `python3 scripts/check-no-emoji.py` — PASSED (no emoji in rendered-UI sources).
-- `LOOK=30` solve: **24/30 wins (80%)** on shipped targets; LOOK=12: 9/30; exhaustive: 30/30.
+- `LOOK=30` solve: **16/30 wins (53%)** on shipped targets; LOOK=12: 3/30; exhaustive: 30/30.
 - Fresh screenshots: `shots-review/ui-wide-growth.png`, `ui-wide-growth-full.png`, `ui-narrow-growth.png`, `ui-narrow-growth-full.png` (card-first UI, big Growth number, chips×mult pill, 3D planet, no emojis) + `planet3d-*.png` from the 3D acceptance run.
 
 ## Known scope boundaries (intentional)
@@ -79,4 +79,4 @@ A standalone ladder walk (e1/e2 fixed at 45/110, sweeping e3) measured: 330 → 
 - No betting, no backend, no AI opponents, no deployment — local browser only.
 - 1–4-card selections intentionally cannot form straights/flushes (poker-correct).
 - Region stability/development have **no gameplay read** — they feed only the planet's presentation and the Seeds income headcount (living healthy regions). This is the intended Balatro-simplification.
-- The LOOK=30 shipped measurement (80%) sits above the 40–60% band read from the ladder harness (53% at the same rung); the discrepancy and the stricter 350 rung are documented above.
+- The LOOK=30 bounded win rate is **53% (in band)** at the shipped [45,110,360]; LOOK=12 at 10% and exhaustive at 100% bracket it as intended.
