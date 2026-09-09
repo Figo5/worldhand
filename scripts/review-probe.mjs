@@ -1,109 +1,142 @@
-// Independent review probe — exercises engine contracts from the task checklist.
-// Writes results to stdout; no engine modifications.
-import { newGame, applyAction, checkWithering, challengeMet, legalActions,
-  TOTAL_EPOCHS, HANDS_PER_EPOCH, HAND_SIZE, DISCARDS_PER_HAND, FLOURISH_TARGET } from '../src/engine/worldhand.ts'
-import { evaluate, compareHands, deck, cardName } from '../src/engine/poker.ts'
-import { Rng, hashSeed } from '../src/engine/rng.ts'
+// Independent review probe — v2 engine contract checks.
+import { newGame, applyAction, preview, buildPlan, suitMajority, cardConservation,
+  checkWithering, EPOCH_TARGETS, STABILITY_SUM_TARGETS, PLAYS_PER_EPOCH,
+  HAND_SIZE, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
+import { evaluateSelection, compareHands, CATEGORY_POINTS } from '../src/engine/poker.ts'
 
 const out = []
 const log = (k, v) => out.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
 
-// 1. Multi-card selection + exact scoring-card/kicker behavior
-// evaluate() picks best 5-of-8; there is no multi-card play path in applyAction ('play' takes one cardIdx).
-const h = [
-  {r:14,s:'S'},{r:14,s:'H'},{r:9,s:'D'},{r:9,s:'C'},{r:9,s:'S'},{r:2,s:'H'},{r:3,s:'D'},{r:7,s:'C'},
-]
-const ev = evaluate(h)
-log('best-5-of-8', ev) // expect full-house 9s over 9s
-// kicker exactness: pair of A w/ KQJ kickers vs pair of A w/ KQ10
-const p1 = evaluate([{r:14,s:'S'},{r:14,s:'H'},{r:13,s:'D'},{r:12,s:'C'},{r:11,s:'S'}])
-const p2 = evaluate([{r:14,s:'C'},{r:14,s:'D'},{r:13,s:'H'},{r:12,s:'S'},{r:10,s:'H'}])
-log('kicker-KQJ-vs-KQ10', compareHands(p1, p2)) // expect > 0
-// tie: identical ranks different suits → compare 0
-const t1 = evaluate([{r:14,s:'S'},{r:14,s:'H'},{r:13,s:'D'},{r:12,s:'C'},{r:11,s:'S'}])
-const t2 = evaluate([{r:14,s:'C'},{r:14,s:'D'},{r:13,s:'H'},{r:12,s:'S'},{r:11,s:'H'}])
-log('tie-key-equal', compareHands(t1, t2))
-
-// 2. Card conservation over a full scripted run
+// 1. Multi-card selection (1–5) + exact scoring-card/kicker behavior
 {
-  let s = newGame('conservation-probe')
-  const total = () => s.hand.length + s.deckRest.length + s.discardPile.length + s.market.length
-  let deviations = []
+  let s = newGame('probe-multiselect')
+  for (let i = 0; i < 5; i++) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
+  log('multi-select-5', s.selected.length === 5)
+  s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+  log('multi-select-toggle-off', s.selected.length === 4)
+  s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+  log('multi-select-toggle-on', s.selected.length === 5)
+  try { applyAction(s, { type: 'toggleCard', cardIdx: 5 }); log('max5-enforced', false) }
+  catch { log('max5-enforced', true) }
+  // kicker exactness via evaluateSelection keys
+  const p1 = evaluateSelection([{r:14,s:'S'},{r:14,s:'H'},{r:13,s:'D'},{r:12,s:'C'},{r:11,s:'S'}])
+  const p2 = evaluateSelection([{r:14,s:'C'},{r:14,s:'D'},{r:13,s:'H'},{r:12,s:'S'},{r:10,s:'H'}])
+  log('kicker-KQJ-beats-KQ10', compareHands(p1, p2) > 0)
+  const t2 = evaluateSelection([{r:14,s:'C'},{r:14,s:'D'},{r:13,s:'H'},{r:12,s:'S'},{r:11,s:'H'}])
+  log('tie-keys-equal', compareHands(p1, t2) === 0)
+}
+
+// 2. Tie influence choice
+{
+  const m1 = suitMajority([{r:5,s:'H'},{r:6,s:'D'}])            // default H (S,H,D,C order)
+  const m2 = suitMajority([{r:5,s:'H'},{r:6,s:'D'}], 'D')       // explicit choice D
+  log('tie-default-H', m1.suit === 'H' && m1.decision === 'tiebreak-first')
+  log('tie-choice-D', m2.suit === 'D' && m2.decision === 'tiebreak-choice')
+  // 2v2 tie among suits
+  const m3 = suitMajority([{r:5,s:'H'},{r:6,s:'H'},{r:7,s:'C'},{r:8,s:'C'}])
+  log('tie-2v2-default-C', m3.suit === 'C') // C later in S,H,D,C? No: H before C → H
+  // plan-level tie choice affects effects
+  const s0 = newGame('probe-tie')
+  const pH = buildPlan([{r:5,s:'H'},{r:6,s:'D'}], [0,1], s0.regions, [], 'H')
+  const pD = buildPlan([{r:5,s:'H'},{r:6,s:'D'}], [0,1], s0.regions, [], 'D')
+  log('plan-tie-H-effect', pH.suit === 'H' && pH.effects[0].kind === 'flourishing')
+  log('plan-tie-D-effect', pD.suit === 'D' && pD.effects[0].kind === 'seeds')
+}
+
+// 3. Preview equals commit
+{
+  let s = newGame('probe-pvcommit')
+  s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+  s = applyAction(s, { type: 'toggleCard', cardIdx: 2 })
+  const pv = preview(s)
+  const before = { f: s.flourishing, seeds: s.seeds, stab: s.regions.map(r => r.stability) }
+  const s2 = applyAction(s, { type: 'play' })
+  const committed = s2.lastResolution
+  log('preview-eq-commit-category', committed.category === pv.category)
+  log('preview-eq-commit-suit', committed.suit === pv.suit)
+  log('preview-eq-commit-effects', JSON.stringify(committed.effects) === JSON.stringify(pv.effects))
+  const appliedOk = pv.effects.every(e => {
+    if (e.kind === 'flourishing') return s2.flourishing === before.f + e.amount
+    if (e.kind === 'seeds') return s2.seeds === Math.min(30, before.seeds + e.amount)
+    if (e.kind === 'stability') return s2.regions[e.regionId].stability === Math.min(10, before.stab[e.regionId] + e.amount)
+    return true
+  })
+  log('preview-eq-commit-applied', appliedOk)
+  log('preview-summary', pv.summary)
+}
+
+// 4. Refill / card conservation across a full chaotic run
+{
+  let s = newGame('probe-conservation')
+  const totals = new Set()
+  const checks = { play: 0, discard: 0, buy: 0, violations: 0 }
   let guard = 0
-  const counts = new Set()
-  while (s.phase !== 'game-over' && guard < 500) {
+  while (s.phase !== 'game-over' && guard < 400) {
     guard++
-    counts.add(total())
-    if (s.phase === 'law') s = applyAction(s, { type: 'skipLaw' })
-    else if (s.phase === 'hand') {
-      // mix: discard first card if budget allows, buy if affordable, else advance
-      if (s.discardsLeft > 0 && s.hand.length) s = applyAction(s, { type: 'discard', cardIdx: 0 })
-      else if (s.market.length && s.seeds >= 10) s = applyAction(s, { type: 'buyCard', offerIdx: 0 })
-      else s = applyAction(s, { type: 'advance' })
-    }
-    if (total() !== 52) deviations.push({ epoch: s.epoch, total: total() })
+    totals.add(s.hand.length + s.deckRest.length + s.discardPile.length)
+    if (!cardConservation(s)) checks.violations++
+    if (s.phase === 'select') {
+      if (s.discardsLeft > 0 && s.hand.length >= 3) {
+        s = applyAction(s, { type: 'discard', cardIdxs: [0, 1, 2] }); checks.discard++
+      } else {
+        s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+        s = applyAction(s, { type: 'play' }); checks.play++
+      }
+    } else if (s.phase === 'market') {
+      if (s.market.length && s.seeds >= 15) { s = applyAction(s, { type: 'buy', itemId: s.market[0].id }); checks.buy++ }
+      else s = applyAction(s, { type: 'endMarket' })
+    } else if (s.phase === 'epoch-end') s = applyAction(s, { type: 'closeEpoch' })
+    else break
   }
-  log('card-conservation-total', [...counts]) // should be exactly [52]
-  log('card-conservation-deviations', deviations.length)
-  log('run-terminated', s.phase)
-  log('epochs-reached', s.epoch)
+  log('conservation-totals', [...totals]) // expect [52]
+  log('conservation-violations', checks.violations)
+  log('conservation-actions', checks)
+  log('conservation-terminated', s.phase + ' e' + s.epoch)
 }
 
-// 3. Deck refill / reshuffle determinism: force a tiny deck state
+// 5. Discard replacement determinism
 {
-  let s = newGame('refill-probe')
-  // drain deck to 1 card, put rest in discard, then deal
-  s.deckRest = [{r:2,s:'S'}]
-  s.discardPile = deck().filter(c => !(c.r === 2 && c.s === 'S'))
-  const before = s.discardPile.length
-  const s2 = applyAction(s, { type: 'advance' }) // pushes hand to discard, deals next hand
-  log('refill-hand-size', s2.hand.length) // expect 8
-  log('refill-discard-consumed', before - s2.discardPile.length >= 0)
-  log('refill-deck-rest', s2.deckRest.length)
-  log('refill-total', s2.hand.length + s2.deckRest.length + s2.discardPile.length + s2.market.length)
+  let s = newGame('probe-discard')
+  const s2a = applyAction(newGame('probe-discard'), { type: 'discard', cardIdxs: [0, 1] })
+  const s2b = applyAction(newGame('probe-discard'), { type: 'discard', cardIdxs: [0, 1] })
+  log('discard-deterministic', JSON.stringify(s2a.hand) === JSON.stringify(s2b.hand))
+  log('discard-refills-to-8', s2a.hand.length === HAND_SIZE)
+  log('discard-budget-decrements-once', s2a.discardsLeft === 2)
 }
 
-// 4. Three-epoch progression with escalating targets
+// 6. Three-epoch progression + escalating targets
+log('epoch-targets-escalating', EPOCH_TARGETS.map(t => t.need).join(',') === '5,8,12' &&
+  STABILITY_SUM_TARGETS.join(',') === '14,22,30')
+log('total-epochs', TOTAL_EPOCHS)
+log('plays-per-epoch', PLAYS_PER_EPOCH)
 {
-  let s = newGame('progression-probe')
-  const targets = []
-  let prevFlourish = s.flourishing
-  for (let ep = 1; ep <= 3; ep++) {
-    while (s.phase !== 'game-over' && s.epoch <= ep && guardOK(s)) {
-      if (s.phase === 'law') s = applyAction(s, { type: 'skipLaw' })
-      else if (s.phase === 'hand') s = applyAction(s, { type: 'advance' })
-      else break
-    }
-    targets.push({ epoch: s.epoch, phase: s.phase, flourishing: s.flourishing })
-    prevFlourish = s.flourishing
-    if (s.phase === 'game-over') break
+  let s = newGame('probe-progression')
+  const steps = []
+  let guard = 0
+  while (s.phase !== 'game-over' && guard < 300) {
+    guard++
+    if (s.phase === 'select') {
+      s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+      s = applyAction(s, { type: 'play' })
+    } else if (s.phase === 'market') s = applyAction(s, { type: 'endMarket' })
+    else if (s.phase === 'epoch-end') s = applyAction(s, { type: 'closeEpoch' })
+    else break
+    if (s.phase === 'select') steps.push(`e${s.epoch} f${s.flourishing} stab${s.regions.filter(r=>!r.dormant).reduce((n,r)=>n+r.stability,0)}`)
   }
-  log('three-epoch-progression', targets)
-  log('target-constant-12', FLOURISH_TARGET) // escalation check: target never changes → no escalation mechanic
+  log('progression-epochs', [...new Set(steps.map(x => x[1]))].length) // distinct epochs reached
+  log('progression-final', { epoch: s.epoch, outcome: s.outcome, reason: s.outcomeReason })
 }
-function guardOK(s) { return s.phase === 'hand' || s.phase === 'law' }
 
-// 5. Flourishing <= 0 boundary rule (documented but per prior review unimplemented)
+// 7. Withering + flourish-zero boundary (both must fire)
 {
-  let s = newGame('flourish-zero-probe')
-  s.flourishing = 0
-  const s2 = applyAction(s, { type: 'advance' })
-  log('flourish-zero-ends-game', s2.phase === 'game-over') // RULES.md says it should
+  let s = newGame('probe-wither')
+  s.regions[4].dormant = false; s.regions[5].dormant = false
+  for (const r of s.regions) if (!r.dormant) r.stability = 0
+  log('withering-fires', checkWithering(s).phase === 'game-over')
+  let z = newGame('probe-zero')
+  z.flourishing = 0; z.phase = 'epoch-end'
+  const z2 = applyAction(z, { type: 'closeEpoch' })
+  log('flourish-zero-boundary-ends', z2.phase === 'game-over' && z2.outcome === 'withered')
 }
-
-// 6. Withering organic reachability: force decay without tending
-{
-  let s = newGame('wither-probe')
-  // wake all dormant, zero stability, then advance an epoch boundary
-  s.regions.forEach(r => { r.dormant = false; r.stability = 0 })
-  const s2 = checkWithering(s)
-  log('withering-fires-on-5-dead', s2.phase === 'game-over')
-}
-
-// 7. Quit-preserving save semantics (save.ts is localStorage; engine side can't test here)
-log('legalActions-discard-only', legalActions(newGame('legal2')).every(a => a.type === 'discard'))
-
-// 8. Determinism double-check across newGame twice
-log('determinism-equal', JSON.stringify(newGame('det-x')) === JSON.stringify(newGame('det-x')))
 
 console.log(out.join('\n'))

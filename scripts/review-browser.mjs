@@ -1,4 +1,4 @@
-// Independent browser acceptance: 1280x800 + narrow viewport, quit/save/reload, market, discards.
+// Final acceptance matrix at 1280x800 and 480x800 with the epoch-end fix in place.
 import { chromium } from 'playwright'
 import { mkdirSync } from 'fs'
 
@@ -16,127 +16,103 @@ async function runViewport(width, height, tag) {
   page.on('pageerror', (e) => errors.push(`[${tag}] pageerror: ` + e.message))
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`[${tag}] console: ` + m.text()) })
   await page.goto(BASE, { waitUntil: 'networkidle' })
-  // clear any existing save for a clean run
-  await page.evaluate(() => localStorage.removeItem('worldhand.save'))
+  await page.evaluate(() => localStorage.clear())
   await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('#seed')
+  await page.screenshot({ path: `${OUT}/${tag}-00-menu.png` })
 
-  // menu visible?
-  const menu = await page.locator('#seed').count()
-  rec(`[${tag}] menu-seed-input`, menu === 1)
   await page.fill('#seed', 'auralia-the-first')
   await page.click('text=Begin New World')
   await page.waitForSelector('.pcard-btn')
   await page.screenshot({ path: `${OUT}/${tag}-01-hand.png`, fullPage: true })
 
   const counts = await page.evaluate(() => ({
-    regions: document.querySelectorAll('.region').length,
+    regions: document.querySelectorAll('.region-node').length,
     cards: document.querySelectorAll('.pcard-btn').length,
     hud: document.querySelector('.hud')?.innerText.replace(/\n/g, ' | '),
     overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
   }))
   rec(`[${tag}] counts`, counts)
 
-  // multi-card selection: can two cards be selected simultaneously? (click card 0, then card 1)
+  // multi-card selection 3 cards
+  for (const i of [0, 1, 2]) await page.locator('.pcard-btn').nth(i).click()
+  rec(`[${tag}] multi-select-3`, await page.locator('.pcard-btn.sel').count())
+  await page.screenshot({ path: `${OUT}/${tag}-02-multiselect.png` })
+
+  // preview text
+  const previewText = await page.locator('[data-testid="preview"]').innerText().catch(() => 'NO_PREVIEW')
+  rec(`[${tag}] preview`, previewText.replace(/\n/g, ' | '))
+  await page.locator('[data-testid="play-btn"]').click()
+  await page.waitForTimeout(150)
+  // save via button (no auto-save) then read log from save
+  await page.click('button:has-text("Save")'); await page.waitForTimeout(100)
+  const logTop = await page.evaluate(() => JSON.parse(localStorage.getItem('worldhand.save') ?? 'null')?.state.log.slice(-1)[0]?.text)
+  const pvAmt = previewText.match(/([+\-]\d+)/)?.[1]
+  rec(`[${tag}] preview-equals-commit`, logTop ? logTop.includes(pvAmt ?? '§') : false, { pvAmt, logTop })
+
+  // discard 2
   await page.locator('.pcard-btn').nth(0).click()
   await page.locator('.pcard-btn').nth(1).click()
-  const selCount = await page.locator('.pcard-btn.sel').count()
-  rec(`[${tag}] multi-card-selection-selected-count`, selCount) // required: >1; current impl: 1
-
-  // preview equals commit: read lastHandResult preview before playing, then play and compare
-  const previewBefore = await page.evaluate(() => localStorage.getItem('worldhand.save') ? JSON.parse(localStorage.getItem('worldhand.save')).state.lastHandResult : null)
-  rec(`[${tag}] preview-lastHandResult-shown-in-ui`, await page.locator('text=best').count() > 0 || 'not-visible')
-  rec(`[${tag}] saved-lastHandResult`, previewBefore)
-
-  // play a non-spade card
-  const suitOf = async (i) => (await page.locator('.pcard-btn').nth(i).getAttribute('title')).trim()
-  let played = null
-  for (let i = 0; i < (await page.locator('.pcard-btn').count()); i++) {
-    const suit = await suitOf(i)
-    if (!suit.startsWith('Roots')) {
-      const before = await page.locator('.pcard-btn').count()
-      await page.locator('.pcard-btn').nth(i).click()
-      await page.click('button.primary:has-text("Play")')
-      await page.waitForTimeout(120)
-      const after = await page.locator('.pcard-btn').count()
-      if (after === before - 1) { played = { i, suit: suit.split(' ')[0], before, after }; break }
-    }
-  }
-  rec(`[${tag}] play-non-spade`, played)
-
-  // discard flow + conservation of discard budget
-  const dBefore = await page.locator('button:has-text("Discard")').innerText()
-  await page.locator('.pcard-btn').first().click()
-  await page.click('button:has-text("Discard")')
-  await page.waitForTimeout(120)
-  const dAfter = await page.locator('button:has-text("Discard")').innerText()
-  rec(`[${tag}] discard-budget`, { before: dBefore, after: dAfter })
-
-  // spade targeting if available
-  let spade = -1
-  for (let i = 0; i < (await page.locator('.pcard-btn').count()); i++) if ((await suitOf(i)).startsWith('Roots')) { spade = i; break }
-  if (spade >= 0) {
-    await page.locator('.pcard-btn').nth(spade).click()
-    const en = await page.locator('.region-btn:not([disabled])').count()
-    rec(`[${tag}] spade-enabled-regions`, en)
-    if (en > 0) {
-      await page.locator('.region-btn:not([disabled])').first().click()
-      await page.click('button.primary:has-text("Play")')
-      await page.waitForTimeout(120)
-      rec(`[${tag}] spade-targeted-play-hand`, await page.locator('.pcard-btn').count())
-    }
-  }
-  await page.screenshot({ path: `${OUT}/${tag}-02-mid.png`, fullPage: true })
-
-  // advance → hand 2
-  await page.click('button.advance')
+  const dBtn = page.locator('button:has-text("Discard")')
+  const dBefore = await dBtn.innerText()
+  await dBtn.click()
   await page.waitForTimeout(150)
-  const hudAfterAdvance = await page.evaluate(() => document.querySelector('.hud')?.innerText.replace(/\n/g, ' | '))
-  rec(`[${tag}] hud-after-advance`, hudAfterAdvance)
+  const dAfter = await dBtn.innerText()
+  await page.click('button:has-text("Save")'); await page.waitForTimeout(100)
+  const handAfter = await page.evaluate(() => JSON.parse(localStorage.getItem('worldhand.save') ?? 'null')?.state.hand.length)
+  rec(`[${tag}] discard`, { before: dBefore, after: dAfter, handAfter })
 
-  // quit preserving save: click Quit, then check save persists in localStorage
-  const saveBefore = await page.evaluate(() => localStorage.getItem('worldhand.save')?.length ?? 0)
+  // map selection
+  await page.locator('.region-node').first().click()
+  await page.waitForTimeout(100)
+  const detail = await page.locator('[data-testid="map-detail"]').innerText().catch(() => 'NO_DETAIL')
+  rec(`[${tag}] map-selection`, detail.replace(/\n/g, ' | '))
+  await page.screenshot({ path: `${OUT}/${tag}-03-map.png`, fullPage: true })
+
+  // quit preserves save
+  await page.click('button:has-text("Save")'); await page.waitForTimeout(100)
+  const saveBytes = await page.evaluate(() => localStorage.getItem('worldhand.save')?.length ?? 0)
   await page.click('button:has-text("Quit")')
   await page.waitForTimeout(150)
-  const saveAfterQuit = await page.evaluate(() => ({ exists: !!localStorage.getItem('worldhand.save'), bytes: localStorage.getItem('worldhand.save')?.length ?? 0 }))
-  rec(`[${tag}] quit-preserves-save`, { saveBefore, saveAfterQuit })
-  await page.screenshot({ path: `${OUT}/${tag}-03-after-quit.png` })
+  const afterQuit = await page.evaluate(() => ({ menu: !!document.querySelector('#seed'), saveBytes: localStorage.getItem('worldhand.save')?.length ?? 0 }))
+  rec(`[${tag}] quit-preserves-save`, { saveBytes, afterQuit })
+  await page.screenshot({ path: `${OUT}/${tag}-04-after-quit.png` })
 
-  // reload → back to menu, then Load Saved World restores state
+  // reload + auto-load
   await page.reload({ waitUntil: 'networkidle' })
-  await page.waitForTimeout(300)
-  // after quit, state was cleared in-app; a reload should show menu (state null) but save intact
-  const menuAfterReload = await page.locator('#seed').count()
-  rec(`[${tag}] menu-after-quit-reload`, menuAfterReload === 1)
-  if (menuAfterReload) {
-    await page.click('button:has-text("Load Saved World")')
-    await page.waitForTimeout(300)
-    const hudRestored = await page.evaluate(() => document.querySelector('.hud')?.innerText.replace(/\n/g, ' | '))
-    rec(`[${tag}] hud-after-load`, hudRestored)
-  }
-  await page.screenshot({ path: `${OUT}/${tag}-04-after-load.png`, fullPage: true })
+  await page.waitForTimeout(400)
+  const hudAfterReload = await page.locator('.hud').innerText().catch(() => 'MENU_NO_AUTOLOAD')
+  rec(`[${tag}] reload-auto-load`, hudAfterReload.replace(/\n/g, ' | '))
+  await page.screenshot({ path: `${OUT}/${tag}-05-after-reload.png`, fullPage: true })
 
-  // run to market: skip laws, advance until market panel visible (epoch end)
-  let marketSeen = false
-  for (let g = 0; g < 60; g++) {
-    if (await page.locator('.market').count()) { marketSeen = true; break }
-    const skip = page.locator('button:has-text("Skip")')
-    if (await skip.count()) { await skip.first().click(); await page.waitForTimeout(60); continue }
-    const adv = page.locator('button.advance')
-    if (await adv.count()) { await adv.click(); await page.waitForTimeout(60) } else break
-  }
-  rec(`[${tag}] market-visible`, marketSeen)
-  if (marketSeen) await page.screenshot({ path: `${OUT}/${tag}-05-market.png`, fullPage: true })
-
-  // run to game over
-  for (let g = 0; g < 200; g++) {
+  // full run to verdict
+  let marketSeen = false, epochEndSeen = false, marketHtml = 'NO_MARKET_SEEN'
+  for (let g = 0; g < 400; g++) {
     if (await page.locator('.verdict').count()) break
-    const skip = page.locator('button:has-text("Skip")')
-    if (await skip.count()) { await skip.first().click(); await page.waitForTimeout(40); continue }
-    const adv = page.locator('button.advance')
-    if (await adv.count() && await adv.isEnabled()) { await adv.click(); await page.waitForTimeout(40) } else break
+    const phase = await page.evaluate(() => document.querySelector('.market') ? 'market'
+      : document.querySelector('.verdict') ? 'verdict'
+      : document.querySelector('[data-testid="epoch-end"]') ? 'epoch-end'
+      : document.querySelectorAll('.pcard-btn').length ? 'select' : 'unknown')
+    if (phase === 'select') {
+      if (!(await page.locator('.pcard-btn.sel').count())) await page.locator('.pcard-btn').first().click()
+      await page.locator('[data-testid="play-btn"]').click(); await page.waitForTimeout(50)
+    } else if (phase === 'market') {
+      marketSeen = true
+      const buy = page.locator('.market-btn:not([disabled])').first()
+      if (await buy.count()) await buy.click().catch(() => {})
+      await page.click('button:has-text("Continue")'); await page.waitForTimeout(70)
+    } else if (phase === 'epoch-end') {
+      epochEndSeen = true
+      if (marketSeen && marketHtml === 'NO_MARKET_SEEN') marketHtml = 'seen'
+      await page.locator('[data-testid="close-epoch-btn"]').click(); await page.waitForTimeout(70)
+    } else break
   }
+  await page.click('button:has-text("Save")').catch(() => {}); await page.waitForTimeout(100)
   const verdict = await page.evaluate(() => document.querySelector('.verdict')?.innerText.replace(/\n/g, ' | ') ?? 'NO_VERDICT')
+  rec(`[${tag}] market`, marketSeen)
+  rec(`[${tag}] epoch-end-phase-reached`, epochEndSeen)
   rec(`[${tag}] verdict`, verdict)
+  rec(`[${tag}] drought-log`, await page.evaluate(() => [...document.querySelectorAll('.log li')].map(l => l.innerText).filter(t => t.includes('Drought')).join(' ;; ') || 'NONE'))
   await page.screenshot({ path: `${OUT}/${tag}-06-verdict.png`, fullPage: true })
   await page.close()
 }
