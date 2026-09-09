@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   newGame, applyAction, preview, buildPlan, suitMajority, cardConservation,
   checkWithering, droughtChallenge, applyPlanEffects, EPOCH_TARGETS, STABILITY_SUM_TARGETS,
+  SURVIVAL_START, SURVIVAL_MAX,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, HAND_SIZE, TOTAL_EPOCHS, TOTAL_REGIONS,
   STABILITY_BASE, STABILITY_MAX, SEEDS_CAP, START_REGIONS,
 } from '../src/engine/worldhand'
@@ -47,9 +48,26 @@ describe('worldhand v2 core contracts', () => {
   })
   it('three escalating targets are strictly increasing', () => {
     expect(EPOCH_TARGETS).toHaveLength(3)
-    expect(STABILITY_SUM_TARGETS).toEqual([14, 22, 30])
+    expect(STABILITY_SUM_TARGETS).toEqual([20, 30, 40])
+    expect(EPOCH_TARGETS.map((t) => t.need)).toEqual([20, 36, 52])
     expect(EPOCH_TARGETS[0].need).toBeLessThan(EPOCH_TARGETS[1].need)
     expect(EPOCH_TARGETS[1].need).toBeLessThan(EPOCH_TARGETS[2].need)
+  })
+  it('targets are calibrated against measured greedy play, not the final target alone', () => {
+    // scripts/balance-sweep.mjs (greedy all-1-5-subsets policy, default 30 seeds,
+    // Survival active) measured the win-rate curve the shipped targets sit on:
+    //   [12,20,30] 28/30 · [18,32,46] 25/30 · [20,36,52] 21/30 ·
+    //   [22,40,58] 12/30 · [24,44,64] 5/30 · [26,48,70] 0/30
+    // [20,36,52] lands in the intended challenge band (well below 100%, far
+    // above 0%); the final epoch target must be meaningfully above the old
+    // trivially-banked 12 and below the ~68 ceiling the best runs reach.
+    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBeGreaterThan(12)
+    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBeLessThanOrEqual(58)
+    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBeLessThan(68)
+    // strictly escalating so every epoch's target stays live
+    for (let i = 1; i < EPOCH_TARGETS.length; i++) {
+      expect(EPOCH_TARGETS[i].need).toBeGreaterThan(EPOCH_TARGETS[i - 1].need * 1.2)
+    }
   })
   it('card conservation holds after every action type', () => {
     let s = newGame('conservation')
@@ -140,6 +158,74 @@ describe('suit majority / tie choice', () => {
     expect(plan.suit).toBe('H')
     expect(plan.suitCounts.H).toBe(2)
     expect(plan.suitCounts.D).toBe(1)
+  })
+  it('REGRESSION: committed play carries suitChoice — commit matches the previewed tie choice (was: commit dropped the tie choice)', () => {
+    // 2♥+2♣+1♦ tie between H and C: the old commit path called
+    // buildPlan(..., undefined), so a player previewing Clubs/Tend got
+    // Hearts/Bloom on commit (S,H,D,C default order).
+    let s = newGame('tie-commit')
+    s = forceHand(s, [C(5, 'H'), C(6, 'H'), C(7, 'D'), C(9, 'C'), C(10, 'C')])
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 1 })
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 2 })
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 3 })
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 4 })
+    const pv = preview(s, 'C')
+    expect(pv.suitDecision).toBe('tiebreak-choice')
+    expect(pv.suit).toBe('C')
+    expect(pv.effects.every((e) => e.kind === 'stability')).toBe(true) // Tend effects
+    const s2 = applyAction(s, { type: 'play', suitChoice: 'C' })
+    expect(s2.lastResolution!.suit).toBe('C')
+    expect(s2.lastResolution!.suitDecision).toBe('tiebreak-choice')
+    expect(s2.lastResolution!.effects).toEqual(pv.effects)
+  })
+  it('REGRESSION: preview(hand, tieChoice) === buildPlan(hand, selected, regions, laws, tieChoice) === committed play with suitChoice', () => {
+    const s0 = newGame('tie-pipeline')
+    const hand = [C(9, 'H'), C(9, 'D')]
+    const selected = [0, 1]
+    const previewed = preview({ ...s0, hand, selected } as GameState, 'D')
+    const built = buildPlan(hand, selected, s0.regions, s0.laws, 'D')
+    expect(previewed).toEqual(built)
+    let s = forceHand(newGame('tie-commit-2'), hand)
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 1 })
+    const committed = applyAction(s, { type: 'play', suitChoice: 'D' }).lastResolution!
+    // same effects/category/suit as the previewed/built plan for tieChoice 'D'
+    expect(committed.effects).toEqual(built.effects)
+    expect(committed.category).toBe(built.category)
+    expect(committed.suit).toBe(built.suit)
+    // and the choice really changed the outcome vs the default tie-break (H first)
+    expect(built.suit).toBe('D')
+    expect(buildPlan(hand, selected, s0.regions, s0.laws, undefined).suit).toBe('H')
+  })
+  it('suitCounts/majority still work when tieChoice is provided (counts unaffected by the choice)', () => {
+    const hand = [C(5, 'H'), C(6, 'H'), C(7, 'D'), C(9, 'C'), C(10, 'C')]
+    const m = suitMajority(hand, 'C')
+    expect(m.counts).toEqual({ S: 0, H: 2, D: 1, C: 2 })
+    expect(m.tied.sort()).toEqual(['C', 'H'])
+    expect(m.suit).toBe('C')
+    expect(m.decision).toBe('tiebreak-choice')
+    const planC = buildPlan(hand, [0, 1, 2, 3, 4], newGame('counts').regions, [], 'C')
+    expect(planC.suitCounts).toEqual({ S: 0, H: 2, D: 1, C: 2 })
+    expect(planC.suit).toBe('C')
+  })
+  it('regionChoice on a committed play still targets the Roots region (backward-compatible)', () => {
+    // default: the weakest living region is targeted
+    const s1 = forceHand(newGame('roots-target'), [C(10, 'S')])
+    s1.regions[0].stability = 2
+    s1.regions[1].stability = 9
+    const sDefault = applyAction(s1, { type: 'toggleCard', cardIdx: 0 })
+    const committedDefault = applyAction(sDefault, { type: 'play' })
+    expect(committedDefault.lastResolution!.effects[0]).toMatchObject({ kind: 'stability', regionId: 0 })
+    // regionChoice overrides the weakest-first default
+    const s2 = forceHand(newGame('roots-target-2'), [C(10, 'S')])
+    s2.regions[3].dormant = false
+    s2.regions[3].stability = 9
+    s2.regions[0].stability = 9
+    s2.regions[1].stability = 2
+    const sT = applyAction(s2, { type: 'toggleCard', cardIdx: 0 })
+    const committedTargeted = applyAction(sT, { type: 'play', regionChoice: 3 })
+    expect(committedTargeted.lastResolution!.effects[0]).toMatchObject({ kind: 'stability', regionId: 3 })
   })
 })
 
@@ -286,6 +372,96 @@ describe('four plays / three discards per epoch', () => {
 })
 
 describe('epoch end: targets, Stability decay, Drought challenge', () => {
+  it('Survival pool: starts at 3, capped at 3', () => {
+    expect(SURVIVAL_START).toBe(3)
+    expect(SURVIVAL_MAX).toBe(3)
+    expect(newGame('survival-init').survival).toBe(3)
+  })
+  it('missing the epoch-1 target costs 1 Survival and halves that epoch-end market income', () => {
+    let s = newGame('survival-miss-e1')
+    s = forceHand(s, [C(4, 'D'), C(4, 'D'), C(4, 'D'), C(4, 'D')])
+    for (let i = 0; i < 4; i++) {
+      s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+      s = applyAction(s, { type: 'play' })
+    }
+    expect(s.phase).toBe('market')
+    const f = s.flourishing
+    const stab = s.regions.filter((r) => !r.dormant).reduce((n, r) => n + r.stability, 0)
+    if (f < EPOCH_TARGETS[0].need && stab < STABILITY_SUM_TARGETS[0]) {
+      expect(s.survival).toBe(SURVIVAL_START - 1)
+      expect(s.log.some((l) => l.text.includes(`Survival drops to ${SURVIVAL_START - 1}`))).toBe(true)
+      expect(s.log.some((l) => l.text.includes('market income is halved'))).toBe(true)
+    } else {
+      // this seed happened to meet the target: Survival must be untouched
+      expect(s.survival).toBe(SURVIVAL_START)
+      expect(s.log.every((l) => !l.text.includes('Survival drops'))).toBe(true)
+    }
+  })
+  it('meeting the epoch target costs no Survival', () => {
+    // force a met target: huge flourishing, huge stability
+    let s = newGame('survival-met')
+    s.flourishing = 40
+    for (const r of s.regions) if (!r.dormant) r.stability = 8
+    s.epoch = 1
+    s = forceHand(s, [C(4, 'D'), C(4, 'D'), C(4, 'D'), C(4, 'D')])
+    for (let i = 0; i < 4; i++) {
+      s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+      s = applyAction(s, { type: 'play' })
+    }
+    expect(s.survival).toBe(SURVIVAL_START)
+    expect(s.log.every((l) => !l.text.includes('Survival drops'))).toBe(true)
+    expect(s.log.every((l) => !l.text.includes('halved'))).toBe(true)
+  })
+  it('missing the epoch-2 target also drains Survival (2 misses leave 1)', () => {
+    // epoch 1: Sow-only hand, far below the epoch-1 target -> Survival 3→2
+    let s = newGame('survival-miss-e2')
+    s = forceHand(s, [C(4, 'D'), C(4, 'D'), C(4, 'D'), C(4, 'D')])
+    for (let i = 0; i < 4; i++) {
+      s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+      s = applyAction(s, { type: 'play' })
+    }
+    expect(s.survival).toBe(2)
+    // epoch 2: end the market, then again play only weak Sow singles -> Survival 2→1
+    s = applyAction(s, { type: 'endMarket' })
+    s = applyAction(s, { type: 'closeEpoch' })
+    expect(s.epoch).toBe(2)
+    expect(s.phase).toBe('select')
+    s = forceHand(s, [C(4, 'D'), C(4, 'D'), C(4, 'D'), C(4, 'D')])
+    for (let i = 0; i < 4; i++) {
+      s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+      s = applyAction(s, { type: 'play' })
+    }
+    expect(s.survival).toBe(1)
+    expect(s.phase).toBe('market') // still alive at 1
+    expect(s.log.some((l) => l.text.includes('Survival drops to 1'))).toBe(true)
+  })
+  it('a drained Survival pool (0) ends the run withered', () => {
+    let s = newGame('survival-zero')
+    s.survival = 0
+    s.epoch = 1
+    s.phase = 'epoch-end'
+    s.challenge = null
+    const s2 = applyAction(s, { type: 'closeEpoch' })
+    expect(s2.phase).toBe('game-over')
+    expect(s2.outcome).toBe('withered')
+    expect(s2.outcomeReason).toContain('Survival')
+  })
+  it('the epoch-3 target miss costs no Survival (its miss is already terminal)', () => {
+    let s = newGame('survival-e3')
+    s.epoch = 3
+    s.phase = 'epoch-end'
+    s.challenge = null
+    s.flourishing = 1
+    const s2 = applyAction(s, { type: 'closeEpoch' })
+    expect(s2.phase).toBe('game-over')
+    expect(s2.outcomeReason).toContain('fell short')
+    expect(s2.survival).toBe(SURVIVAL_START)
+  })
+  it('Survival is serialized in the save envelope', () => {
+    const s = newGame('survival-save')
+    const j = JSON.parse(JSON.stringify(s))
+    expect(j.survival).toBe(3)
+  })
   it('epoch end applies decay of 1 and Seeds income', () => {
     let s = newGame('decay')
     // force a hand of Sow cards so no play changes stability — decay only

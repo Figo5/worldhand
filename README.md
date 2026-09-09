@@ -7,7 +7,7 @@ A deterministic seeded planet-building card roguelike with a poker-scored engine
 - **12 regions** on an SVG planet disc; 4 awake at start, the rest woken by Bloom plays (Q+ hearts), expansions, and decay pressure.
 - Each epoch you get **4 plays** and **3 discards** from an **8-card hand** dealt from a 52-card deck.
 - **Play = select 1–5 cards.** The exact selection is scored as a poker hand (full 5-card categories; 1–4-card selections score high/pair/two-pair/trips/quads only).
-- The **majority suit** of the selection decides which action fires; on a tie you choose the suit in the preview. The **Ace is low** (A-2-3-4-5 wheel).
+- The **majority suit** of the selection decides which action fires; on a tie you choose the suit in the preview, and the committed play carries that exact choice (`suitChoice`) so preview and commit always agree. The **Ace is low** (A-2-3-4-5 wheel).
 - **Discard 1–5 cards** at once; the hand refills to 8 from the deck. Card conservation (hand + deck + discard = 52) is a tested invariant.
 - A deterministic **ResolutionPlan** is built by one shared pipeline: the UI *preview* and the engine *commit* both call the same `buildPlan`, so what you see is exactly what happens.
 
@@ -20,9 +20,11 @@ A deterministic seeded planet-building card roguelike with a poker-scored engine
 | ♦ Sow | +Seeds |
 | ♣ Tend | +1 stability to *every* living region |
 
-## Epochs, targets, challenge
+## Epochs, targets, Survival, challenge
 
-- **3 epochs**, escalating targets: (Flourishing 5 / stability 14) → (8 / 22) → (12 / 30).
+- **3 epochs**, escalating targets: (Flourishing 20 / stability 20) → (36 / 30) → (52 / 40).
+- **Survival pool** — start with 3. Missing an epoch-1 or epoch-2 target costs 1 Survival **and halves that epoch's Seed income**; at 0 Survival the run ends withered. (An epoch-3 target miss is already terminal, so it costs nothing extra.)
+- Targets are calibrated against measured competent play (`scripts/solve.mjs` greedy all-subsets policy over 30 seeds): ~21/30 wins (70%) on the shipped targets, final Flourishing min 46 / median 55 / max 68. The old [5, 8, 12] targets were trivially banked (30/30 wins, F 41–68).
 - Stability decays by 1 per living region at epoch end; **Seeds** income comes from living healthy regions plus laws.
 - **Epoch 3 carries an explicit, previewed Drought challenge**: every living region must hold stability 3+ at epoch end. It's announced in the log and the HUD the moment epoch 3 begins, and failing it withers the world.
 

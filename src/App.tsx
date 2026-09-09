@@ -251,7 +251,7 @@ export default function App() {
                     className="primary"
                     disabled={!plan || !plan.valid}
                     data-testid="play-btn"
-                    onClick={() => { act({ type: 'play' }); setTieChoice(undefined) }}
+                    onClick={() => { act({ type: 'play', suitChoice: tieChoice }); setTieChoice(undefined) }}
                   >
                     Play {plan && plan.valid ? `${SUIT_GLYPH[plan.suit]} ${plan.categoryLabel}` : ''}
                   </button>

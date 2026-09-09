@@ -103,3 +103,26 @@ Both outstanding issues A (no auto-save) and limitation 1 (decorative adjacency/
 **Adjacency/development mechanics (Limitation 1 — FIXED, small and deterministic).** `buildPlan`'s ♠ Roots branch in `src/engine/worldhand.ts` now: (a) targets gain `floor(development/3)` bonus stability (development deepens Roots); (b) adds a `{kind:'develop', amount:1}` effect to the target so each Roots play deepens the soil for future Roots plays (capped at 10 via the existing `applyPlanEffects` develop handler); (c) spreads `floor(gain/2)` stability to each **living** neighbor of the target via its `adjacency` list (dormant neighbors gain nothing). Preview and commit share this same `buildPlan` pipeline, so the preview shows the spread/development effects exactly. Everything is deterministic from state — no RNG touched, no other suit changed, no scope expansion beyond Roots.
 
 **Verification this session:** `npx tsc --noEmit` clean; `npx vitest run` **64/64** (59 prior + 5 new focused tests: adjacency spread to living neighbors only, dormant-neighbor exclusion, development bonus, development growth on Roots play, develop-cap via `applyPlanEffects`); docs updated (RULES.md ♠ Roots section + new Saving section, README.md suits table + Saves, PLAYTEST_HANDOFF.md item 8 + boundaries + test count). Issue A and limitation 1 above are now historical.
+
+## 9. Balance + tie-commit round (2026-09-09, delegated implementation session)
+
+Two engine-contract fixes landed on this checkout (HEAD 1813787), executed under the required routing (provider `ollama-cloud`, model `glm-5.3-flash`); all numbers below are tool outputs from this session.
+
+**Tie-suit commit mismatch (CRITICAL — FIXED).** The commit path in `applyAction` 'play' called `buildPlan(..., undefined)`, so with a tied suit majority the preview showed the player's chosen action but the commit silently reverted to the default S,H,D,C tie-break (preview Clubs/Tend → commit Diamonds/Sow). Fix: the play `Action` gained `suitChoice?: Suit`; App.tsx's Play button dispatches `{ type: 'play', suitChoice: tieChoice }`; the commit passes `action.suitChoice` into the same `buildPlan` the preview used. `regionChoice` (the historical Roots-target slot) is preserved as the fallback, so Roots region targeting still works. Regression tests assert `preview(hand, tieChoice) === buildPlan(..., tieChoice)` in *effects, category, and suit*, and that a committed play carrying `suitChoice 'C'` produces exactly the previewed plan. UI-level verification (Playwright, real browser): preview "suit by your tie choice" → committed log line matches the chosen suit.
+
+**Epoch targets meaningless (BALANCE — FIXED).** `endEpoch` computed `metTarget` but nothing consumed it, and the old [5, 8, 12] targets were trivially banked: the greedy solver won **30/30 seeds with final Flourishing min 41 / median 55 / max 68**. Changes, all measured with `scripts/balance-sweep.mjs` (greedy all-1-5-subsets policy, default 30 seeds, Survival active):
+
+| Candidate targets (F) | Wins /30 | Notes |
+|---|---|---|
+| [12, 20, 30] | 28 | old-ish target, still near-trivial |
+| [18, 32, 46] | 25 | |
+| **[20, 36, 52]** | **21 (70%)** | **shipped** |
+| [22, 40, 58] | 12 | below the intended band |
+| [24, 44, 64] | 5 | too punishing |
+| [26, 48, 70] | 0 | unwinnable — rejected |
+
+- Shipped targets: **Flourishing [20, 36, 52]** with stability sums **[20, 30, 40]** (the sums ride as secondary texture; the F targets dominate the challenge).
+- **Survival pool**: start 3; a missed epoch-1/2 target costs 1 Survival **and halves that epoch's Seed income**; 0 Survival ends the run withered. Epoch-3 misses cost nothing (already terminal). This gives the targets teeth without making either miss an instant loss — a player can afford one bad epoch and still win. Drought wiring untouched (challengeMet 'drought', droughtChallenge, advanceToNextEpoch epoch-3 branch are byte-identical).
+- `npx vite-node scripts/solve.mjs` AFTER: **21/30 wins (need F≥52); final F min 46 / median 55 / max 68** (BEFORE: 30/30, min 41 / median 55 / max 68).
+
+**Verification this session:** `npx tsc --noEmit` clean; `npx vitest run` **76/76** (64 prior + 12 new: tie-commit regression ×2, tieChoice suitCounts, regionChoice backward-compat, Survival init/miss-cost/meet-cost/epoch-2-drain/zero-wither/epoch-3-no-cost/save-serialization, calibration-band test); `npm run build` green; `node scripts/qa.mjs` passes at 1280×800 and 420×820 with zero console/page errors; `review-probe` conservation run intact (52 cards, 0 violations across 12 plays + 9 discards). Docs updated: RULES.md (Survival section, new targets, tie-commit note), README.md (targets, Survival, calibration numbers), PLAYTEST_HANDOFF.md (tie-commit fix, Survival, new test count), this file.

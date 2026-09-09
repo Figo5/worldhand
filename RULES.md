@@ -1,8 +1,12 @@
-# Worldhand — Rules (v2, three-epoch vertical slice)
+# Worldhand — Rules (v2.1, three-epoch vertical slice)
 
 ## Objective
 
-Grow a **Flourishing World**: meet the final epoch target — Flourishing 12+ and total living stability 30+ — across three escalating epochs. Lose if Flourishing collapses to 0, the Drought challenge fails, or 5 living regions wither to 0 stability.
+Grow a **Flourishing World**: meet the final epoch target — Flourishing 52+ and total living stability 40+ — across three escalating epochs. Lose if your **Survival pool** runs dry, Flourishing collapses to 0, the Drought challenge fails, or 5 living regions wither to 0 stability.
+
+## Survival (the run-level resource)
+
+You start every run with **3 Survival**. Each epoch has a target (see *Epoch end*); **missing an epoch-1 or epoch-2 target costs 1 Survival** and also **halves that epoch's between-market Seed income**. If Survival reaches **0, the run ends withered**. Missing the epoch-3 target costs no Survival — that miss is already terminal (final-target check). Targets are calibrated against measured competent play: a greedy all-subsets policy across 30 seeds wins ~70% of runs (see `scripts/solve.mjs` / `scripts/balance-sweep.mjs`).
 
 ## Turn structure
 
@@ -23,7 +27,7 @@ Each epoch:
 ## Suit majority and ties
 
 - The **majority suit** among selected cards decides the action. A 1-card play is that suit.
-- On a tie (e.g. 2♥ + 2♦ + 3♠), the preview shows the default tie-break (♠ → ♥ → ♦ → ♣ order) and offers **buttons to choose the acting suit yourself** — the committed play uses exactly the choice you previewed.
+- On a tie (e.g. 2♥ + 2♦), the preview shows the default tie-break (♠ → ♥ → ♦ → ♣ order) and offers **buttons to choose the acting suit yourself** — the committed play uses exactly the choice you previewed. The chosen suit is carried on the committed play (`suitChoice`) and fed back into the same scoring pipeline the preview used, so preview and commit can never disagree. (For ♠ Roots plays, a targeted region id may ride the same slot — it only applies when the acting suit is already ♠.)
 
 ## Actions per suit
 
@@ -42,7 +46,7 @@ Each epoch:
 
 ## Epoch end
 
-1. **Target check** (logged): epoch 1 needs Flourishing 5 + stability 14; epoch 2 needs 8 + 22; epoch 3 needs 12 + 30.
+1. **Target check** (logged): epoch 1 needs Flourishing 20 + stability 20; epoch 2 needs 36 + 30; epoch 3 needs 52 + 40. **Missing an epoch-1/2 target costs 1 Survival and halves that epoch's Seed income.** Missing the epoch-3 target ends the run short of the win (no Survival cost — it's terminal already).
 2. **Challenge resolution**: met → +2 Flourishing; failed → −2 Flourishing (and the epoch-3 Drought failure ends the world).
 3. **Decay**: every living region loses 1 stability (Mycorrhiza reduces this). Regions at 0 stay at 0.
 4. **Income**: +1 Seed per living healthy region, plus law income.

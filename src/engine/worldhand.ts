@@ -7,7 +7,9 @@
 // - Deterministic ResolutionPlan: preview() and commit() share one scoring pipeline.
 // - Suit majority (or tie-break choice) decides the acting suit.
 // - Discard 1–5 cards → refill from deck; total card conservation invariant.
-// - 3 escalating epoch targets on capped world stats; Stability is the core resource.
+// - 3 escalating epoch targets on capped world stats; the Survival pool is the
+//   core resource: every missed epoch target drains 1 Stability (0 → withered)
+//   and halves that epoch's market income.
 // - Epoch 3 carries an explicit, previewed Drought challenge.
 // - Market (Seeds → laws/upgrades/expansions); capped world stats; two actions per suit.
 // - Versioned saves; quitting never destroys the save.
@@ -28,6 +30,8 @@ export const TOTAL_REGIONS = 12
 export const START_REGIONS = 4
 export const STABILITY_BASE = 3
 export const STABILITY_MAX = 10
+export const SURVIVAL_START = 3
+export const SURVIVAL_MAX = 3
 export const FLOURISH_START = 3
 export const SEEDS_START = 8
 export const SEEDS_CAP = 30
@@ -36,11 +40,11 @@ export const MARKET_SIZE = 3
 export type Phase = 'select' | 'market' | 'epoch-end' | 'game-over'
 export interface EpochTarget { epoch: number; desc: string; need: number; kind: 'flourishing' | 'stabilitySum' }
 export const EPOCH_TARGETS: EpochTarget[] = [
-  { epoch: 1, desc: 'Flourishing at 5+ and total stability 14+', need: 5, kind: 'flourishing' },
-  { epoch: 2, desc: 'Flourishing at 8+ and total stability 22+', need: 8, kind: 'flourishing' },
-  { epoch: 3, desc: 'Flourishing at 12+ and total stability 30+', need: 12, kind: 'flourishing' },
+  { epoch: 1, desc: 'Flourishing at 20+ and total stability 20+', need: 20, kind: 'flourishing' },
+  { epoch: 2, desc: 'Flourishing at 36+ and total stability 30+', need: 36, kind: 'flourishing' },
+  { epoch: 3, desc: 'Flourishing at 52+ and total stability 40+', need: 52, kind: 'flourishing' },
 ]
-export const STABILITY_SUM_TARGETS = [14, 22, 30]
+export const STABILITY_SUM_TARGETS = [20, 30, 40]
 
 export interface Region {
   id: number
@@ -100,6 +104,8 @@ export interface GameState {
   epoch: number // 1..3
   phase: Phase
   flourishing: number
+  /** Survival: run-level survival pool. A missed epoch target costs 1; 0 → withered. */
+  survival: number
   seeds: number
   regions: Region[]
   hand: Card[]
@@ -121,7 +127,7 @@ export interface GameState {
 export type Action =
   | { type: 'toggleCard'; cardIdx: number }
   | { type: 'clearSelection' }
-  | { type: 'play'; regionChoice?: number } // regionChoice = tie-break choice region id
+  | { type: 'play'; regionChoice?: number; suitChoice?: Suit } // regionChoice = tie-break choice region id (Roots target); suitChoice = the player's tie-break suit, matching the previewed tieChoice
   | { type: 'discard'; cardIdxs: number[] }
   | { type: 'buy'; itemId: string }
   | { type: 'endMarket' }
@@ -214,6 +220,9 @@ export function buildPlan(
 
   switch (maj.suit) {
     case 'S': { // Roots: stability to a region; adjacency spreads it, development deepens it
+      // tieChoice doubles as the Roots region target (historical contract):
+      // a number selects that living region as the target; a suit letter is never
+      // a valid region id, so suit tie choices fall through to the weakest region.
       const target = regions.find((r) => r.id === (tieChoice as number | undefined) && !r.dormant) ?? weakest
       const devBonus = Math.floor(target.development / 3)
       const gain = Math.max(1, Math.round(sum / 4)) + lawBonus('rootsBonus') + devBonus
@@ -347,6 +356,7 @@ function setupWorld(seed: Seed, seedText: string): GameState {
     epoch: 1,
     phase: 'select',
     flourishing: FLOURISH_START,
+    survival: SURVIVAL_START,
     seeds: SEEDS_START,
     regions,
     hand: [],
@@ -431,7 +441,13 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'play': {
       if (s.phase !== 'select') throw new Error('not in select phase')
       if (s.playsLeft <= 0) throw new Error('no plays left this epoch')
-      const plan = buildPlan(s.hand, s.selected, s.regions, s.laws, undefined)
+      // Commit consumes the SAME tie choice the preview showed (action.suitChoice,
+      // dispatched by the UI from its tieChoice state). A committed Roots play may
+      // instead carry regionChoice — the historical Roots-target slot; when a
+      // region is targeted by id, no suit tie choice is possible (Roots targeting
+      // is only consulted when the acting suit is already ♠).
+      const plan = buildPlan(s.hand, s.selected, s.regions, s.laws,
+        action.suitChoice ?? ((action.regionChoice !== undefined ? action.regionChoice : undefined) as Suit | undefined))
       if (!plan.valid) throw new Error(plan.invalidReason || 'invalid selection')
       // apply plan effects (shared pipeline)
       applyPlanEffects(s, plan)
@@ -530,6 +546,22 @@ function endEpoch(state: GameState): GameState {
     text: `Epoch ${s.epoch} target "${target.desc}": ${metTarget ? 'met' : 'missed'} (Flourishing ${s.flourishing}, stability ${totalStab}).`,
   })
 
+  // Survival pool: a missed epoch target costs 1 Survival (0 → the run ends
+  // withered) and halves this epoch's market income. Costs apply at epochs 1
+  // and 2 only — epoch 3's miss is already terminal (final-target check below
+  // in advanceToNextEpoch).
+  let missedTarget = false
+  if (!metTarget) {
+    if (s.epoch < TOTAL_EPOCHS) {
+      s.survival -= 1
+      missedTarget = true
+      s.log.push({
+        at: `e${s.epoch}`,
+        text: `Missed the epoch-${s.epoch} target: Survival drops to ${s.survival} (0 ends the run) and this epoch's market income is halved.`,
+      })
+    }
+  }
+
   // challenge resolution (Drought in epoch 3 is explicit and previewed)
   if (s.challenge) {
     if (challengeMet(s, s.challenge)) {
@@ -552,8 +584,9 @@ function endEpoch(state: GameState): GameState {
   // income
   const seedIncome = s.laws.reduce((n, l) => n + (l.extraSeedsPerEpoch ?? 0), 0)
     + s.regions.filter((r) => !r.dormant && r.stability > 0).length
-  s.seeds = Math.min(SEEDS_CAP, s.seeds + seedIncome)
-  s.log.push({ at: `e${s.epoch}`, text: `Epoch end: +${seedIncome} Seeds.` })
+  const marketIncome = missedTarget ? Math.floor(seedIncome / 2) : seedIncome
+  s.seeds = Math.min(SEEDS_CAP, s.seeds + marketIncome)
+  s.log.push({ at: `e${s.epoch}`, text: `Epoch end: +${marketIncome} Seeds.` })
 
   // market phase
   const rng = rngFor(s, 77)
@@ -588,9 +621,12 @@ export function droughtChallenge(epoch: number): Challenge {
 
 function advanceToNextEpoch(state: GameState): GameState {
   const s = clone(state)
-  if (s.epoch >= TOTAL_EPOCHS || s.challengeFailed || s.flourishing <= 0) {
+  if (s.epoch >= TOTAL_EPOCHS || s.challengeFailed || s.flourishing <= 0 || s.survival <= 0) {
     s.phase = 'game-over'
-    if (s.challengeFailed) {
+    if (s.survival <= 0) {
+      s.outcome = 'withered'
+      s.outcomeReason = `The Survival pool ran dry at ${s.survival}: too many epoch targets missed.`
+    } else if (s.challengeFailed) {
       s.outcome = 'withered'
       s.outcomeReason = `The epoch-${s.epoch} challenge failed; the world could not recover.`
     } else if (s.flourishing <= 0) {
