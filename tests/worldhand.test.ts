@@ -49,18 +49,23 @@ describe('worldhand v2 core contracts', () => {
   it('three escalating targets are strictly increasing', () => {
     expect(EPOCH_TARGETS).toHaveLength(3)
     expect(STABILITY_SUM_TARGETS).toEqual([20, 30, 40])
-    expect(EPOCH_TARGETS.map((t) => t.need)).toEqual([20, 36, 52])
+    expect(EPOCH_TARGETS.map((t) => t.need)).toEqual([12, 24, 32])
     expect(EPOCH_TARGETS[0].need).toBeLessThan(EPOCH_TARGETS[1].need)
     expect(EPOCH_TARGETS[1].need).toBeLessThan(EPOCH_TARGETS[2].need)
   })
-  it('targets are calibrated against measured greedy play, not the final target alone', () => {
-    // scripts/balance-sweep.mjs (greedy all-1-5-subsets policy, default 30 seeds,
-    // Survival active) measured the win-rate curve the shipped targets sit on:
-    //   [12,20,30] 28/30 · [18,32,46] 25/30 · [20,36,52] 21/30 ·
-    //   [22,40,58] 12/30 · [24,44,64] 5/30 · [26,48,70] 0/30
-    // [20,36,52] lands in the intended challenge band (well below 100%, far
-    // above 0%); the final epoch target must be meaningfully above the old
-    // trivially-banked 12 and below the ~68 ceiling the best runs reach.
+  it('targets are calibrated against measured bounded play, not the final target alone', () => {
+    // scripts/solve.mjs with LOOK=30 (bounded policy: all 1-2 card selections +
+    // 17 seeded longer ones, 30 probe-* seeds, Survival active) measured the
+    // win-rate curve the shipped targets sit on:
+    //   [12,22,30] 21/30 · [12,23,31] 20/30 · [12,24,31] 20/30 ·
+    //   [12,24,32] 17/30 · [12,24,33] 14/30 · [12,25,33] 14/30 ·
+    //   [13,26,34] 8/30 · [14,26,34] 8/30 · [20,36,52] 0/30
+    // [12,24,32] lands in the intended 40-60% band for the bounded policy
+    // (17/30 = 57%); the same targets give 3/30 (10%) at LOOK=12 and 30/30
+    // (100%) exhaustive — the band is measured at the bounded reference, not
+    // only reachable by exhaustive search. The final epoch target must stay
+    // meaningfully above the old trivially-banked 12 and below the ~68 ceiling
+    // the best exhaustive runs reach.
     expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBeGreaterThan(12)
     expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBeLessThanOrEqual(58)
     expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBeLessThan(68)
@@ -254,10 +259,31 @@ describe('suit actions — two meaningful actions per suit', () => {
     expect(plan.effects.some((e) => e.kind === 'wake')).toBe(true)
     expect(s1.regions[4].dormant).toBe(true) // first dormant untouched by plan-building
   })
-  it('♥ Bloom low cards do not wake', () => {
+  it('REGRESSION: ResolutionPlan carries the Drought wake-cost warning whenever a Bloom play wakes a region', () => {
+    // The wake's cost (stability 3+ during the epoch-3 Drought) must be stated
+    // in the shared plan summary — visible at decision time in the preview and
+    // in the committed resolution, for EVERY region a Bloom play wakes.
+    for (let dormantId = 4; dormantId < TOTAL_REGIONS; dormantId++) {
+      const s = newGame(`wake-warn-${dormantId}`)
+      // wake everything before the target region so it is next in wake order
+      for (const r of s.regions) {
+        if (r.id < dormantId && r.id >= START_REGIONS) r.dormant = false
+      }
+      const plan = buildPlan([C(13, 'H')], [0], s.regions, [])
+      const wake = plan.effects.find((e) => e.kind === 'wake') as { kind: string; regionId: number } | undefined
+      expect(wake).toBeDefined()
+      expect(wake!.regionId).toBe(dormantId)
+      expect(plan.summary).toContain('wakes')
+      expect(plan.summary).toContain(s.regions[dormantId].name)
+      expect(plan.summary).toContain('stability 3+')
+      expect(plan.summary).toContain('epoch-3 Drought')
+    }
+  })
+  it('Bloom low cards do not wake, so no wake warning appears', () => {
     const s0 = newGame('bloom2')
     const plan = buildPlan([C(5, 'H')], [0], s0.regions, [])
     expect(plan.effects.some((e) => e.kind === 'wake')).toBe(false)
+    expect(plan.summary).not.toContain('Drought')
   })
   it('♦ Sow: +Seeds (capped)', () => {
     const s0 = newGame('sow')

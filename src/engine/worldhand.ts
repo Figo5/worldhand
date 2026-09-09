@@ -40,11 +40,15 @@ export const MARKET_SIZE = 3
 export type Phase = 'select' | 'market' | 'epoch-end' | 'game-over'
 export interface EpochTarget { epoch: number; desc: string; need: number; kind: 'flourishing' | 'stabilitySum' }
 export const EPOCH_TARGETS: EpochTarget[] = [
-  { epoch: 1, desc: 'Flourishing at 20+ and total stability 20+', need: 20, kind: 'flourishing' },
-  { epoch: 2, desc: 'Flourishing at 36+ and total stability 30+', need: 36, kind: 'flourishing' },
-  { epoch: 3, desc: 'Flourishing at 52+ and total stability 40+', need: 52, kind: 'flourishing' },
+  { epoch: 1, desc: 'Flourishing at 12+ and total stability 20+', need: 12, kind: 'flourishing' },
+  { epoch: 2, desc: 'Flourishing at 24+ and total stability 30+', need: 24, kind: 'flourishing' },
+  { epoch: 3, desc: 'Flourishing at 32+ and total stability 40+', need: 32, kind: 'flourishing' },
 ]
 export const STABILITY_SUM_TARGETS = [20, 30, 40]
+
+/** The Drought is decided in epoch 3, but Bloom wake decisions happen from
+ * epoch 1 — the upcoming condition is legible in the HUD from the start. */
+export const UPCOMING_DROUGHT_EPOCH = 3
 
 export interface Region {
   id: number
@@ -252,7 +256,10 @@ export function buildPlan(
         const dormant = regions.find((r) => r.dormant)
         if (dormant) {
           effects.push({ kind: 'wake', regionId: dormant.id })
-          summary += ` ${dormant.name} wakes.`
+          // Drought legibility: a wake is not pure upside — the newly awake
+          // region must hold stability 3+ when the epoch-3 Drought resolves.
+          // Stated in the shared plan so preview AND commit both show it.
+          summary += ` ${dormant.name} wakes - it will need stability 3+ during the epoch-3 Drought.`
         }
       }
       break

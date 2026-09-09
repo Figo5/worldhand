@@ -1,6 +1,47 @@
-// Headless balance probe: can a competent player reach Flourishing 12?
-// Greedy: each play, try all 1-5 card subsets, keep the one the heuristic likes.
+// Headless balance probe: can a competent player reach the epoch targets?
+// Greedy: each play, try candidate 1-5 card subsets, keep the one the heuristic likes.
+// LOOK (env) / --look <n>: cap how many candidates are considered per play.
+// Unset (or >= the full space, 218 for an 8-card hand) = exhaustive behaviour.
+// The capped sample is deterministic (same world seed reproduces it exactly)
+// and biased toward short selections: every length-1 and length-2 selection is
+// considered first, and only the remaining budget is filled with a seeded
+// random sample of longer selections.
 import { newGame, applyAction, buildPlan, EPOCH_TARGETS, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
+import { hashSeed } from '../src/engine/rng.ts'
+
+// ---- LOOK: bounded candidate cap -------------------------------------------
+// --look <n> flag overrides the LOOK env var; both accept a positive integer.
+const rawArgs = process.argv.slice(2)
+let LOOK = process.env.LOOK !== undefined && process.env.LOOK !== '' ? Number(process.env.LOOK) : undefined
+const seedArgs = []
+for (let i = 0; i < rawArgs.length; i++) {
+  if (rawArgs[i] === '--look') { LOOK = Number(rawArgs[i + 1]); i++; continue }
+  if (rawArgs[i].startsWith('--look=')) { LOOK = Number(rawArgs[i].slice(7)); continue }
+  seedArgs.push(rawArgs[i])
+}
+if (LOOK !== undefined && (!Number.isFinite(LOOK) || LOOK < 1 || !Number.isInteger(LOOK))) {
+  console.error('LOOK/--look must be a positive integer')
+  process.exit(1)
+}
+
+// Deterministic mulberry32 (matches src/engine/rng.ts) for the local sampler.
+function mulberry32(seed) {
+  let a = (seed >>> 0) || 0x9e3779b9
+  return function rand() {
+    a |= 0; a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// World seed text + play counter seed the sampler, so the candidate sample
+// varies from play to play but reproduces exactly for the same world seed.
+let CURRENT_SEED_TEXT = ''
+let PLAY_NO = 0
+function sampleSalt() {
+  return (hashSeed(CURRENT_SEED_TEXT) ^ Math.imul(PLAY_NO++ + 1, 0x9e3779b9)) >>> 0
+}
 
 const subsets = (n) => {
   const out = []
@@ -9,6 +50,25 @@ const subsets = (n) => {
     for (let i = 0; i < n; i++) if (m & (1 << i)) s.push(i)
     if (s.length <= 5) out.push(s)
   }
+  return out
+}
+
+// Candidate cap: short selections first, remainder sampled with a seeded rng.
+function candidateSubsets(n, look, salt) {
+  const all = subsets(n)
+  if (!look || look >= all.length) return all
+  const shorts = all.filter((s) => s.length <= 2)
+  const longs = all.filter((s) => s.length > 2)
+  const out = shorts.slice(0, look)
+  if (out.length >= look) return out
+  const rng = mulberry32(salt)
+  const pool = longs.slice()
+  const need = look - out.length
+  for (let i = 0; i < need && i < pool.length; i++) {
+    const j = i + Math.floor(rng() * (pool.length - i))
+    const t = pool[i]; pool[i] = pool[j]; pool[j] = t
+  }
+  out.push(...pool.slice(0, Math.min(need, pool.length)))
   return out
 }
 
@@ -33,7 +93,7 @@ function score(before, after) {
 
 function bestPlay(state) {
   let best = null
-  for (const sel of subsets(state.hand.length)) {
+  for (const sel of candidateSubsets(state.hand.length, LOOK, sampleSalt())) {
     const plan = buildPlan(state.hand, sel, state.regions, state.laws, undefined)
     if (!plan.valid) continue
     let next
@@ -49,6 +109,8 @@ function bestPlay(state) {
 }
 
 function playSeed(seedText) {
+  CURRENT_SEED_TEXT = seedText
+  PLAY_NO = 0
   let s = newGame(seedText)
   let guard = 0
   while (s.phase !== 'game-over' && guard++ < 400) {
@@ -82,7 +144,7 @@ function playSeed(seedText) {
   return s
 }
 
-const seeds = process.argv.slice(2).length ? process.argv.slice(2)
+const seeds = seedArgs.length ? seedArgs
   : Array.from({ length: 30 }, (_, i) => `probe-${i}`)
 let wins = 0
 const finals = []
@@ -94,4 +156,4 @@ for (const seed of seeds) {
 }
 finals.sort((a, b) => a - b)
 const need = EPOCH_TARGETS[TOTAL_EPOCHS - 1].need
-console.log(`\n${wins}/${seeds.length} wins (need F>=${need}). final F: min ${finals[0]}, median ${finals[finals.length >> 1]}, max ${finals[finals.length - 1]}`)
+console.log(`\n${wins}/${seeds.length} wins (need F>=${need}, LOOK=${LOOK ?? 'exhaustive'}). final F: min ${finals[0]}, median ${finals[finals.length >> 1]}, max ${finals[finals.length - 1]}`)
