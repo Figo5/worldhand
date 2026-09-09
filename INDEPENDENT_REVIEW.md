@@ -226,3 +226,75 @@ These are **bounded solver results** (machine heuristic, disjoint seed sets), no
 **Final status: all four issues verified FIXED on HEAD `98d67a4`. Battery: tsc clean, 87/87 tests, build green, qa 0 errors at both viewports, planet3d and all review scripts green, independent probes 10/10 + 15/15. Corrected bounded-solver result: 53% (eval) / 67% (calib) at LOOK=30 on the authorized [45,110,360].**
 
 — End of independent review v4 (re-verification). § 1–9 above document the pre-fix state (HEAD `43c803f`) and remain the evidence baseline for what changed.
+
+---
+
+## 12. Independent review v5 addendum — the three playtest-defect fixes (2026-09-09, 15:16–15:50 EDT)
+
+**Routing metadata per required delegation override:** provider `ollama-cloud`, model `glm-5.3-flash` (session-configured route; the coordinator's `deepseek-v4-flash:0731` was not inherited; no recursive delegation). Every claim below is a tool output produced in this session.
+
+**Reviewed revision:** HEAD `9a5538d` ("fix: three playtest defects — Mycorrhiza decay, truthful Seed credit, final-epoch flow"), child of baseline `015a414`. I waited for the implementation worker to freeze its diff before judging: HEAD moved `015a414 → 9a5538d` at 15:16 EDT while I polled, and after the commit the only working-tree changes are screenshot PNGs plus my two reviewer-added probe scripts (`scripts/review-independent-v5.mjs`, `scripts/review-independent-v5-browser.mjs`). I made NO changes to source, tests, or docs. The worker's diff: `src/engine/worldhand.ts` (94 lines), `src/App.tsx` (14), `tests/fix-regressions.test.ts` (new, 363), `tests/worldhand.test.ts` (30), `RULES.md`/`README.md`/`PLAYTEST_HANDOFF.md`, `scripts/review-playtest-fixes.mjs` (new, 143), plus screenshot refreshes.
+
+### Verdict up front — all three defects are genuinely FIXED
+
+| # | Defect | Status | Key evidence |
+|---|---|---|---|
+| 1 | Mycorrhiza decay computed `stability − 2` | **FIXED** | `decay = max(0, 1 + decayDelta)`; decay 1 normally, exactly 0 with Mycorrhiza; income reads resulting stability |
+| 2 | "Gains N Seeds" overstated vs the 30 cap | **FIXED** | one shared `seedCredit` contract; preview == committed balance == chronicle incl. `Credited/overflow` clause |
+| 3 | Epoch-4 offer + useless market after the final hand | **FIXED** | final epoch resolves straight to the verdict exactly once; epochs 1–2 unchanged; reload inert |
+
+Balance is unchanged (bounded solver re-measured below) — I make no balance claim either way.
+
+### 1. Mycorrhiza decay — FIXED (verified in source and by execution)
+
+- Source (`worldhand.ts`, `endEpoch`): `const decay = Math.max(0, 1 + decayDelta)`; loop skips dormant and `stability <= 0` regions and applies `stability = Math.max(0, stability - decay)`. So normal living-region decay is **exactly 1**; with Mycorrhiza (`decayDelta −1`) it is **exactly 0** — never `stability − 2`, never a gain. Dormant regions are never touched; 0-stability regions stay 0 (no resurrection, never negative).
+- My independent engine probe (`scripts/review-independent-v5.mjs`, constructions of my own — different seeds/regions from the worker's tests): A1 baseline "living decay exactly 1, dormant frozen" PASS; A2 "every stability untouched with Mycorrhiza — an awake region set to 9 stays 9 (not 8, not 10)" PASS; A3 dormant/zero-stability well-defined PASS.
+- **Regional Seed income follows the resulting state**: `income = laws income + count(living && stability > 0)`, then `seedCredit`. Probe A4: with Mycorrhiza, two stability-1 living regions survive → epoch-end income `+4 Seeds`; without it they decay to 0 → income `+2 Seeds` (both targets met so no halving). Decay genuinely feeds the economy.
+- **Honest docs without a survival redesign**: RULES.md epoch-end now says decay is "not purely cosmetic — the income below counts only living regions with stability > 0, so decayed-out regions stop paying Seeds"; the market description reads "Regions decay 1 less each epoch (1 → 0: living regions stop decaying)". README/HANDOFF carry the same audit. The ruleset (lives, targets, scoring) is untouched.
+
+### 2. Truthful Seed rewards — FIXED (one shared contract; no divergent arithmetic)
+
+- Source: `seedCredit(seeds, amount) → { credited, overflow }` is the ONLY cap arithmetic (`credited = min(max(0, SEEDS_CAP − seeds), amount)`, `overflow = amount − credited`). `buildPlan(hand, sel, laws, seeds)` bakes nominal (`amount`), `credited`, `overflow` into the plan's seeds effect and its summary; `applyPlanEffects` banks exactly `e.credited` (the old separate `Math.min(SEEDS_CAP, …)` clamp is gone); `preview()` and the `play` commit both pass the live balance; the epoch-end income line uses the same `seedCredit`. Preview, committed plan and chronicle all read these same plan fields — there is no second arithmetic path. All other call sites I checked (`scripts/solve.mjs`, `balance-sweep.mjs`, `coord-playtest.mjs`) score via `applyAction('play')`, i.e. through the same contract; their old 3-arg `buildPlan` calls are balance-agnostic score probes (default `seeds = 0` ⇒ nominal-only), documented in the engine, and do not diverge from gameplay.
+- **Worked examples executed end-to-end** (my probes B2–B5, two-pair 9-9-7-7 = chips 32 × 2 = 64 Growth ⇒ nominal 16):
+  - balance 8 + nominal 16 → credited 16, **balance 24**, summary `Gains 16 Seeds.` (no overflow clause);
+  - balance 24 + nominal 16 → credited 6, overflow 10, **balance 30**, identical text `Gains 16 Seeds (Credited 6; overflow 10)` in preview, committed plan and chronicle;
+  - balance 30 + positive → credited 0, overflow 16, **balance stays 30**;
+  - extra boundary: balance 29 + 16 → credited 1, overflow 15, balance 30.
+- **Epoch-end income is truthful too** (probe B6 + worker tests): at cap, income +4 logs `Epoch end: +4 Seeds (Credited 0; overflow 4)`; a missed-target halved income at cap logs `Credited 0; overflow 2`; a partial case 28 → `+4 Seeds (Credited 2; overflow 2)`. Market purchase messages are spend-side (`−N Seeds`) and were never misleading; the HUD always shows the true balance `N/30`.
+- **Real-browser proof (my own construction, isolated profile)**: crafted valid save, balance 27, a real Q-Q-9-9 two pair from the deck (chips 42 × 2 = 84 ⇒ nominal 21) → preview shows `Banks 84 Growth (chips 42 x 2 mult = base 84). Gains 21 Seeds (Credited 3; overflow 18).`; after Play the HUD reads `Seeds 30/30`, the chronicle echoes the identical sentence verbatim, and the saved state's `seeds` is exactly 30. Screenshots: `shots-review/v5-preview-credit.png`. The worker's `scripts/review-playtest-fixes.mjs` independently confirms its own case (balance 24, nominal 16 → `Credited 6; overflow 10`) at 1280 and 480 widths.
+
+### 3. Final-epoch flow — FIXED (resolves exactly once; reload cannot duplicate)
+
+- Source: `endEpoch` performs the target check, life deduction, truthful income, then `if (s.epoch >= TOTAL_EPOCHS) return advanceToNextEpoch(s)` — the run goes **straight to the verdict**; the market block is reached only for epochs 1–2 (unchanged `market → endMarket → epoch-end → closeEpoch` flow). `advanceToNextEpoch` still guards every terminal case; a game-over state ignores all actions (`applyAction` returns the state untouched at `phase === 'game-over'`).
+- UI (`App.tsx`): the epoch-end button now branches — epochs 1–2 keep `Continue → begin epoch N+1`; at the final epoch it is **`View Results`** (`data-testid="view-results-btn"`), so "begin epoch 4" can no longer be advertised even for a legacy `epoch-end` state parked at epoch 3.
+- **My independent engine probes (C1–C6)**: final miss with lives remaining → `game-over`/`withered` directly, `market` empty, exactly one "a life is lost" line and one "Epoch end: +" line; final win → flourishing verdict, no "epoch 4" string anywhere in log or reason; 0-lives final miss → withered exactly once; epochs 1–2 → market and epoch-end panels with `begin epoch 2` / `begin epoch 3` exactly as before; legacy `epoch-end@3` → verdict on `closeEpoch`; reload inertness → the finished state passes `validateState` and `play`/`closeEpoch`/`buy` all leave phase/outcome/seeds/lives/flourishing/log byte-identical (content equality; `applyAction` clones by design, so reference equality is not the right test — the worker's test makes the same choice).
+- **My independent browser run (real UI, isolated profile, seed `v5-flow-run-xyz`)**: played a full 3-epoch run. Epochs 1 and 2 each opened the market, then the epoch-end panel with the correct `begin epoch 2` / `begin epoch 3` buttons. After the epoch-3 4th play the verdict appeared **directly**: zero `.market` panels, zero `[data-testid=epoch-end]` panels, and no "begin epoch 4" text anywhere in the page (run reached the zero-lives withered verdict because 12 weak single-card plays legitimately missed every target — the flow is what was under test). The settled save is byte-identical (state JSON) across a reload, the verdict text is unchanged, and the chronicle holds exactly one `e3` income line and at most one `e3` life-loss line — no duplicated rewards or deductions. Screenshots: `shots-review/v5-final-verdict.png`, `v5-verdict-after-reload.png`. The worker's script proves the same via a crafted winning `epoch-end@3` save ("View Results" → "A Flourishing World", reload-inert).
+
+### Independent gate on the frozen revision (all run by me, this session, at HEAD `9a5538d`)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | **clean**, exit 0 |
+| `npx vitest run` | **108/108 passed** (3 files) — was **87/87** at baseline `015a414`; +21 from the new `tests/fix-regressions.test.ts`. The 3 modified legacy assertions only re-express the superseded final-epoch flow (market-then-close → direct verdict) while KEEPING every life-cost/outcome assertion (`lives === 1`, `fell short`, `withered`, `out of lives`) — I diffed them line by line; nothing weakened. |
+| `npm run build` | **green** (dist/assets/index-BozJ40cF.js 770.03 kB, gzip 207.48 kB; only the pre-existing >500 kB chunk warning) |
+| `node scripts/qa.mjs` | **ALL PLAYWRIGHT CHECKS PASSED at 1280×800 AND 480×800**, zero console/page errors (script fails on any error) |
+| `node scripts/review-planet3d.mjs` | **PLANET3D CHECKS PASSED** (canvas mount + pixel sample, legend → map-detail, keyboard, reduced-motion rotation stop, raycast) at both viewports, zero errors |
+| `node scripts/review-playtest-fixes.mjs` (worker's, run by me via `vite-node`) | **PASSED** — truthful clause in preview/HUD/chronicle, `View Results` → verdict, reload-inert, both viewports, zero errors |
+| My `scripts/review-independent-v5.mjs` (engine) | **20/20 probes passed** |
+| My `scripts/review-independent-v5-browser.mjs` (real UI, isolated storage) | **PASSED** (truthful credit `Credited 3; overflow 18` case, full final-epoch flow, reload non-duplication) — zero console/page errors |
+| `review-probe` / `review-pvcommit` / `review-autosave` / `drought-legibility` / `review-independent` / `review-fullrun` / `review-browser` / `review-save-lives-browser` | all **PASSED** (`MATCH: true`, 10/10, 15/15, `errors: []` throughout) |
+| `python3 scripts/check-no-emoji.py` | PASSED |
+| Dev server | HTTP 200 at `127.0.0.1:5177` throughout; my browser probes used **isolated Playwright profiles / crafted localStorage keys**, so the user's real save was never touched |
+| Bounded solver (economy-unchanged check) | LOOK=30 eval: **16/30 (53%)**, final F min 322 / median 360 / max 410 — identical to the documented baseline |
+
+### Remaining honest issues
+
+- Minor, non-blocking: the truthful `Credited/overflow` clause currently appears in the chronicle's epoch-end line even when nothing overflows (`Epoch end: +4 Seeds (Credited 4; overflow 0)`) — truthful but verbose; the per-play summary stays clean (`Gains N Seeds.`) when overflow is 0. A cosmetic asymmetry only; arithmetic agrees everywhere.
+- The `mjs` review scripts must be run via `npx vite-node` (they import TS sources) — plain `node` fails with `ERR_MODULE_NOT_FOUND`. Purely operational.
+- Pre-existing, out of scope for these three defects: the app bundle remains a single 770 kB chunk; world development still feeds only presentation. Neither was part of this pass.
+
+**Bottom line: the three playtest defects are FIXED on HEAD `9a5538d`, each verified in source, by unit tests (87 → 108, none weakened), by my own independent engine + real-browser probes, and by the full QA battery at both viewports with zero errors. This is a statement about the three defects only — no balance claim is made.**
+
+*Reviewer-added artifacts (this addendum): `scripts/review-independent-v5.mjs`, `scripts/review-independent-v5-browser.mjs`, screenshots `shots-review/v5-*.png`. No source/test/doc files were modified by me.*
+
+*Record note (same session):* while this addendum was being written, the coordinator committed `b242b96` ("coord: independent verification addendum…") — a **PLAYTEST_HANDOFF.md-only** documentation commit. `git diff <HEAD> -- src tests RULES.md README.md scripts` is empty, so the reviewed game revision (`9a5538d`) is untouched by it; the coordinator's independently-run gate (recorded there: tsc clean, 108/108, build clean, qa PASS both viewports 0 errors, `review-playtest-fixes` PASSED, solver LOOK=30 eval 16/30 = 53%) **matches this addendum's numbers exactly**, providing a second, independent confirmation of all three fixes.
