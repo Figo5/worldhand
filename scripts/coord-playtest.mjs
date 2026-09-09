@@ -74,13 +74,17 @@ for (let g = 0; g < 500; g++) {
     continue
   }
   if (ph === 'market') {
-    // buy up to 2 items (human: grab a growth upgrade or law if affordable)
+    // buy up to 2 affordable items (human: grab a growth upgrade or law if affordable)
     const buyBtns = p.locator('.market-btn:not([disabled])')
     const n = await buyBtns.count()
     let bought = 0
     for (let i = 0; i < n && bought < 2; i++) {
-      const afford = await buyBtns.nth(i).isEnabled()
-      if (afford) { await buyBtns.nth(i).click().catch(()=>{}); bought++; buys++; decisions.push(`BUY#${buys} (item ${i})`); await p.waitForTimeout(40) }
+      try {
+        if (await buyBtns.nth(i).isEnabled()) {
+          await buyBtns.nth(i).click();
+          bought++; buys++; decisions.push(`BUY#${buys} (item ${i})`); await p.waitForTimeout(60)
+        }
+      } catch { /* button may have been re-rendered after a buy */ }
     }
     await p.click('button:has-text("Continue")'); await p.waitForTimeout(80)
     continue

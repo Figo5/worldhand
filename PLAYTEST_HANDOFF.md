@@ -70,3 +70,22 @@ Final F (eval, LOOK=30): min 307 / median 330 / max 410. **The heuristic is not 
 - 1–4-card selections intentionally cannot form straights/flushes (poker-correct).
 - Region stability/development have **no gameplay read** — they feed only the planet's presentation and the Seeds income headcount.
 - The LOOK=30 bounded-solver result is **83%/80%** at the shipped [30, 70, 320] — higher than the old 53% because the corrected policy actually evaluates poker hands. This is not "balanced" by fiat: the number is honestly reported and balance judgement is left to playtest.
+## Coordinator (Luna) independent verification + ordinary playtest — post-fix
+
+Verified by the coordinator on the committed tree (`d8eae6c`), not taken from worker reports:
+
+- `npx tsc --noEmit` clean; `npx vitest run` **87/87**; `npm run build` green; `node scripts/qa.mjs` **PASSED 1280x800 + 480x800, 0 console/page errors**; `review-planet3d` PASSED; `review-save-lives-browser` **15/15**; `review-independent` **10/10** (run via `vite-node`, not `node` — it imports TS); no-emoji audit PASSED.
+- Issue 1 (saves): confirmed in source — `SAVE_VERSION=3`, `SCHEMA_VERSION=3`, `validateState()` rejects missing/obsolete/invalid states, `loadGameDetailed()` preserves the raw blob under `worldhand.save.legacy.*` (never erased/reinterpreted), menu shows the reject reason + legacy key.
+- Issue 2 (solver): confirmed `score()` has zero drought/stability terms; candidates now span 1-5 card poker categories incl. flushes/straights; calibration seeds (probe-*) separate from evaluation seeds (eval-*); output labeled "bounded solver result". **Corrected honest numbers on [30,70,320]:** LOOK=30 **25/30 (83%) eval / 24/30 (80%) calib**, LOOK=12 1/30 (3%), exhaustive 30/30. The corrected policy is stronger than the old (which never saw a 3+ card hand) — reported as-is, not band-forced.
+- Issue 3 (lives): confirmed every missed epoch target (1,2,3) costs 1 life; run ends only at 0; win check separate. HUD/intro/RULES/outcomes all agree.
+- Issue 4 (scoring): confirmed `chips` (pre-mult sum) vs `pokerBase (round(chips x mult))` UI shows "X chips x Y mult = Z base"; kickers documented as contributing; consistency test pins `pokerBase === round(chips x mult)`.
+
+### Ordinary complete playtest run (coordinator, seed `coord-playtest-1`, no debug money / forced cards / edited saves)
+
+One full run played to a WIN via `scripts/coord-playtest.mjs` using a simple human-like policy (pick pairs/high cards, buy affordable market items), 0 console errors:
+
+- **Result:** Flourishing **959** vs final target **320**, **lives stayed 3/3** — an easy, comfortable win.
+- **12 plays, 5 market buys.** Every decision logged with the honest `chips x mult = base` readout (e.g. 60 ch x 2.5 mult = 150 base; 51 x 1.5 = 77; two-pairs 28 x 2 = 56). Preview and committed banks matched exactly every time.
+- **Shop usefulness:** real but slow — 2 laws bought by epoch 2 lifted banks (+3, then +18 by epoch 3), but with 5 buys the game was never pressured; Seeds income (1 Seed / 4 Growth) funded purchases without tradeoff.
+- **Difficulty:** too easy. A naive pair-picking policy wins outright (F959 vs 320) at full lives. The bounded solver says 83% at LOOK=30 — consistent with the playtest. **The 40-60% balance band is NOT met; the game is currently too easy for a competent player.** This is left for human playtest judgement, not force-fixed.
+- **World progression connection:** the 3D planet visibly grows (awakenings + development), but mechanically the world's development regions do not feed back into scoring — the planet reads as decoration on the path to the Growth number, not a driver of it. This remains the largest "does the world feel connected" gap.
