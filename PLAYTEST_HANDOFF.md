@@ -101,3 +101,20 @@ One full run played to a WIN via `scripts/coord-playtest.mjs` using a simple hum
 - **Shop usefulness:** real but slow — 2 laws bought by epoch 2 lifted banks (+3, then +18 by epoch 3), but with 5 buys the game was never pressured; Seeds income (1 Seed / 4 Growth) funded purchases without tradeoff.
 - **Difficulty:** easy for a naive pair-picking policy (F959 vs 360). The bounded solver says **53% (eval)** at LOOK=30 on this ladder — the corrected policy's honest rate; the naive playtest hand-rolled a strong run. The 40–60% band is met on eval but the game is still beatable by simple pair-chasing; final balance judgement is left to human playtest, not force-fixed.
 - **World progression connection:** the 3D planet visibly grows (awakenings + development), but mechanically the world's development regions do not feed back into scoring — the planet reads as decoration on the path to the Growth number, not a driver of it. This remains the largest "does the world feel connected" gap.
+
+## Coordinator independent verification — three playtest defects (frozen `9a5538d`)
+
+Re-verified by the coordinator on the committed revision (worker report not taken on faith):
+
+- **FIX 1 (Mycorrhiza decay):** verified in source — `endEpoch` now `decay = Math.max(0, 1 + decayDelta)` → normal living decay = 1, Mycorrhiza = 0, no gain/double-loss; dormant & 0-stability regions untouched; item desc corrected. Regression suite covers normal/Myco/gain/dormant/income-follows-state.
+- **FIX 2 (truthful Seed credit):** verified in source + browser. Shared `seedCredit(seeds, nominal) → {credited, overflow}`; plan bakes nominal/credited/overflow; apply banks exactly `credited`. Browser proof (`review-playtest-fixes.mjs` via vite-node): crafted save seeds 24 + nominal 16 → preview + chronicle both `Gains 16 Seeds (Credited 6; overflow 10)`, HUD `30/30`. Ordinary playtest also showed `(Credited 22; overflow 16)` etc. — truthfully capped.
+- **FIX 3 (final-epoch flow):** verified in source + browser. At epoch 3 `endEpoch` skips the market, resolves target+life+verdict once, goes to `advanceToNextEpoch`; UI shows `View Results` (data-testid=view-results-btn), never "begin epoch 4". Browser: "Epoch 3 closed | View Results" → "A Flourishing World" verdict; reload → run-state byte-identical (no duplicated reward/deduction). Epochs 1-2 keep normal market→epoch-end→advance.
+
+### Coordinator gate (all green, frozen revision)
+- `npx tsc --noEmit` clean · `npx vitest run` **108/108** · `npm run build` clean · `node scripts/qa.mjs` PASS 1280×800 & 480×800, 0 errors · `node scripts/review-playtest-fixes.mjs` (vite-node) PASSED · solver LOOK=30 eval **16/30 (53%) — identical to baseline, no balance drift** · `scripts/coord-playtest.mjs` full run → WIN F959 vs 360, lives 3/3, 0 console errors.
+
+### Observed in ordinary playtest (this patch)
+- Growth starts at 3/45 (epoch targets [45,110,360] unchanged), Seeds 8/30.
+- Truthful credit clause appears on every play once near/at cap; e.g. `Gains 38 Seeds (Credited 22; overflow 16)`.
+- Terminal: after final epoch → "View Results" → verdict, no fourth-epoch offer.
+- **Remaining design limitations (recorded, NOT fixed here):** (1) the world/planet development still does not feed back into scoring — reads as decoration along the Growth path; (2) low tension — a naive pair-picking policy wins comfortably (F959) though the bounded solver is in-band at 53%; both are the listed NEXT design decision, deferred per scope.
