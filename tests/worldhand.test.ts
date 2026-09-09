@@ -371,14 +371,13 @@ describe('Balatro-style lives', () => {
       s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
       s = applyAction(s, { type: 'play' })
     }
-    // endEpoch already charged the life
+    // endEpoch already charged the life — and (final-epoch flow) the run
+    // resolves STRAIGHT to the verdict: no market, no epoch 4.
     expect(s.lives).toBe(1)
     expect(s.log.some((l) => l.text.includes(`a life is lost (now 1)`))).toBe(true)
-    s = applyAction(s, { type: 'endMarket' })
-    const s2 = applyAction(s, { type: 'closeEpoch' })
-    expect(s2.phase).toBe('game-over')
-    expect(s2.outcomeReason).toContain('fell short')
-    expect(s2.lives).toBe(1) // the final miss still cost its life
+    expect(s.phase).toBe('game-over')
+    expect(s.outcomeReason).toContain('fell short')
+    expect(s.lives).toBe(1) // the final miss still cost its life
   })
   it('winning = beating the epoch-3 target (final Flourishing >= 360 with lives to spare)', () => {
     let s = newGame('win')
@@ -408,13 +407,14 @@ describe('Balatro-style lives', () => {
         s = applyAction(s, { type: 'endMarket' })
         s = applyAction(s, { type: 'closeEpoch' })
         expect(s.phase).toBe('select') // still alive at 1+ lives
+      } else {
+        // the FINAL miss resolves the run directly (no market, no epoch 4)
+        expect(s.phase).toBe('game-over')
       }
     }
     expect(s.lives).toBe(0)
-    s = applyAction(s, { type: 'endMarket' })
-    const s2 = applyAction(s, { type: 'closeEpoch' })
-    expect(s2.phase).toBe('game-over')
-    expect(s2.outcome).toBe('withered')
+    expect(s.phase).toBe('game-over')
+    expect(s.outcome).toBe('withered')
   })
   it('lives are serialized in the save envelope', () => {
     const s = newGame('lives-save')
@@ -849,11 +849,11 @@ describe('lives: every missed target costs 1, 0 ends the run, win while lives re
       s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
       s = applyAction(s, { type: 'play' })
     }
-    expect(s.phase).toBe('market') // market still opens at 2 lives
+    // the miss still cost its life — and the final epoch resolves straight to
+    // the verdict (no market, no epoch 4): fixed final-epoch flow.
+    expect(s.phase).toBe('game-over') // resolved directly at the final epoch
     expect(s.lives).toBe(SURVIVAL_START - 1) // the miss still cost a life
-    s = applyAction(s, { type: 'endMarket' })
-    const s2 = applyAction(s, { type: 'closeEpoch' })
-    expect(s2.phase).toBe('game-over') // miss is terminal (final target check)
+    expect(s.outcomeReason).toContain('fell short')
   })
   it('winning beats the final target while lives remain (lives untouched on a met target)', () => {
     let s = newGame('win-lives-remain')

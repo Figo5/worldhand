@@ -13,8 +13,8 @@ You start every run with **3 lives**. Each epoch has a single target (see *Epoch
 Each epoch:
 1. A **hand of 8** (9/10 with card additions) is dealt from the 52-card deck.
 2. You have **4 plays** and **3 discards** to spend in any order.
-3. When the 4th play is made, the epoch closes (decay, civilization growth, income, market).
-4. After the market, the next epoch begins (or the world ends).
+3. When the 4th play is made, the epoch closes (decay, civilization growth, income). **After the final (3rd) epoch's 4th play the run resolves directly** — final-target check, life deduction, income, then the verdict panel. No market opens for a finished run and no fourth epoch exists.
+4. After an epoch-1/epoch-2 market, the next epoch begins (or the world ends at a 0-lives boundary).
 
 ## Playing cards (1–5 selection) — no suit decisions
 
@@ -51,10 +51,12 @@ The base is shown as the RESULT of the multiplication, never as a second "chips"
 Every play earns Seeds instantly — there is no gather action:
 
 ```
-seedsGained = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
+nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
+credited       = min(SEEDS_CAP − balance, nominal)  (never below 0)
+overflow       = nominal − credited                 (the part the cap refused)
 ```
 
-**1 Seed per 4 Growth** (a 15-Growth hand pays 4 Seeds), capped by the 30-Seeds cap. Epoch end pays +1 Seed per living healthy region plus law income, halved on a missed epoch target. Seeds can never go negative.
+**1 Seed per 4 Growth** (a 15-Growth hand nominally pays 4 Seeds). The **nominal** figure is what the hand earned; the **credited** figure is what actually lands in the bank under the 30-Seeds cap; **overflow** is what the cap refused. When overflow is 0 the UI just says "Gains N Seeds"; when the cap binds, the preview, the committed summary, and the chronicle all show the same truthful clause — e.g. `Gains 16 Seeds (Credited 6; overflow 10)` for a balance of 24 — because preview, commit and log all read one shared contract (`seedCredit`). Epoch end pays +1 Seed per living **healthy** region (stability > 0) plus law income, halved on a missed epoch target, and is credited under the same cap with the same truthful clause. Seeds can never go negative.
 
 ## Discards
 
@@ -64,11 +66,11 @@ seedsGained = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 ## Epoch end
 
-1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 45**; epoch 2 needs **110**; epoch 3 needs **360**. **Missing ANY target — including the epoch-3 one — costs 1 life and halves that epoch's Seed income.** The epoch-3 miss additionally ends the run short of the win (final-target check); a met epoch-3 target wins.
-2. **Decay**: every living region loses 1 stability (Mycorrhiza reduces this). Regions at 0 stay at 0 — cosmetic pressure only; nothing reads stability.
+1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 45**; epoch 2 needs **110**; epoch 3 needs **360**. **Missing ANY target — including the epoch-3 one — costs 1 life and halves that epoch's Seed income.** The epoch-3 miss additionally ends the run short of the win (final-target check); a met epoch-3 target wins. **The final epoch resolves straight to the verdict after its 4th play** — no market phase for a finished run.
+2. **Decay**: every living region with stability left loses **1 stability** per epoch. **Mycorrhiza Network reduces this decay by 1 — i.e. living regions stop decaying entirely (1 → 0)**; decay is floored at 0 (never a gain, never a double loss) and regions at 0 stay at 0. Decay is **not purely cosmetic**: the income below counts only living regions with **stability > 0**, so decayed-out regions stop paying Seeds (Mycorrhiza protects that income base).
 3. **Civilization growth**: every living region gains +1 development — this drives the 3D planet's evolution icons and the globe's visible size. No gameplay read.
-4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target).
-5. **Market phase**.
+4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target), credited under the Seed cap with the truthful credited/overflow clause (see the auto-Seeds formula).
+5. **Market phase** — epochs 1 and 2 only; the final epoch has none.
 
 ## Market (spend Seeds on a smarter civilization)
 
@@ -76,7 +78,7 @@ seedsGained = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 - **Hand upgrades**: Canopy Choir (+3 Growth every play), Stone Masonry (+6 Growth every play), Open Canals (Growth ×1.2 every play). Bonuses apply exactly once per play.
 - **Card additions**: Fourth Counsel (hand 9), Fifth Counsel (hand 10) — new unique ids; deck conservation still holds at 52.
 - **Expansions**: Wake Laguna / Wake Brumal — awaken a specific dormant region; the planet visibly grows.
-- **Laws**: Mycorrhiza Network (decay −1), Seed Vaults (+3 Seeds/epoch), Barter Routes (market −2).
+- **Laws**: Mycorrhiza Network (decay 1 → 0: living regions stop decaying each epoch — this also protects their Seed-income contribution, since income counts only regions with stability > 0), Seed Vaults (+3 Seeds/epoch), Barter Routes (market −2).
 - All former per-suit items (Deep Taproots, Rich Soil, Communal Tending) are removed with their actions.
 
 ## Saving & versioning

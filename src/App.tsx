@@ -275,9 +275,17 @@ export default function App() {
             {state.log.filter((l) => l.at === `e${state.epoch}`).slice(-3).map((l) => l.text).join(' · ') || 'Epoch resolved.'}
           </p>
           <div className="row controls-row">
-            <button className="advance" data-testid="close-epoch-btn" onClick={() => act({ type: 'closeEpoch' })}>
-              Continue → begin epoch {state.epoch + 1}
-            </button>
+            {state.epoch < TOTAL_EPOCHS ? (
+              <button className="advance" data-testid="close-epoch-btn" onClick={() => act({ type: 'closeEpoch' })}>
+                Continue → begin epoch {state.epoch + 1}
+              </button>
+            ) : (
+              // final epoch: there is no epoch 4 — the button names the actual
+              // destination (the verdict panel), never a nonexistent next epoch
+              <button className="advance" data-testid="view-results-btn" onClick={() => act({ type: 'closeEpoch' })}>
+                View Results
+              </button>
+            )}
           </div>
         </section>
       ) : (

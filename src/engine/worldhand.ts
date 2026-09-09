@@ -115,7 +115,7 @@ export interface Law {
 }
 
 export const MARKET_ITEMS: Law[] = [
-  { id: 'mycorrhiza', title: 'Mycorrhiza Network', desc: 'Regions decay 1 less each epoch.', cost: 6, kind: 'law', decayDelta: -1 },
+  { id: 'mycorrhiza', title: 'Mycorrhiza Network', desc: 'Regions decay 1 less each epoch (1 → 0: living regions stop decaying).', cost: 6, kind: 'law', decayDelta: -1 },
   { id: 'seed-vaults', title: 'Seed Vaults', desc: '+3 Seeds at each epoch end.', cost: 8, kind: 'law', extraSeedsPerEpoch: 3 },
   { id: 'barter-routes', title: 'Barter Routes', desc: 'Market items cost 2 less.', cost: 5, kind: 'law', marketDiscount: 2 },
   { id: 'canopy-choir', title: 'Canopy Choir', desc: 'Every play: +3 Growth.', cost: 10, kind: 'upgrade', growthFlat: 3 },
@@ -201,14 +201,29 @@ export interface ResolutionPlan {
 
 export type PlanEffect =
   | { kind: 'flourishing'; amount: number }
-  | { kind: 'seeds'; amount: number }
+  | { kind: 'seeds'; amount: number; credited: number; overflow: number }
 
 /** The auto-Seeds economy (documented formula): every play earns Seeds
  *  directly from its hand quality — no separate Mine action.
- *      seedsGained = min(SEEDS_CAP − seeds, ceil(Growth × SEEDS_PER_GROWTH))
- *  i.e. 1 Seed per 4 Growth (a ×12 flush banks 3 Seeds at once), and the
- *  income is capped by SEEDS_CAP like every other Seed source. */
+ *      nominal = ceil(Growth × SEEDS_PER_GROWTH)   (1 Seed per 4 Growth)
+ *  The nominal earn is then credited under SEEDS_CAP by `seedCredit` — the ONE
+ *  shared contract below — so a hand that earns past the cap shows exactly how
+ *  much was banked and how much overflowed. */
 export const SEEDS_PER_GROWTH = 1 / 4
+
+/** THE Seed-credit contract (single source of arithmetic for preview, commit
+ *  and the chronicle): crediting a nominal reward `amount` against a balance
+ *  `seeds` under SEEDS_CAP yields the amount ACTUALLY banked (`credited`) plus
+ *  the part that did not fit (`overflow`). credited = min(cap − seeds, amount)
+ *  floored at 0 on both sides; overflow = amount − credited. The plan carries
+ *  these values, applyPlanEffects banks exactly `credited`, and every message
+ *  (preview summary, committed summary, chronicle line) reads the same fields
+ *  — the economy itself is unchanged: the cap still binds at SEEDS_CAP. */
+export function seedCredit(seeds: number, amount: number): { credited: number; overflow: number } {
+  const nominal = Math.max(0, amount)
+  const credited = Math.min(Math.max(0, SEEDS_CAP - seeds), nominal)
+  return { credited, overflow: nominal - credited }
+}
 
 /** Owned-law Growth multiplier: the sum of every owned growthMult, floored at
  *  1 so the multiplier can only help. Open Canals (x1.2) → mult 1.2. */
@@ -241,11 +256,16 @@ export function handSizeOf(laws: Law[]): number {
  * "chips × mult = base" or "base" alone, but never "base × mult".
  *
  * The SAME plan also carries the auto-Seeds effect: every play earns
- * ceil(Growth × SEEDS_PER_GROWTH) Seeds (capped by SEEDS_CAP at apply time). */
+ * ceil(Growth × SEEDS_PER_GROWTH) Seeds (nominal), credited under SEEDS_CAP by
+ * the shared `seedCredit` contract using the CURRENT balance `seeds` — so the
+ * plan's summary already shows the truthful credited figure and any overflow.
+ * Pass `seeds` to state the live balance; omit it to compute the nominal-only
+ * plan (balance-agnostic: credited/overflow then assume an empty bank). */
 export function buildPlan(
   hand: Card[],
   selected: number[],
   laws: Law[],
+  seeds: number = 0,
 ): ResolutionPlan {
   const base: ResolutionPlan = {
     cards: [], category: 'high', categoryLabel: '—', categoryPoints: 0,
@@ -283,17 +303,25 @@ export function buildPlan(
   const growth = Math.max(0, Math.round(pokerBase * lawMult) + lawFlat)
 
   // AUTO-EARN SEEDS: hand quality pays instantly. 1 Seed per 4 Growth
-  // (SEEDS_PER_GROWTH = 1/4), capped by SEEDS_CAP at apply time.
+  // (SEEDS_PER_GROWTH = 1/4). The nominal earn is credited under SEEDS_CAP by
+  // the ONE shared contract (seedCredit) against the CURRENT balance — the
+  // plan therefore carries nominal (`amount`), `credited` and `overflow`, and
+  // preview, commit and the chronicle all read these same fields.
   const seedsGain = Math.max(0, Math.ceil(growth * SEEDS_PER_GROWTH))
+  const credit = seedCredit(seeds, seedsGain)
+  const overflowClause = credit.overflow > 0
+    ? ` (Credited ${credit.credited}; overflow ${credit.overflow})`
+    : ''
 
   // EVERY play banks its Growth toward the single epoch target.
   const effects: PlanEffect[] = [
     { kind: 'flourishing', amount: growth },
-    { kind: 'seeds', amount: seedsGain },
+    { kind: 'seeds', amount: seedsGain, credited: credit.credited, overflow: credit.overflow },
   ]
-  // Honest summary: rankSum × mult (the true chips×mult equation) then the
-  // already-multiplied base. e.g. "chips 30 x 4 mult = base 120".
-  const summary = `Banks ${growth} Growth (chips ${sum} x ${mult} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}). Gains ${seedsGain} Seeds.`
+  // Honest summary: rankSum × mult (the true chips×mult equation), then the
+  // already-multiplied base, then the TRUTHFUL Seed credit. e.g.
+  // "chips 30 x 4 mult = base 120. Gains 16 Seeds (Credited 6; overflow 10)."
+  const summary = `Banks ${growth} Growth (chips ${sum} x ${mult} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}). Gains ${seedsGain} Seeds${overflowClause}.`
 
   return {
     cards,
@@ -314,19 +342,23 @@ export function buildPlan(
   }
 }
 
-/** Apply a plan to a mutable-ish state copy. Used by BOTH preview-apply and commit. */
+/** Apply a plan to a mutable-ish state copy. Used by BOTH preview-apply and commit.
+ *  Seed crediting goes through the SAME shared contract the plan was built
+ *  with (seedCredit), reading the plan's own credited figure — no divergent
+ *  arithmetic: the balance moves by exactly the credited amount the preview
+ *  and the chronicle already state. */
 export function applyPlanEffects(s: GameState, plan: ResolutionPlan): void {
   for (const e of plan.effects) {
     if (e.kind === 'flourishing') {
       s.flourishing += e.amount
     } else if (e.kind === 'seeds') {
-      s.seeds = Math.min(SEEDS_CAP, s.seeds + e.amount)
+      s.seeds += e.credited
     }
   }
 }
 
 export function preview(s: GameState): ResolutionPlan {
-  return buildPlan(s.hand, s.selected, s.laws)
+  return buildPlan(s.hand, s.selected, s.laws, s.seeds)
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +489,7 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'play': {
       if (s.phase !== 'select') throw new Error('not in select phase')
       if (s.playsLeft <= 0) throw new Error('no plays left this epoch')
-      const plan = buildPlan(s.hand, s.selected, s.laws)
+      const plan = buildPlan(s.hand, s.selected, s.laws, s.seeds)
       if (!plan.valid) throw new Error(plan.invalidReason || 'invalid selection')
       // apply plan effects (shared pipeline — preview and commit agree by construction)
       applyPlanEffects(s, plan)
@@ -712,12 +744,17 @@ function endEpoch(state: GameState): GameState {
     }
   }
 
-  // decay (Mycorrhiza softens it) — cosmetic pressure only; withering is
-  // governed by the lives pool above.
+  // decay: every living region with stability left loses exactly 1 per epoch.
+  // Mycorrhiza Network (decayDelta −1) reduces that decay BY 1 → ZERO decay:
+  // `decay` is the per-region loss this epoch, floored at 0 — never a gain,
+  // never a double loss. Regions at 0 stay at 0 (never resurrected). This is
+  // real pressure on the Seed income base, not pure cosmetics: epoch income
+  // counts only living regions with stability > 0 (see below).
   const decayDelta = s.laws.reduce((n, l) => n + (l.decayDelta ?? 0), 0)
+  const decay = Math.max(0, 1 + decayDelta)
   for (const r of s.regions) {
     if (r.dormant || r.stability <= 0) continue
-    r.stability = Math.max(0, r.stability - 1 + decayDelta)
+    r.stability = Math.max(0, r.stability - decay)
   }
 
   // civilization growth (presentation only): every living region gains
@@ -727,14 +764,27 @@ function endEpoch(state: GameState): GameState {
     if (!r.dormant) r.development = Math.min(STABILITY_MAX, r.development + 1)
   }
 
-  // income
+  // income: +1 per living healthy region (stability > 0 — decay above really
+  // feeds this) plus law income, halved on a missed target. The credit under
+  // SEEDS_CAP goes through the ONE shared contract (seedCredit): the log line
+  // states the nominal income, the amount actually banked, and the overflow.
   const seedIncome = s.laws.reduce((n, l) => n + (l.extraSeedsPerEpoch ?? 0), 0)
     + s.regions.filter((r) => !r.dormant && r.stability > 0).length
   const marketIncome = missedTarget ? Math.floor(seedIncome / 2) : seedIncome
-  s.seeds = Math.min(SEEDS_CAP, s.seeds + marketIncome)
-  s.log.push({ at: `e${s.epoch}`, text: `Epoch end: +${marketIncome} Seeds.` })
+  const incomeCredit = seedCredit(s.seeds, marketIncome)
+  s.seeds += incomeCredit.credited
+  s.log.push({
+    at: `e${s.epoch}`,
+    text: `Epoch end: +${marketIncome} Seeds (Credited ${incomeCredit.credited}; overflow ${incomeCredit.overflow}).`,
+  })
 
-  // market phase
+  // FINAL-EPOCH TERMINATION: once the last hand is played the run is decided —
+  // no market can matter, so none is offered. Resolve the verdict EXACTLY ONCE
+  // here (target check + life deduction + income above already ran) instead of
+  // pushing a market phase and advertising a nonexistent epoch 4.
+  if (s.epoch >= TOTAL_EPOCHS) return advanceToNextEpoch(s)
+
+  // market phase (epochs 1–2 only — unchanged flow)
   const rng = rngFor(s, 77)
   const pool = MARKET_ITEMS.filter((m) => !s.laws.some((l) => l.id === m.id))
   const shuffled = rng.shuffle([...pool])

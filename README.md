@@ -31,14 +31,14 @@ Every play earns Seeds instantly — no Mine action:
 seedsGained = ceil(Growth × SEEDS_PER_GROWTH)   with SEEDS_PER_GROWTH = 1/4
 ```
 
-i.e. **1 Seed per 4 Growth** (a 15-Growth hand pays 4 Seeds), capped by the 30-Seeds cap like every other income source. Epoch end also pays +1 Seed per living healthy region plus law income (`extraSeedsPerEpoch`), halved on a missed epoch target.
+i.e. **1 Seed per 4 Growth** (a 15-Growth hand nominally pays 4 Seeds). What the UI states is **truthful under the cap**: the plan carries the **nominal** earn, the **credited** amount (what actually fits under the 30-Seeds cap) and the **overflow** (what the cap refused) — one shared contract (`seedCredit`) feeds the preview, the committed summary and the chronicle, so all three agree; e.g. at a balance of 24 a 16-Seed earn shows `Gains 16 Seeds (Credited 6; overflow 10)`. When nothing overflows the message stays the simple `Gains N Seeds`. Epoch end also pays +1 Seed per living healthy region (stability > 0) plus law income (`extraSeedsPerEpoch`), halved on a missed epoch target, and is credited under the same contract with the same truthful clause.
 
 ## Lives, epochs, winning
 
-- **3 epochs, ONE cumulative-Growth target each: 45 → 110 → 360** (strictly escalating; see Balance).
+- **3 epochs, ONE cumulative-Growth target each: 45 → 110 → 360** (strictly escalating; see Balance). **After the epoch-3 4th play the run resolves directly to the verdict** — no market for a finished run, no fourth epoch; a legacy epoch-end state at epoch 3 offers "View Results" instead. Epochs 1–2 keep the market → epoch-end → next-epoch loop, and reload cannot duplicate rewards or life deductions (rewards apply once inside the engine commit; a finished run is inert).
 - **Balatro-style lives: start 3.** Missing ANY epoch target — epoch 1, 2, **or 3** — costs 1 life **and** halves that epoch's market income. **0 lives → game over (withered).** The epoch-3 miss is also terminal for the win (final-target check) but still costs its life; the win check is separate: beat the final target while lives remain.
 - **Winning = beat the epoch-3 target.** Flourishing collapsed to 0 also ends the run.
-- Stability decays 1 per living region at epoch end (Mycorrhiza softens it) — **cosmetic pressure only**; nothing in scoring reads stability, and there is **no Drought, no challenge, no stability requirement of any kind**.
+- **Stability is a real (small) economy dial, not pure cosmetics**: every living region decays 1 stability at epoch end (**Mycorrhiza Network reduces that decay by 1 — 1 → 0, living regions stop decaying**; floored at 0, never a gain, never a double loss; regions at 0 stay at 0). Stability is never part of the Growth score, but **epoch income counts only living regions with stability > 0**, so decayed-out regions stop paying Seeds and Mycorrhiza protects that income base. There is **no Drought, no challenge, no stability requirement of any kind** in scoring.
 
 ## The market (spend Seeds to make the civilization smarter)
 
@@ -47,7 +47,7 @@ Up to 3 offers per epoch end from the item pool; **max 5 owned items** with expl
 - **Poker-hand upgrades**: Canopy Choir (+3 Growth every play), Stone Masonry (+6 Growth every play), Open Canals (Growth ×1.2 every play).
 - **Card additions**: Fourth Counsel (hand 9), Fifth Counsel (hand 10) — new unique item ids; the dealt hand grows from the same 52-card deck, so conservation still holds exactly 52.
 - **Region expansion**: Wake Laguna / Wake Brumal — awaken a specific dormant region; the planet visibly grows.
-- **Laws**: Mycorrhiza Network (decay −1), Seed Vaults (+3 Seeds/epoch), Barter Routes (market −2).
+- **Laws**: Mycorrhiza Network (decay 1 → 0 — living regions stop decaying each epoch, protecting their Seed-income contribution), Seed Vaults (+3 Seeds/epoch), Barter Routes (market −2).
 
 Old per-suit upgrades (Deep Taproots, Rich Soil, Communal Tending) are removed along with the actions they buffed. Owned items never reappear; Seeds never go negative; purchases apply exactly once.
 
