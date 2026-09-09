@@ -4,6 +4,26 @@
 
 Commit replaces the v1 (8-epoch, one-card-per-play) contract with the corrected v2 core. The old contract was deliberately incompatible and has been removed.
 
+## v3 presentation overhaul — 3D evolving planet + accessible card UI (worker, Sep 2026)
+
+A presentation-only rework of the world view and the card interface; **the engine contract is untouched** (`src/engine/worldhand.ts`, `src/engine/poker.ts`, and their tests are unchanged).
+
+### The 3D evolving planet (`src/components/Planet3D.tsx`)
+
+- The old SVG planet disc is replaced by a genuine **three.js globe** mounted in the same planet panel: an ocean sphere with **12 terrain-coloured spherical caps** (one per region, colour from its terrain), a starfield and atmosphere around it.
+- **Evolution icons per region**: forest groves (trees), food (farms/fields), industry (workshops), settlements (buildings), knowledge (observatories/telescopes by terrain) are scattered deterministically across each patch and **appear/grow with the region's development and awake state** — living regions render icons scaled by development; **dormant regions render dim, desaturated, unlit**. All of this is derived from engine region state (`development`, `dormant`, terrain) — **the world is simulated presentationally only; no engine mechanics were added**.
+- The globe **auto-rotates slowly** so the world feels alive; under `prefers-reduced-motion` the rotation and icon bobbing are disabled (state changes apply instantly) and a global CSS rule kills transitions.
+- **Selection**: hover changes the cursor and highlights a patch; a click (raycast, drag-safe) selects a region — gold emissive highlight + outline ring, adjacency neighbours drawn as bright link lines. The canvas is focusable and arrow keys walk the regions.
+- **No-fiddly access**: a compact **region legend** under the globe (`.region-btn` buttons, Tab order, Enter/Space to select, ✓ marker on the selection) selects the same region in the 3D view. The region inspector keeps the `map-detail` class/testid and shows exact name/terrain/stability/development/adjacency/awake state.
+- The canvas sizes responsively via ResizeObserver and fits 1280×800 and 420–480px widths without horizontal clipping.
+
+### Card interface + HUD
+
+- **Cards**: larger cards with a readable suit+rank, an action label (Roots/Bloom/Sow/Tend) under each card, and a strong selected state — **4px gold outline + ✓ glyph** (not colour-only). **Keyboard hand**: arrow keys move across the 8 cards, Enter/Space toggles selection, focus is visible; the 1–5 selection limit, Play/Discard/Advance controls, tie-suit buttons, and the exact preview panel (category, points, acting suit, effects, wake-drought warning) are unchanged.
+- **HUD**: the top strip is consolidated into labelled `.hud-item` chips — Flourishing x/target, Stability x/target, Seeds, Plays, Discards, Living regions, Survival, and the Upcoming/live Drought item (all required data kept).
+- Review-script selector notes: `.planet-svg`/`.region-node` are gone — qa.mjs and review-browser.mjs now wait on `canvas.planet3d-canvas` and click `.region-btn` (same flow, same coverage); `[data-testid=map-detail]` still asserts adjacency. New acceptance script: `node scripts/review-planet3d.mjs` (canvas mount, pixel sample, legend/keyboard selection → map-detail, reduced-motion rotation stop) capturing `shots-review/planet3d-wide.png` and `shots-review/planet3d-narrow.png`.
+- Verified: `npx tsc --noEmit` clean; `npx vitest run` **77/77**; `npm run build` green; `node scripts/qa.mjs` ALL PLAYWRIGHT CHECKS PASSED at 1280×800 **and 480×800** (the narrow viewport was updated from 420×820 to 480×800), zero console/page errors, no horizontal overflow; `review-browser/fullrun/autosave/pvcommit/drought-legibility` all pass with zero errors.
+
 ## What a playtester should exercise
 
 1. **Start** — enter any seed phrase (same seed = same world, tested). 12 regions on the planet disc; 4 awake.

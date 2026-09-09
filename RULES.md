@@ -1,5 +1,9 @@
 # Worldhand — Rules (v2.1, three-epoch vertical slice)
 
+## The world (3D planet presentation)
+
+The planet is rendered as a **3D globe** (three.js): 12 terrain-coloured patches on an ocean sphere under a starfield, each patch carrying **evolution icons** — forest groves, farms, workshops, settlements, observatories — that appear and grow as a region's **development** rises. Dormant regions render dim and desaturated. The globe auto-rotates slowly (disabled under `prefers-reduced-motion`); hover highlights a region, clicking it selects it, the selected region glows with an outline and its neighbours light up as link lines. A **region legend** below the globe lists all 12 regions as keyboard-selectable buttons, so every region is reachable without rotating the globe; the selected region's exact values (terrain, stability, development, adjacency, awake/dormant) are shown in the inspector panel. **This presentation is simulated only** — all region state comes from the engine; the globe adds no mechanics.
+
 ## Objective
 
 Grow a **Flourishing World**: meet the final epoch target — Flourishing 52+ and total living stability 40+ — across three escalating epochs. Lose if your **Survival pool** runs dry, Flourishing collapses to 0, the Drought challenge fails, or 5 living regions wither to 0 stability.
@@ -18,7 +22,7 @@ Each epoch:
 
 ## Playing cards (1–5 selection)
 
-- Select **1 to 5** cards from your hand; the exact selection is your poker hand.
+- Select **1 to 5** cards from your hand; the exact selection is your poker hand. The hand is **keyboard-friendly**: arrow keys move between the 8 cards, Enter/Space toggles a card's selection, and the selected state is shown with a thick gold outline **plus a ✓ glyph** (visible without relying on colour). Each card is labelled with the action its suit drives (Roots / Bloom / Sow / Tend).
 - **1–4 cards**: only partial categories apply — high card, pair, two pair, trips, quads. Straights and flushes require exactly 5 cards.
 - **5 cards**: full poker evaluation with standard precedence: high < pair < two pair < trips < straight < flush < full house < quads < straight flush. Category points scale 1–9 and are shown in the preview.
 - **Ace is low** in the wheel A-2-3-4-5 (a 5-high straight, weaker than 6-high).
@@ -67,6 +71,11 @@ When epoch 3 begins, the game announces it in the World Chronicle and the HUD: *
 ## Determinism
 
 Same seed phrase → identical world, shuffles, deals, and chronicle. All randomness flows from the hashed seed; the engine is pure (no DOM, no clock, no Math.random).
+
+## Interface & motion
+
+- **HUD**: one consolidated status strip (`.hud-item` chips) carrying Flourishing/target, Stability/target, Seeds, Plays, Discards, Living regions, Survival, and the Upcoming/live Drought line — required data, decluttered presentation.
+- **Animations are skippable**: transitions are short, and under `prefers-reduced-motion` the globe's auto-rotation and icon bobbing stop (state changes apply instantly) and CSS transitions are globally disabled. Nothing in the game requires watching an animation.
 
 ## Saving
 

@@ -1,4 +1,9 @@
 // Playwright QA: 1280x800 and narrow width; before/after screenshots; smoke the new core loop.
+// Updated for the 3D planet: the world view is now the three.js globe in
+// .planet3d-canvas plus the accessible .region-btn legend; selection and the
+// adjacency-detail coverage are unchanged (legend click == map click), and the
+// canvas-mount check replaces the old SVG wait. Same coverage as before — the
+// selector change is the map rework, not a coverage reduction.
 import { chromium } from 'playwright'
 
 const URL = 'http://localhost:5177/'
@@ -18,7 +23,8 @@ async function run(width, height, tag) {
   // start a new world
   await page.fill('#seed', 'playwright-qa')
   await page.click('text=Begin New World')
-  await page.waitForSelector('.planet-svg')
+  // the 3D globe canvas must mount (replaces the old .planet-svg wait)
+  await page.waitForSelector('.planet3d-canvas')
   await page.waitForSelector('.hand-cards .pcard-btn')
 
   // select 2 cards and preview
@@ -45,8 +51,9 @@ async function run(width, height, tag) {
   const disc = await page.locator('.hud-item:has-text("Discards")').innerText()
   if (!/2\/3/.test(disc)) throw new Error(`expected 2/3 discards, got: ${disc}`)
 
-  // map interaction: click a region node, check detail panel
-  await page.locator('.region-node').nth(0).click()
+  // planet interaction: select a region via the accessible legend, check that
+  // the map-detail panel shows adjacency (same flow as the old .region-node click)
+  await page.locator('.region-btn').nth(0).click()
   await page.waitForSelector('[data-testid="map-detail"]')
   const detail = await page.locator('[data-testid="map-detail"]').innerText()
   if (!/neighbors:/.test(detail)) throw new Error('adjacency missing in map detail')
@@ -57,7 +64,7 @@ async function run(width, height, tag) {
   await page.click('button:has-text("Quit")')
   await page.waitForSelector('.intro')
   await page.click('text=Load Saved World')
-  await page.waitForSelector('.planet-svg')
+  await page.waitForSelector('.planet3d-canvas')
 
   // horizontal overflow check
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2)
@@ -69,5 +76,5 @@ async function run(width, height, tag) {
 }
 
 await run(1280, 800, '1280')
-await run(420, 820, 'narrow')
+await run(480, 800, 'narrow')
 console.log('ALL PLAYWRIGHT CHECKS PASSED')

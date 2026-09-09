@@ -27,7 +27,7 @@ async function runViewport(width, height, tag) {
   await page.screenshot({ path: `${OUT}/${tag}-01-hand.png`, fullPage: true })
 
   const counts = await page.evaluate(() => ({
-    regions: document.querySelectorAll('.region-node').length,
+    regions: document.querySelectorAll('.region-btn').length,
     cards: document.querySelectorAll('.pcard-btn').length,
     hud: document.querySelector('.hud')?.innerText.replace(/\n/g, ' | '),
     overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -62,8 +62,9 @@ async function runViewport(width, height, tag) {
   const handAfter = await page.evaluate(() => JSON.parse(localStorage.getItem('worldhand.save') ?? 'null')?.state.hand.length)
   rec(`[${tag}] discard`, { before: dBefore, after: dAfter, handAfter })
 
-  // map selection
-  await page.locator('.region-node').first().click()
+  // map selection: the SVG nodes are now the 3D globe + accessible legend;
+  // a legend click selects the same region on the globe and opens map-detail
+  await page.locator('.region-btn').first().click()
   await page.waitForTimeout(100)
   const detail = await page.locator('[data-testid="map-detail"]').innerText().catch(() => 'NO_DETAIL')
   rec(`[${tag}] map-selection`, detail.replace(/\n/g, ' | '))

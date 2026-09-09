@@ -3,14 +3,39 @@ import {
   newGame, applyAction, checkWithering, preview,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_EPOCHS, TOTAL_REGIONS,
   STABILITY_MAX, SEEDS_CAP, EPOCH_TARGETS, UPCOMING_DROUGHT_EPOCH,
+  SURVIVAL_START,
   type Action, type GameState, type Region,
 } from './engine/worldhand'
 import type { Suit } from './engine/poker'
 import { cardName, SUIT_NAMES } from './engine/poker'
 import { saveGame, loadGame, clearSave } from './ui/save'
+import Planet3D from './components/Planet3D'
 
 const SUIT_CLASS: Record<Suit, string> = { S: 'spade', H: 'heart', D: 'diamond', C: 'club' }
 const SUIT_GLYPH: Record<Suit, string> = { S: '♠', H: '♥', D: '♦', C: '♣' }
+const CARD_ACTION: Record<Suit, string> = { S: 'Roots', H: 'Bloom', D: 'Sow', C: 'Tend' }
+
+const TERRAIN_LABELS: Record<string, string> = {
+  meadow: 'Meadow',
+  coast: 'Coast',
+  highland: 'Highland',
+  forest: 'Forest',
+  steppe: 'Steppe',
+  wetland: 'Wetland',
+}
+
+/** Arrow-key navigation across the hand: focus follows Left/Right/Up/Down
+ *  between the card buttons; Enter/Space toggles via the buttons themselves. */
+function handleHandKeys(e: React.KeyboardEvent<HTMLDivElement>) {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+  const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('.pcard-btn'))
+  if (buttons.length === 0) return
+  const idx = buttons.indexOf(document.activeElement as HTMLButtonElement)
+  const delta = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1
+  const next = ((idx < 0 ? 0 : idx + delta) + buttons.length) % buttons.length
+  buttons[next].focus()
+  e.preventDefault()
+}
 
 export default function App() {
   const [state, setState] = useState<GameState | null>(null)
@@ -115,26 +140,52 @@ export default function App() {
         </div>
       </header>
 
-      <section className="hud">
-        <div className="hud-item">🌱 Flourishing <strong>{state.flourishing}/{target.need}</strong></div>
-        <div className="hud-item">🛡 Stability <strong>{totalStab}</strong> <span className="muted">(target {EPOCH_TARGETS[state.epoch - 1] ? [14, 22, 30][state.epoch - 1] : '—'})</span></div>
-        <div className="hud-item">🌰 Seeds <strong>{state.seeds}/{SEEDS_CAP}</strong></div>
-        <div className="hud-item">▶ Plays <strong>{state.playsLeft}/{PLAYS_PER_EPOCH}</strong></div>
-        <div className="hud-item">🗑 Discards <strong>{state.discardsLeft}/{DISCARDS_PER_EPOCH}</strong></div>
-        <div className="hud-item">🗺 Living <strong>{awakened.length}/{TOTAL_REGIONS}</strong></div>
+      <section className="hud" aria-label="World status">
+        <div className="hud-item" title="Flourishing now — this epoch's target is the bar to clear">
+          <span className="hud-label">🌱 Flourishing</span>
+          <strong>{state.flourishing}<span className="hud-of">/{target.need}</span></strong>
+        </div>
+        <div className="hud-item" title="Total living stability — this epoch's stability target is the bar to clear">
+          <span className="hud-label">🛡 Stability</span>
+          <strong>{totalStab}<span className="hud-of">/{[14, 22, 30][state.epoch - 1]}</span></strong>
+        </div>
+        <div className="hud-item" title="Seeds — the currency for the market (cap 30)">
+          <span className="hud-label">🌰 Seeds</span>
+          <strong>{state.seeds}<span className="hud-of">/{SEEDS_CAP}</span></strong>
+        </div>
+        <div className="hud-item" title="Plays left this epoch (4 per epoch)">
+          <span className="hud-label">▶ Plays</span>
+          <strong>{state.playsLeft}/{PLAYS_PER_EPOCH}</strong>
+        </div>
+        <div className="hud-item" title="Discards left this epoch (3 per epoch)">
+          <span className="hud-label">🗑 Discards</span>
+          <strong>{state.discardsLeft}/{DISCARDS_PER_EPOCH}</strong>
+        </div>
+        <div className="hud-item" title="Living (awake) regions of 12">
+          <span className="hud-label">🗺 Living regions</span>
+          <strong>{awakened.length}/{TOTAL_REGIONS}</strong>
+        </div>
+        <div className="hud-item" title="Survival pool — a missed epoch-1/2 target costs 1; 0 ends the run">
+          <span className="hud-label">❤ Survival</span>
+          <strong>{state.survival}/{SURVIVAL_START}</strong>
+        </div>
         {state.challenge ? (
-          <div className={`hud-item ${planOrChallengeOk(state) ? 'ok' : 'warn'}`} title="This epoch's challenge — resolution at epoch end">
-            ⚔ {state.challenge.desc} — {planOrChallengeOk(state) ? 'on track' : 'at risk'}
+          <div className={`hud-item ${planOrChallengeOk(state) ? 'ok' : 'warn'}`} title="This epoch's challenge — resolves at epoch end">
+            <span className="hud-label">⚔ Drought</span>
+            <strong>{planOrChallengeOk(state) ? 'on track' : 'at risk'}</strong>
+            <span className="hud-note">{state.challenge.desc}</span>
           </div>
         ) : state.epoch < UPCOMING_DROUGHT_EPOCH ? (
           <div className="hud-item upcoming" title="Upcoming challenge — every living region must hold stability 3+ when it resolves">
-            ⚔ Upcoming: Drought in epoch {UPCOMING_DROUGHT_EPOCH} — keep every living region at stability 3+
+            <span className="hud-label">⚔ Upcoming</span>
+            <strong>Drought in epoch {UPCOMING_DROUGHT_EPOCH}</strong>
+            <span className="hud-note">keep every living region at stability 3+</span>
           </div>
         ) : null}
       </section>
 
       {state.laws.length > 0 && (
-        <section className="effects">
+        <section className="effects" aria-label="Owned laws and upgrades">
           {state.laws.map((l) => (
             <div key={l.id} className="effect-chip" title={l.desc}>
               {l.kind === 'law' ? '⚖' : l.kind === 'upgrade' ? '✦' : '🌍'} {l.title}
@@ -189,7 +240,7 @@ export default function App() {
       ) : (
         <>
           <div className="game-grid">
-            <PlanetMap
+            <PlanetPanel
               regions={state.regions}
               focus={mapFocus}
               onFocus={setMapFocus}
@@ -234,7 +285,7 @@ export default function App() {
                 <h2>
                   Hand of 8 — select 1–5 cards · {state.playsLeft} plays · {state.discardsLeft} discards left
                 </h2>
-                <div className="hand-cards" role="listbox" aria-label="Hand">
+                <div className="hand-cards" role="listbox" aria-label="Hand" onKeyDown={handleHandKeys}>
                   {state.hand.map((c, i) => {
                     const sel = state.selected.includes(i)
                     return (
@@ -243,13 +294,19 @@ export default function App() {
                         role="option"
                         aria-selected={sel}
                         className={`pcard-btn ${sel ? 'sel' : ''}`}
+                        data-card-name={cardName(c)}
                         onClick={() => act({ type: 'toggleCard', cardIdx: i })}
                       >
-                        <span className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>{cardName(c)}</span>
+                        <span className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>
+                          <span className="pcard-rank">{cardName(c)}</span>
+                          <span className="pcard-sel-glyph" aria-hidden="true">✓</span>
+                        </span>
+                        <span className={`pcard-name ${sel ? 'on' : ''}`}>{CARD_ACTION[c.s]}</span>
                       </button>
                     )
                   })}
                 </div>
+                <p className="hand-help">Arrow keys move between cards · Enter/Space toggles a card · select 1–5, then Play or Discard</p>
                 <div className="row controls-row">
                   <button
                     className="primary"
@@ -298,85 +355,55 @@ function planOrChallengeOk(s: GameState): boolean {
   return true
 }
 
-/** 12-region SVG planet disc: terrain colors, development rings, stability pips, adjacency lines. */
-function PlanetMap({
+/** The planet panel: 3D globe (primary) + accessible region legend + map-detail.
+ *  The legend makes every region selectable without rotating the globe. */
+function PlanetPanel({
   regions, focus, onFocus,
 }: {
   regions: Region[]
   focus: number | null
   onFocus: (id: number) => void
 }) {
-  const W = 340
-  const H = 340
-  const px = (x: number) => 20 + x * (W - 40)
-  const py = (y: number) => 20 + y * (H - 40)
   const focused = focus !== null ? regions[focus] : null
-
   return (
     <section className="panel planet" aria-label="Planet map">
       <h2>Planet — 12 regions</h2>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="planet-svg"
-        role="img"
-        aria-label={`Planet disc with ${regions.filter((r) => !r.dormant).length} of 12 regions awake`}
-      >
-        <circle cx={W / 2} cy={H / 2} r={W / 2 - 8} className="planet-ocean" />
-        {/* adjacency lines for the focused region */}
-        {focused && focused.adjacency.map((a) => {
-          const r2 = regions[a]
-          return (
-            <line
-              key={a}
-              x1={px(focused.x)} y1={py(focused.y)}
-              x2={px(r2.x)} y2={py(r2.y)}
-              className="adj-line"
-            />
-          )
-        })}
+      <Planet3D regions={regions} focus={focus} onFocus={onFocus} />
+      <div className="region-legend" data-testid="region-legend" role="group" aria-label="All 12 regions — select one to inspect it on the globe">
         {regions.map((r) => {
-          const asleep = r.dormant
+          const isFocus = focus === r.id
           return (
-            <g
+            <button
               key={r.id}
-              className={`region-node ${asleep ? 'dormant' : ''} ${focus === r.id ? 'focused' : ''}`}
-              transform={`translate(${px(r.x)},${py(r.y)})`}
+              className={`region-btn ${isFocus ? 'sel' : ''} ${r.dormant ? 'dormant' : ''}`}
+              aria-pressed={isFocus}
+              aria-label={`${r.name}, ${r.terrain}, ${r.dormant ? 'dormant' : `stability ${r.stability} of ${STABILITY_MAX}, development ${r.development}`}. Press to inspect; adjacency ${r.adjacency.map((a) => regions[a].name).join(', ')}.`}
+              title={`${r.name} — ${TERRAIN_LABELS[r.terrain] ?? r.terrain}${r.dormant ? ' (dormant)' : `, stability ${r.stability}/${STABILITY_MAX}, development ${r.development}`}`}
               onClick={() => onFocus(r.id)}
-              tabIndex={0}
-              role="button"
-              aria-label={`${r.name}, ${r.terrain}, ${asleep ? 'dormant' : `stability ${r.stability} of ${STABILITY_MAX}, development ${r.development}`}. Press to inspect; adjacency ${r.adjacency.map((a) => regions[a].name).join(', ')}.`}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFocus(r.id) } }}
             >
-              <circle r={14} className={`terrain terrain-${r.terrain}`} />
-              {/* development ring */}
-              {r.development > 0 && (
-                <circle r={17} className="dev-ring" strokeDasharray={`${(r.development / STABILITY_MAX) * 2 * Math.PI * 17} 999`} />
-              )}
-              {/* stability pips */}
-              {Array.from({ length: STABILITY_MAX }, (_, i) => (
-                <circle key={i} r={1.6} cx={-7 + i * 1.8} cy={19}
-                  className={asleep ? 'pip off' : i < r.stability ? 'pip on' : 'pip off'}
-                />
-              ))}
-              <text y={-19} textAnchor="middle" className="region-name">{asleep ? '·' : r.name}</text>
-              {asleep && <text y={4} textAnchor="middle" className="z">z</text>}
-            </g>
+              <i className={`sw sw-${r.terrain}`} aria-hidden="true" />
+              <span className="region-btn-name">{r.name}</span>
+              {isFocus && <span className="region-check" aria-hidden="true">✓</span>}
+              {r.dormant && <span className="z" aria-hidden="true">z</span>}
+            </button>
           )
         })}
-      </svg>
-      <div className="map-legend">
+      </div>
+      <div className="map-legend" aria-hidden="true">
         <span><i className="sw sw-meadow" /> meadow</span>
         <span><i className="sw sw-coast" /> coast</span>
         <span><i className="sw sw-highland" /> highland</span>
         <span><i className="sw sw-forest" /> forest</span>
         <span><i className="sw sw-steppe" /> steppe</span>
         <span><i className="sw sw-wetland" /> wetland</span>
-        <span><i className="sw sw-dev" /> dev ring</span>
+        <span><i className="sw sw-dev" /> development icons</span>
       </div>
       {focused && (
         <div className="map-detail" data-testid="map-detail">
-          <strong>{focused.name}</strong> — {focused.terrain}
-          {focused.dormant ? ' · dormant' : ` · stability ${focused.stability}/${STABILITY_MAX} · development ${focused.development}`}
+          <strong>{focused.name}</strong> — {TERRAIN_LABELS[focused.terrain] ?? focused.terrain}
+          {focused.dormant
+            ? ' · dormant'
+            : ` · stability ${focused.stability}/${STABILITY_MAX} · development ${focused.development}`}
           <div className="muted">neighbors: {focused.adjacency.map((a) => regions[a].name).join(', ')}</div>
         </div>
       )}
