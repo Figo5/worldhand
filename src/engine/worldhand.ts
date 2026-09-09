@@ -73,9 +73,9 @@ export const LIVES_CAP = 3
  *  LOOK=30 on the eval-* set (see RULES.md / Balance for the full honest
  *  table). Targets are round integers, not band-forced percentages. */
 export const EPOCH_TARGETS: EpochTarget[] = [
-  { epoch: 1, desc: 'Growth 30 (cumulative Flourishing)', need: 30 },
-  { epoch: 2, desc: 'Growth 70 (cumulative Flourishing)', need: 70 },
-  { epoch: 3, desc: 'Growth 320 (cumulative Flourishing)', need: 320 },
+  { epoch: 1, desc: 'Growth 45 (cumulative Flourishing)', need: 45 },
+  { epoch: 2, desc: 'Growth 110 (cumulative Flourishing)', need: 110 },
+  { epoch: 3, desc: 'Growth 360 (cumulative Flourishing)', need: 360 },
 ]
 
 export type Phase = 'select' | 'market' | 'epoch-end' | 'game-over'

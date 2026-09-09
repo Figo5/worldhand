@@ -35,7 +35,7 @@ i.e. **1 Seed per 4 Growth** (a 15-Growth hand pays 4 Seeds), capped by the 30-S
 
 ## Lives, epochs, winning
 
-- **3 epochs, ONE cumulative-Growth target each: 30 → 70 → 320** (strictly escalating; see Balance).
+- **3 epochs, ONE cumulative-Growth target each: 45 → 110 → 360** (strictly escalating; see Balance).
 - **Balatro-style lives: start 3.** Missing ANY epoch target — epoch 1, 2, **or 3** — costs 1 life **and** halves that epoch's market income. **0 lives → game over (withered).** The epoch-3 miss is also terminal for the win (final-target check) but still costs its life; the win check is separate: beat the final target while lives remain.
 - **Winning = beat the epoch-3 target.** Flourishing collapsed to 0 also ends the run.
 - Stability decays 1 per living region at epoch end (Mycorrhiza softens it) — **cosmetic pressure only**; nothing in scoring reads stability, and there is **no Drought, no challenge, no stability requirement of any kind**.

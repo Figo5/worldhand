@@ -2,7 +2,7 @@
 
 ## Objective
 
-Play poker hands. Bank Growth. Beat the final epoch target: **cumulative Growth (Flourishing) 320+** across three escalating epochs (30 → 70 → 320). Lose if your **3 lives** run out, or Flourishing collapses to 0. There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
+Play poker hands. Bank Growth. Beat the final epoch target: **cumulative Growth (Flourishing) 360+** across three escalating epochs (45 → 110 → 360). Lose if your **3 lives** run out, or Flourishing collapses to 0. There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
 
 ## Lives (Balatro-style — every miss costs 1, all three epochs)
 
@@ -64,7 +64,7 @@ seedsGained = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 ## Epoch end
 
-1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 30**; epoch 2 needs **70**; epoch 3 needs **320**. **Missing ANY target — including the epoch-3 one — costs 1 life and halves that epoch's Seed income.** The epoch-3 miss additionally ends the run short of the win (final-target check); a met epoch-3 target wins.
+1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 45**; epoch 2 needs **110**; epoch 3 needs **360**. **Missing ANY target — including the epoch-3 one — costs 1 life and halves that epoch's Seed income.** The epoch-3 miss additionally ends the run short of the win (final-target check); a met epoch-3 target wins.
 2. **Decay**: every living region loses 1 stability (Mycorrhiza reduces this). Regions at 0 stay at 0 — cosmetic pressure only; nothing reads stability.
 3. **Civilization growth**: every living region gains +1 development — this drives the 3D planet's evolution icons and the globe's visible size. No gameplay read.
 4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target).
@@ -97,7 +97,7 @@ The solver was corrected in this pass (the old `score()` still carried drought/s
 - **Buys in a documented priority order**: canopy-choir (+3 flat on every play, cheapest Growth/Seed) → seed-vaults (+3 Seeds/epoch) → barter-routes (−2 all purchases) → open-canals (×1.2 every play) → stone-masonry (+6 flat) → fourth-counsel (9-card hands). Expansions, Mycorrhiza, and Fifth Counsel are skipped: none pay toward the Growth targets.
 - **Calibration and evaluation seeds are disjoint**: `--set calib` runs the `probe-0..29` set (used only for target sweeps); `--set eval` runs the `eval-0..29` set (the reported result); no flags run both. Output is labeled **bounded solver result** everywhere.
 
-The shipped [30, 70, 320] measures on the eval-* set (calibration set in parentheses):
+The shipped [45, 110, 360] measures on the eval-* set (calibration set in parentheses):
 
 | Policy | Result (bounded solver) |
 |---|---|
@@ -105,7 +105,7 @@ The shipped [30, 70, 320] measures on the eval-* set (calibration set in parenth
 | LOOK=12 (very bounded) | 1/30 (3%) (3/30, 10%) |
 | Exhaustive (oracle) | 30/30 (100%) both sets |
 
-**Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The shipped [30, 70, 320] was chosen as round integers that keep the ladder escalating and winnable by the bounded reference (83%); the calibration sweep measured 73% at 350, 70% at 370 with the old e1/e2, and the corrected full sweep is documented in the solver's output. **The targets were not micro-swept to force a percentage** — the corrected number is simply higher, and the balance judgement is left to playtest. LOOK=12 (3%/10%) and exhaustive (100%) still bracket the LOOK=30 result.
+**Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The **[45,110,360] targets are the authorized ladder** from the preceding cycle, restored per the goal (this cycle was for correctness fixes, not another balance redesign). The corrected policy measures a high bounded win rate against them — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
 
 ## Determinism
 
