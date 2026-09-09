@@ -1,62 +1,63 @@
-# Worldhand — Rules
+# Worldhand — Rules (v2, three-epoch vertical slice)
 
-A single-player, deterministic planet-building card roguelike. No betting, no opponents:
-cards are verbs that act on a living world.
+## Objective
 
-## World
+Grow a **Flourishing World**: meet the final epoch target — Flourishing 12+ and total living stability 30+ — across three escalating epochs. Lose if Flourishing collapses to 0, the Drought challenge fails, or 5 living regions wither to 0 stability.
 
-- **12 regions**, each with a terrain and **stability** (base **3**, max **10**). Four
-  start awake; the rest are **dormant** until woken by a ♥ Queen-or-higher Bloom play.
-- **Flourishing** 🌱 — the win resource. Starts at 3. Target: **12**.
-- **Seeds** 🌰 — currency. Start with 8. Income each epoch end: +1 per living region,
-  plus law bonuses.
-- **8 epochs × 4 hands = 32 hands.** Each hand deals **8 cards** from a 52-card deck
-  (reshuffled from discards when empty).
+## Turn structure
 
-## Card suits = actions
+Each epoch:
+1. **Hand of 8** is dealt from the 52-card deck.
+2. You have **4 plays** and **3 discards** to spend in any order.
+3. When the 4th play is made, the epoch closes (decays, income, market).
+4. After the market, the next epoch begins (or the world ends).
 
-Select a card in your hand, optionally click a target region (for ♠), then press **Play**:
+## Playing cards (1–5 selection)
 
-| Suit | Action | Effect |
-|------|--------|--------|
-| ♠ | **Roots** | +`round(rank/4)` (min 1) stability to the targeted region. Requires a region target; +1 more with *Deep Taproots*. |
-| ♥ | **Bloom** | +`round(rank/5)` (min 1) Flourishing; +1 more with *Canopy Choir*. Q, K, A also wake the first dormant region. |
-| ♦ | **Sow** | +`round(rank/3)` (min 1) Seeds. |
-| ♣ | **Tend** | +1 stability to every living region and +1 Flourishing. |
+- Select **1 to 5** cards from your hand; the exact selection is your poker hand.
+- **1–4 cards**: only partial categories apply — high card, pair, two pair, trips, quads. Straights and flushes require exactly 5 cards.
+- **5 cards**: full poker evaluation with standard precedence: high < pair < two pair < trips < straight < flush < full house < quads < straight flush. Category points scale 1–9 and are shown in the preview.
+- **Ace is low** in the wheel A-2-3-4-5 (a 5-high straight, weaker than 6-high).
+- Hand strength drives **magnitude**: effects scale with the rank sum of the selection and its category points.
 
-Each hand allows up to **3 Discards** (throw cards back to reshape the hand), and
-**Advance** ends the hand — unplayed cards return to the discard pile and the next hand
-is dealt (or the epoch closes after hand 4).
+## Suit majority and ties
+
+- The **majority suit** among selected cards decides the action. A 1-card play is that suit.
+- On a tie (e.g. 2♥ + 2♦ + 3♠), the preview shows the default tie-break (♠ → ♥ → ♦ → ♣ order) and offers **buttons to choose the acting suit yourself** — the committed play uses exactly the choice you previewed.
+
+## Actions per suit
+
+- **♠ Roots** — stability to a living region, `1 + floor(rankSum/4)` (+ law bonuses). The weakest living region is targeted unless specified. Caps at stability 10.
+- **♥ Bloom** — `1 + floor(rankSum/5)` Flourishing (+ law bonuses). If **any Q+ card** is in the selection, the first dormant region wakes.
+- **♦ Sow** — `1 + floor(rankSum/3)` Seeds (+ law bonuses). Caps at 30 Seeds.
+- **♣ Tend** — +1 stability to *every* living region (+ Communal Tending upgrade makes it +2).
+
+## Discards
+
+- Discard **1–5 cards at once**; one discard budget is consumed per discard action.
+- The hand **refills to 8** from the deck (reshuffling the discard pile when exhausted).
+- Card conservation always holds: hand + deck + discard pile = 52.
 
 ## Epoch end
 
-1. **Challenge** (rolled for the coming epoch, shown in the HUD): e.g. "3+ regions at
-   stability 5+", "7+ regions awakened", or "total stability of 18+". Met: **+2
-   Flourishing**; missed: **−1**.
-2. **Decay**: every living region loses `1 + law modifiers` stability. Reaching 0 does
-   not kill instantly, but 5 dead regions = instant **Withering** loss.
-3. **Market refresh**: 3 random cards at 4–8 Seeds each (−2 with *Barter Routes*).
-   Bought cards join the world deck and reappear in later hands.
-4. **Law draft**: enact one of two laws by paying Seeds, or Skip.
+1. **Target check** (logged): epoch 1 needs Flourishing 5 + stability 14; epoch 2 needs 8 + 22; epoch 3 needs 12 + 30.
+2. **Challenge resolution**: met → +2 Flourishing; failed → −2 Flourishing (and the epoch-3 Drought failure ends the world).
+3. **Decay**: every living region loses 1 stability (Mycorrhiza reduces this). Regions at 0 stay at 0.
+4. **Income**: +1 Seed per living healthy region, plus law income.
+5. **Market phase**.
 
-| Law | Cost | Effect |
-|-----|------|--------|
-| Mycorrhiza | 6 | decay −1 |
-| Seed Vaults | 8 | +3 Seeds each epoch end |
-| Barter Routes | 5 | market −2 Seeds |
-| Canopy Choir | 10 | ♥ plays +1 Flourishing |
-| Deep Taproots | 10 | ♠ plays +1 stability |
-| Slow Ruin | 4 | decay +1, +5 Seeds each epoch end |
+## Challenge: the epoch-3 Drought (previewed)
 
-## Win / Loss
+When epoch 3 begins, the game announces it in the World Chronicle and the HUD: **every living region must hold stability 3+ at epoch 3's end.** It is visible the whole epoch, so you can plan Roots plays around it. Fail it and the world withers.
 
-- **Flourishing World (win)**: Flourishing ≥ **12** at the end of epoch 8.
-- **Withered (loss)**: short of 12 at epoch 8, Flourishing ≤ 0 at an epoch boundary,
-  or 5 living regions at 0 stability.
+## Market
 
-## Determinism & saves
+- Up to 3 offers per epoch from the item pool, bought with Seeds.
+- **Laws** (persistent): Mycorrhiza Network (decay −1), Seed Vaults (+3 Seeds/epoch), Barter Routes (market −2).
+- **Upgrades**: Canopy Choir (+1 Bloom), Deep Taproots (+1 Roots), Rich Soil (+1 Sow), Communal Tending (+1 Tend).
+- **Expansions**: Wake Laguna / Wake Brumal — awaken a specific dormant region.
+- Owned items never reappear. Seeds are capped at 30.
 
-- All randomness from a seeded mulberry32 RNG (seed phrase → FNV-1a → per-epoch/hand salts).
-- Same seed ⇒ same world, hands, market, challenges, law drafts — forever.
-- Saves: `{version: 1, savedAt, state}` under `localStorage['worldhand.save']`,
-  auto-saved after each action; newer/older versions are safely ignored/migratable.
+## Determinism
+
+Same seed phrase → identical world, shuffles, deals, and chronicle. All randomness flows from the hashed seed; the engine is pure (no DOM, no clock, no Math.random).

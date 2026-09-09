@@ -1,8 +1,9 @@
 // Versioned localStorage save system. No engine logic here.
 import type { GameState } from '../engine/worldhand'
+import { SAVE_VERSION } from '../engine/worldhand'
 
 const KEY = 'worldhand.save'
-export const CURRENT_VERSION = 1
+export const CURRENT_VERSION = SAVE_VERSION
 
 interface SaveEnvelope {
   version: number
@@ -32,8 +33,11 @@ export function clearSave(): void {
   localStorage.removeItem(KEY)
 }
 
-function migrate(state: GameState): GameState {
-  return state // v1 is current; chain future migrations here
+function migrate(state: any): GameState | null {
+  // v1 (old 8-epoch contract) is incompatible with the v2 three-epoch core:
+  // discard stale v1 saves rather than guess a migration.
+  if (state?.version === 1) return null
+  return null
 }
 
 export function hasSave(): boolean {

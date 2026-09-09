@@ -7,6 +7,9 @@ export interface Card {
 }
 
 export const SUITS: Suit[] = ['S', 'H', 'D', 'C']
+export const SUIT_NAMES: Record<Suit, string> = {
+  S: 'Roots (♠)', H: 'Bloom (♥)', D: 'Sow (♦)', C: 'Tend (♣)',
+}
 export const RANKS: Rank[] = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 
 export function cardName(c: Card): string {
@@ -36,6 +39,19 @@ export const CATEGORY_ORDER: HandCategory[] = [
   'high', 'pair', 'two-pair', 'trips', 'straight', 'flush', 'full-house', 'quads', 'straight-flush',
 ]
 
+/** Points a scored hand contributes, by category precedence. */
+export const CATEGORY_POINTS: Record<HandCategory, number> = {
+  'high': 1,
+  'pair': 2,
+  'two-pair': 3,
+  'trips': 4,
+  'straight': 5,
+  'flush': 6,
+  'full-house': 7,
+  'quads': 8,
+  'straight-flush': 9,
+}
+
 export interface HandResult {
   category: HandCategory
   /** lexicographic-comparable rank key: [categoryIndex, kicker values...] */
@@ -64,6 +80,26 @@ export function evaluate(cards: Card[]): HandResult {
   return best
 }
 
+/**
+ * Evaluate an exact selection of 1–5 cards (Worldhand contract).
+ * - 5 cards: full poker evaluation (flushes, straights incl. Ace-low wheel).
+ * - 1–4 cards: partial categories only — high / pair / two-pair / trips / quads.
+ *   Straights and flushes are impossible below five cards by definition.
+ */
+export function evaluateSelection(cards: Card[]): HandResult {
+  if (cards.length < 1 || cards.length > 5) throw new Error('selection must be 1–5 cards')
+  if (cards.length === 5) return evalFive(cards)
+  const rs = cards.map((c) => c.r).sort((a, b) => b - a)
+  const counts = new Map<Rank, number>()
+  for (const r of rs) counts.set(r, (counts.get(r) ?? 0) + 1)
+  const groups = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])
+  if (groups[0][1] === 4) return { category: 'quads', key: [7, groups[0][0], groups[1]?.[0] ?? 0] }
+  if (groups[0][1] === 3) return { category: 'trips', key: [3, groups[0][0], ...groups.slice(1).map((g) => g[0])] }
+  if (groups[0][1] === 2 && groups[1]?.[1] === 2) return { category: 'two-pair', key: [2, groups[0][0], groups[1][0], groups[2]?.[0] ?? 0] }
+  if (groups[0][1] === 2) return { category: 'pair', key: [1, groups[0][0], ...groups.slice(1).map((g) => g[0])] }
+  return { category: 'high', key: [0, ...rs] }
+}
+
 function cmpKey(a: number[], b: number[]): number {
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
     const d = (a[i] ?? 0) - (b[i] ?? 0)
@@ -83,22 +119,34 @@ function evalFive(cards: Card[]): HandResult {
   let straightHigh = 0
   if (uniq.length === 5) {
     if (uniq[0] - uniq[4] === 4) straightHigh = uniq[0]
-    // wheel A-2-3-4-5
+    // wheel A-2-3-4-5 (Ace-low)
     if (uniq[0] === 14 && uniq[1] === 5) straightHigh = 5
   }
   const counts = new Map<Rank, number>()
   for (const r of rs) counts.set(r, (counts.get(r) ?? 0) + 1)
   const groups = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])
-  const isFlush = flush
-  const isStraight = straightHigh > 0
 
-  if (isFlush && isStraight) return { category: 'straight-flush', key: [8, straightHigh] }
+  if (flush && straightHigh > 0) return { category: 'straight-flush', key: [8, straightHigh] }
   if (groups[0][1] === 4) return { category: 'quads', key: [7, groups[0][0], groups[1][0]] }
   if (groups[0][1] === 3 && groups[1][1] === 2) return { category: 'full-house', key: [6, groups[0][0], groups[1][0]] }
-  if (isFlush) return { category: 'flush', key: [5, ...rs] }
-  if (isStraight) return { category: 'straight', key: [4, straightHigh] }
+  if (flush) return { category: 'flush', key: [5, ...rs] }
+  if (straightHigh > 0) return { category: 'straight', key: [4, straightHigh] }
   if (groups[0][1] === 3) return { category: 'trips', key: [3, groups[0][0], ...groups.slice(1).map((g) => g[0])] }
   if (groups[0][1] === 2 && groups[1][1] === 2) return { category: 'two-pair', key: [2, groups[0][0], groups[1][0], groups[2][0]] }
   if (groups[0][1] === 2) return { category: 'pair', key: [1, groups[0][0], ...groups.slice(1).map((g) => g[0])] }
   return { category: 'high', key: [0, ...rs] }
+}
+
+export function categoryLabel(c: HandCategory): string {
+  return {
+    'high': 'High Card',
+    'pair': 'Pair',
+    'two-pair': 'Two Pair',
+    'trips': 'Three of a Kind',
+    'straight': 'Straight',
+    'flush': 'Flush',
+    'full-house': 'Full House',
+    'quads': 'Four of a Kind',
+    'straight-flush': 'Straight Flush',
+  }[c]
 }

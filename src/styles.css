@@ -24,7 +24,7 @@ body {
 }
 
 .shell {
-  max-width: 960px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 18px;
   display: flex;
@@ -47,7 +47,7 @@ h2 { font-size: 0.95rem; color: var(--muted); margin: 0 0 8px; }
 }
 
 .intro { justify-content: center; gap: 14px; }
-.tagline { color: var(--muted); max-width: 640px; }
+.tagline { color: var(--muted); max-width: 680px; }
 .hint { color: var(--muted); font-size: 0.85rem; max-width: 640px; }
 
 label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 0.9rem; }
@@ -73,6 +73,7 @@ button {
   font-size: 0.92rem;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
+  font-family: inherit;
 }
 button:hover:not(:disabled) { background: #24303d; }
 button:disabled { opacity: 0.45; cursor: default; }
@@ -83,11 +84,7 @@ button.danger:hover:not(:disabled) { background: #3d1a1a; }
 
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
-.hud {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
+.hud { display: flex; gap: 10px; flex-wrap: wrap; }
 .hud-item {
   background: var(--panel);
   border: 1px solid var(--edge);
@@ -97,6 +94,8 @@ button.danger:hover:not(:disabled) { background: #3d1a1a; }
   font-size: 0.9rem;
 }
 .hud-item strong { color: var(--text); margin-left: 6px; font-size: 1.05rem; }
+.hud-item.ok { border-color: var(--accent); }
+.hud-item.warn { border-color: var(--bad); color: var(--bad); }
 
 .effects { display: flex; gap: 8px; flex-wrap: wrap; }
 .effect-chip {
@@ -108,43 +107,45 @@ button.danger:hover:not(:disabled) { background: #3d1a1a; }
   font-size: 0.85rem;
 }
 
-.regions {
+/* game grid: map + side column */
+.game-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 10px;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: 14px;
+  align-items: start;
 }
-.seat {
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 12px;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.seat.folded { opacity: 0.55; border-style: dashed; }
-.seat.wonder { border-color: var(--gold); box-shadow: 0 0 10px rgba(210, 153, 34, 0.25); }
-.seat-head { display: flex; justify-content: space-between; align-items: baseline; }
-.chips { color: var(--muted); font-size: 0.8rem; }
-.stab { display: flex; align-items: center; gap: 8px; }
-.stab-bar { display: inline-flex; gap: 2px; }
-.stab-bar i {
-  width: 8px; height: 14px;
-  border-radius: 2px;
-  display: inline-block;
-}
-.stab-bar i.on { background: var(--accent); }
-.stab-bar i.off { background: #2a3441; }
-.action { color: var(--accent2); font-size: 0.8rem; }
-.action.allin { color: var(--bad); }
 
-.seat.region-btn { text-align: left; font: inherit; color: inherit; padding: 14px; }
-.seat.region-btn.playable { border-color: var(--accent); cursor: pointer; }
-.seat.region-btn.playable:hover { background: #1a2620; }
-.seat.region-btn.sel { border-color: var(--accent2); box-shadow: 0 0 8px rgba(88, 166, 255, 0.4); }
-.seat.region-btn:disabled { cursor: default; border-color: var(--edge); }
+/* planet map */
+.planet-svg { width: 100%; height: auto; display: block; }
+.planet-ocean { fill: #0d2033; stroke: #1e3a5f; stroke-width: 2; }
+.region-node { cursor: pointer; outline: none; }
+.region-node:hover .terrain, .region-node:focus .terrain { stroke: var(--accent2); stroke-width: 2; }
+.region-node.focused .terrain { stroke: var(--accent); stroke-width: 3; }
+.region-node.dormant { opacity: 0.45; }
+.terrain { stroke: #0b0f14; stroke-width: 1.5; }
+.terrain-meadow { fill: #7cb342; }
+.terrain-coast { fill: #4fc3f7; }
+.terrain-highland { fill: #a1887f; }
+.terrain-forest { fill: #2e7d32; }
+.terrain-steppe { fill: #d4b106; }
+.terrain-wetland { fill: #00897b; }
+.dev-ring { fill: none; stroke: var(--gold); stroke-width: 2; transform-origin: center; }
+.pip.on { fill: var(--accent); }
+.pip.off { fill: #2a3441; }
+.region-name { fill: var(--text); font-size: 9px; font-weight: 600; paint-order: stroke; stroke: #0b0f14; stroke-width: 3px; }
+.region-node.dormant .region-name { fill: var(--muted); }
+.z { fill: var(--muted); font-size: 12px; font-style: italic; }
+.adj-line { stroke: var(--accent2); stroke-width: 1.5; stroke-dasharray: 4 3; opacity: 0.8; }
+.map-legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.75rem; color: var(--muted); margin-top: 8px; }
+.map-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+.sw-meadow { background: #7cb342; } .sw-coast { background: #4fc3f7; }
+.sw-highland { background: #a1887f; } .sw-forest { background: #2e7d32; }
+.sw-steppe { background: #d4b106; } .sw-wetland { background: #00897b; }
+.sw-dev { background: var(--gold); }
+.map-detail { margin-top: 8px; font-size: 0.85rem; border-top: 1px solid var(--edge); padding-top: 8px; }
+.map-detail .muted { display: block; margin-top: 2px; }
 
-.hand { background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 14px; }
+/* hand */
 .hand-cards { display: flex; gap: 8px; flex-wrap: wrap; }
 .pcard-btn { background: none; border: none; padding: 0; border-radius: 7px; }
 .pcard-btn.sel .pcard { outline: 3px solid var(--accent2); outline-offset: 2px; }
@@ -155,44 +156,66 @@ button.advance { border-color: var(--accent2); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 56px;
+  width: 44px;
+  height: 60px;
   background: #f0f6fc;
   color: #111;
   border-radius: 7px;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 1.05rem;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 .pcard.red { color: #c22e2e; }
 
-.market .row button { font-variant-numeric: tabular-nums; }
+/* resolution preview */
+.preview { border-color: var(--accent2); }
+.pv-line { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; }
+.pv-cat { font-weight: 700; font-size: 1rem; }
+.pv-cat.heart { color: #ff7b72; }
+.pv-cat.diamond { color: #ffa657; }
+.pv-cat.spade { color: #7ee8c7; }
+.pv-cat.club { color: #a5d6ff; }
+.pv-pts { color: var(--gold); font-weight: 700; }
+.pv-dec { color: var(--muted); font-size: 0.8rem; }
+.pv-cards { list-style: none; display: flex; gap: 6px; padding: 0; margin: 0 0 8px; }
+.pv-summary { margin: 0; font-size: 0.9rem; color: var(--accent); }
+.tie-row { margin-top: 8px; }
+.tie-btn.sel { border-color: var(--accent2); box-shadow: 0 0 6px rgba(88, 166, 255, 0.5); }
 
-.controls { display: flex; flex-direction: column; gap: 8px; align-items: center; }
-.error { color: var(--bad); font-size: 0.85rem; margin: 0; }
-
-.verdict h2 { color: var(--text); font-size: 1.3rem; margin-bottom: 6px; }
-.verdict.win { border-color: var(--accent); }
-.verdict.lose { border-color: var(--bad); }
-
-.law-btn {
+/* market */
+.market-btn {
   flex-direction: column;
   align-items: flex-start;
   text-align: left;
   min-width: 220px;
   padding: 12px 16px;
 }
-.law-btn span { color: var(--muted); font-size: 0.8rem; font-weight: 400; }
+.market-btn span { color: var(--muted); font-size: 0.8rem; font-weight: 400; }
+.market .row button { font-variant-numeric: tabular-nums; }
+
+.error { color: var(--bad); font-size: 0.85rem; margin: 0; }
+.muted { color: var(--muted); }
+
+.verdict h2 { color: var(--text); font-size: 1.3rem; margin-bottom: 6px; }
+.verdict.win { border-color: var(--accent); }
+.verdict.lose { border-color: var(--bad); }
 
 .log { background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; padding: 12px 16px; }
 .log ul { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; max-height: 240px; overflow-y: auto; }
 .log li { padding: 3px 0; border-bottom: 1px solid #1a232e; }
 .street { color: var(--accent2); font-size: 0.72rem; text-transform: uppercase; margin-right: 8px; }
 
+/* responsive */
+@media (max-width: 860px) {
+  .game-grid { grid-template-columns: 1fr; }
+  .planet { max-width: 460px; margin: 0 auto; width: 100%; }
+}
+
 @media (max-width: 640px) {
   .shell { padding: 10px; gap: 10px; }
-  .regions { grid-template-columns: 1fr 1fr; }
-  .pcard { width: 32px; height: 46px; font-size: 0.85rem; }
+  .pcard { width: 34px; height: 48px; font-size: 0.85rem; }
   .topbar { flex-direction: column; align-items: flex-start; }
   button { padding: 8px 12px; font-size: 0.85rem; }
+  .hud-item { padding: 6px 10px; font-size: 0.8rem; }
+  .hud-item strong { font-size: 0.95rem; }
 }

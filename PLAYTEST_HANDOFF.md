@@ -1,61 +1,40 @@
-# Playtest Handoff — Worldhand
+# Worldhand — Playtest Handoff (v2 core, three-epoch vertical slice)
 
-**Status**: vertical slice complete and verified in a real browser (Playwright/Chromium).
-Engine contracts: 12 regions, 8 epochs × 4 hands, 8-card hands, 3 discards, explicit
-Play/Discard/Advance, suit-specific actions, Flourishing target 12, Seeds, stability base
-3, market, laws, challenges, versioned saves.
+## Status: READY FOR PLAYTEST
 
-## Start
+Commit replaces the v1 (8-epoch, one-card-per-play) contract with the corrected v2 core. The old contract was deliberately incompatible and has been removed.
 
-```bash
-cd /Users/giofiore/Documents/Codex/worldhand
-npm install          # if needed
-npm run dev          # http://localhost:5177 (strict port)
-```
+## What a playtester should exercise
 
-## Verified evidence (this build)
+1. **Start** — enter any seed phrase (same seed = same world, tested). 12 regions on the planet disc; 4 awake.
+2. **Play** — click 1–5 cards in the hand; the **Resolution preview** panel shows category, category points, acting suit, how the suit was decided (majority / tie / your tie choice), and the exact world effects. Press Play — the commit matches the preview exactly.
+3. **Tie-break** — select a tie (e.g. 2♥ + 2♦); the preview offers suit-choice buttons; your choice is what fires.
+4. **Discard** — select up to 5 cards, press Discard: the hand refills to 8 immediately; budget is 3 per epoch.
+5. **Planet map** — click any region node (mouse or keyboard): terrain color, stability pips, development ring, and adjacency lines/detail appear. Dormant regions render dimmed with "z".
+6. **Epoch flow** — 4 plays closes the epoch: target check, challenge, decay, income, market. Buy laws/upgrades/expansions with Seeds or continue.
+7. **Epoch 3 Drought** — explicitly announced at epoch start in the log and HUD; keep every living region at stability 3+ through epoch end or the world withers.
+8. **Save/Quit** — Save persists a versioned envelope; **Quit keeps the save** (menu → Load Saved World restores). Only "Clear Save" deletes.
 
-Commands run and results:
+## What changed vs the previous slice (v1 → v2)
 
-- `npx tsc --noEmit` → clean.
-- `npx vitest run` → **21/21 passed** (determinism, suit actions, epoch/law/market flow,
-  withering, challenge evaluation, full-run termination in < 1s).
-- `npm run build` → production bundle emitted (dist/).
-- `node scripts/verify.mjs` (dev server on 127.0.0.1:5177, headless Chromium):
-  - COUNTS: 12 regions, 8 cards, HUD `Flourishing 3/12 | Seeds 8 | Discards 3/3 | Living 4/12`.
-  - Play verified: hand shrank 8 → 7 after card select + Play; Seeds 8 → 9 via ♦ Sow.
-  - Discard verified: counter 3 → 2.
-  - Reload verified: HUD identical after `page.reload()`; `localStorage['worldhand.save']` = 2513 bytes.
-  - Full Advance-only run to epoch 8 → verdict screen rendered
-    ("🍂 The World Withers — Final Flourishing −5 fell short of 12").
-  - Zero page errors (`pageerror`/console.error = []).
-  - Screenshots in `shots/`: menu, first hand, after-play, region-selected, mid-hand,
-    after-reload, game-over.
+- One-card suit action → **1–5 card poker selection** with exact scoring (cards + precedence + Ace-low wheel).
+- Text-panel regions → **SVG planet map** with terrain/development/adjacency and accessible (tabbable, labeled) controls.
+- Discard didn't refill → **discard 1–5 with refill** and a tested card-conservation invariant.
+- Hidden challenge → **explicit previewed Drought** in epoch 3 (log + HUD + previewed every epoch long).
+- Fixed target → **three escalating targets** (5/14 → 8/22 → 12/30) on **capped** stats (stability 10, Seeds 30).
+- No preview/commit chain → one **deterministic ResolutionPlan** shared by preview and commit.
+- Quit cleared save → **quit preserves the save**; version 2 envelope; v1 saves rejected, not mis-migrated.
+- 8 epochs/4 hands → **3 epochs × (4 plays + 3 discards)** vertical slice.
+- Market: **laws + upgrades + expansions** with Seed costs, Barter Routes discount, meaningful two-action depth per suit.
 
-## What to playtest (20 min)
+## Verification performed
 
-1. **Determinism**: run seed `auralia-the-first`, note hand; quit, Clear Save, restart
-   same seed → identical hand and world.
-2. **Region targeting**: select a ♠ card → regions become enabled buttons ("Click to
-   target…"); click one, Play; stability rises. Non-♠ plays need no target (hint shown).
-3. **Discard budget**: 3 per hand, resets each hand.
-4. **Epoch flow**: Advance through 4 hands → Challenge resolution, decay, market refresh,
-   law draft (pay Seeds or Skip Law).
-5. **Bloom wake**: play a ♥ Q/K/A → a dormant region wakes (Living count rises).
-6. **Save/Load**: Save → reload page → Load; state identical. Auto-save also runs every action.
-7. **Responsive**: narrow the window — regions drop to 2 columns, cards shrink.
+- `npx vitest run` — **59 tests, all passing** (poker categories, precedence, wheel; selection scoring; majority/tie; plan determinism preview==commit; discard/refill/conservation; 4 plays + 3 discards; targets; drought; market; caps; withering; save version).
+- `node scripts/qa.mjs` — real Playwright runs at **1280×800 and 420×820**: new world → select 2 → preview → play (3/4) → discard (refill to 8, 2/3) → map click (adjacency detail) → save → quit → load; no console errors; no horizontal overflow.
+- Screenshots in `shots/`: `before-*.png` (menu), `after-*-selected.png`, `after-*-map.png`.
 
-## Tuning notes
+## Known scope boundaries (intentional)
 
-- Flourishing target 12 vs ♥ income `round(rank/5)` is tight — Canopy Choir matters.
-- Decay 1/epoch from base 3 gives ~3 idle epochs before regions start dying; the epoch
-  Challenge adds pressure to fortify.
-- Slow Ruin (+5 Seeds, +1 decay) is intentionally the aggressive open.
-
-## Files
-
-- Engine: `src/engine/worldhand.ts` (rules), `poker.ts` (5-of-8 evaluation), `rng.ts`.
-- UI: `src/App.tsx`, `src/styles.css`; saves: `src/ui/save.ts`.
-- Tests: `tests/engine.test.ts`; browser check: `scripts/verify.mjs`.
-- Extend: add laws to `LAWS`, actions to the `Action` union + `applyAction` + UI buttons;
-  bump `SAVE_VERSION`/`CURRENT_VERSION` and add a `migrate()` step for save changes.
+- No betting, no backend, no AI opponents, no deployment — local browser only.
+- Development rings currently render but only Bloom/expansion paths move region state; deeper development economy is post-slice.
+- 1–4-card selections intentionally cannot form straights/flushes (poker-correct).
