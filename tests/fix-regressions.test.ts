@@ -97,14 +97,14 @@ describe('FIX 1: Mycorrhiza decay — living-region decay is ZERO with the law, 
     let s = newGame('fix1-income')
     s.epoch = 20 // high target so early-advance fires only on the 4th play
     s.laws = [{ ...MYCO }]
-    s.flourishing = epochTarget(20) - 16 // 4 weak plays × 4 growth → met on the 4th
+    s.epochGrowth = epochTarget(20) - 16 // 4 weak plays × 4 growth → met on the 4th
     s.regions[0].stability = 1
     s.regions[1].stability = 1
     s = playOut(s)
     expect(s.log.some((l) => l.text.includes('Epoch end: +4 Seeds'))).toBe(true)
     let t = newGame('fix1-income-no')
     t.epoch = 20
-    t.flourishing = epochTarget(20) - 16
+    t.epochGrowth = epochTarget(20) - 16
     t.regions[0].stability = 1
     t.regions[1].stability = 1
     t = playOut(t)
@@ -228,7 +228,7 @@ describe('FIX 2: Seeds accumulate without ceiling — every play banks the full 
     let s = newGame('fix2-epochend2')
     s.epoch = 20 // high target so early-advance fires only on the 4th play
     s.seeds = 24
-    s.flourishing = epochTarget(20) - 16 // 4 weak plays × 4 growth → met on the 4th
+    s.epochGrowth = epochTarget(20) - 16 // 4 weak plays × 4 growth → met on the 4th
     s = playOut(s)
     expect(s.seeds).toBe(32)
     const line = s.log.find((l) => l.text.startsWith('Epoch end: +'))!
@@ -269,7 +269,7 @@ describe('FIX 3: unlimited epochs — the run ends on lives, not a fixed epoch',
   it('a met target at epoch 3 advances to epoch 4 (no fixed cap, no verdict)', () => {
     let s = newGame('fix3-win')
     s.epoch = 3
-    s.flourishing = epochTarget(3) - 1 // 359, one play short
+    s.epochGrowth = epochTarget(3) - 1 // 359, one play short
     s.lives = 3
     s.phase = 'select'
     s = forceHand(s, [C(14, 'H')]) // ace high = 14 Growth → 373 ≥ 360
@@ -348,7 +348,7 @@ describe('FIX 3: unlimited epochs — the run ends on lives, not a fixed epoch',
     const s = newGame('fix3-legacy')
     s.epoch = 8
     s.phase = 'epoch-end'
-    s.flourishing = epochTarget(8) + 1
+    s.epochGrowth = epochTarget(8) + 1
     const s2 = applyAction(s, { type: 'closeEpoch' })
     expect(s2.phase).toBe('select')
     expect(s2.epoch).toBe(9)

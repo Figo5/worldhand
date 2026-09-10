@@ -2,7 +2,7 @@
 
 ## Objective
 
-Play poker hands. Bank Growth. Beat each epoch's Growth target to advance — **early advance**: the moment cumulative Growth reaches the epoch target, the epoch closes immediately (unused plays and discards are forfeited, exactly as in Balatro). Then shop, then the next epoch — **there is no fixed number of epochs**; the run ends when you can no longer keep up (lives run out or Flourishing collapses). Lose if your **3 lives** run out, or Flourishing collapses to 0. There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
+Play poker hands. Bank Growth. Beat each epoch's **per-epoch** Growth target to advance — **early advance**: the moment Growth banked THIS epoch reaches the target, the epoch closes immediately (unused plays and discards are forfeited, exactly as in Balatro). Growth banked resets at each epoch boundary; a separate **lifetime Flourishing** total keeps growing for score/display. Then shop, then the next epoch — **there is no fixed number of epochs**; the run ends when you can no longer keep up (lives run out or Flourishing collapses). Lose if your **3 lives** run out, or Flourishing collapses to 0. There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
 
 ## Lives (Balatro-style — every miss costs 1, unlimited epochs)
 
@@ -13,7 +13,7 @@ You start every run with **3 lives**. Each epoch has a single target (see *Epoch
 Each epoch:
 1. A **hand of 8** (9/10 with card additions) is dealt from the 52-card deck.
 2. You have **4 plays** and **3 discards** to spend in any order.
-3. When the 4th play is made — **or the moment cumulative Growth reaches the epoch target (early advance)** — the epoch closes (decay, civilization growth, income). Unused plays and discards are forfeited on an early close, exactly as in Balatro.
+3. When the 4th play is made — **or the moment Growth banked THIS epoch reaches the epoch target (early advance)** — the epoch closes (decay, civilization growth, income). Unused plays and discards are forfeited on an early close, exactly as in Balatro.
 4. After the market, the next epoch begins (or the world ends at a 0-lives boundary). **There is no fixed number of epochs** — the run ends only when lives run out or Flourishing collapses.
 
 ## Playing cards (1–5 selection) — no suit decisions
@@ -31,7 +31,7 @@ Every play resolves to ONE number, **Growth**, computed in one shared pipeline (
 2. **World Laws** = × owned `growthMult` (floored at 1; Open Canals ×1.2), then + owned `growthFlat` (Canopy Choir +3, Stone Masonry +6).
 3. **Regions** = the sum of the regional bonuses of every **awake** region whose fixed `specialization` equals the played hand's **exact evaluated category** (dormant regions contribute **0**).
 
-`Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)` — floored at 0, never negative. The breakdown is displayed in that order (`+15 poker · +2 laws · +7 regions`) under the big Growth readout. **Flourishing — the single epoch target — is the cumulative sum of banked Growth.** The preview and the commit both call the same `buildPlan`, so the number you see is always the number you bank.
+`Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)` — floored at 0, never negative. The breakdown is displayed in that order (`+15 poker · +2 laws · +7 regions`) under the big Growth readout. **The epoch target is PER-EPOCH**: you must bank `need(n)` Growth DURING that epoch; Growth banked resets at each boundary. A separate **lifetime Flourishing** total (the planet's score) keeps growing across epochs. The preview and the commit both call the same `buildPlan`, so the number you see is always the number you bank.
 
 ### Regional bonus (v4 — the planet's poker specialization)
 
@@ -90,7 +90,7 @@ nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 ## Epoch end
 
-1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 45**; epoch 2 needs **110**; epoch 3 needs **360**; then the formula `360 + 130·(n−3) + 6·(n−3)²` escalates indefinitely. **Missing ANY target costs 1 life and halves that epoch's Seed income.** A met target advances immediately (early advance). **Every epoch opens the market** — there is no fixed final epoch; the run ends only when lives run out or Flourishing collapses.
+1. **Target check** (logged): each epoch you must bank **`need(n)` Growth DURING that epoch** — `need(n) = 100 + (n−1) + 0.1·(n−1)²`, escalating indefinitely (epoch 1 = 100). **Missing ANY target costs 1 life and halves that epoch's Seed income.** A met target advances immediately (early advance). **Every epoch opens the market** — there is no fixed final epoch; the run ends only when lives run out or Flourishing collapses. Growth banked resets at each boundary, so a miss costs a life but leaves the run recoverable — the deficit is NOT carried forward.
 2. **Decay**: every living region with stability left loses **1 stability** per epoch. **Mycorrhiza Network reduces this decay by 1 — i.e. living regions stop decaying entirely (1 → 0)**; decay is floored at 0 (never a gain, never a double loss) and regions at 0 stay at 0. Decay is **not purely cosmetic**: the income below counts only living regions with **stability > 0**, so decayed-out regions stop paying Seeds (Mycorrhiza protects that income base).
 3. **Civilization growth**: every living region gains +1 development — this drives the 3D planet's evolution icons and the globe's visible size. No gameplay read.
 4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target), banked in full (uncapped).
@@ -109,7 +109,7 @@ nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 **Auto-save**: the game persists the state to localStorage after every committed state-changing action (play, discard, buy, remove, end-market, epoch close — and selection changes), so quitting or reloading never loses progress. Rewards are applied exactly once inside the engine's commit; saving the resulting state cannot double-apply them.
 
-**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 4`, the regional-bonus engine; separate `SCHEMA_VERSION = 3` for envelope layout). On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation, an invalid region `specialization` (must be `null | 'pair' | 'twopair' | 'flush'`) — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
+**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 5`, the per-epoch-targets engine; separate `SCHEMA_VERSION = 3` for envelope layout). On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation, an invalid region `specialization` (must be `null | 'pair' | 'twopair' | 'flush'`) — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
 
 ## Balance (bounded solver result — NOT a human win-rate estimate)
 
@@ -123,7 +123,7 @@ The solver was corrected in this pass (the old `score()` still carried drought/s
 - **Buys in a documented priority order**: canopy-choir (+3 flat on every play, cheapest Growth/Seed) → seed-vaults (+3 Seeds/epoch) → barter-routes (−2 all purchases) → open-canals (×1.2 every play) → stone-masonry (+6 flat) → fourth-counsel (9-card hands). Specialized wakes are considered when affordable and their category is in/near the current hand: Wake Pellucid activates Two Pair (+4 base) and Wake Vantage activates Flush (+6 base). Non-specialized wakes, Mycorrhiza, and Fifth Counsel remain skipped by this bounded policy.
 - **Calibration and evaluation seeds are disjoint**: `--set calib` runs the `probe-0..29` set (used only for target sweeps); `--set eval` runs the `eval-0..29` set (the reported result); no flags run both. Output is labeled **bounded solver result** everywhere.
 
-The first-three targets [45, 110, 360] measure on the eval-* set (calibration set in parentheses):
+The per-epoch target formula measures on the eval-* set (calibration set in parentheses):
 
 | Policy | Result (bounded solver) |
 |---|---|
@@ -131,9 +131,9 @@ The first-three targets [45, 110, 360] measure on the eval-* set (calibration se
 | LOOK=12 (very bounded) | 0/30 (0%) (1/30, 3% calib) |
 | Exhaustive (oracle) | 30/30 (100%) both sets |
 
-**Unlimited-epoch re-measure (early advance + formula targets)**: the target formula continues from 360 at ~130/epoch growing slowly. On the eval-* set at LOOK=30, the bounded solver reaches **median epoch 10, max 14** before lives run out — runs go deep and end naturally. The unique quadratic through (45,110,360) was tried first but FAILED calibration (post-3 increments 435/620/805 outpace the ~150 Growth/epoch a policy banks, so runs died at epoch 5); the gentler curve was chosen instead. Reported as measured — not band-forced.
+**Per-epoch re-measure (targets are per-epoch, not cumulative)**: the target formula `100 + (n−1) + 0.1·(n−1)²` is fit so a bounded policy at LOOK=30 gets a smooth depth distribution. On the eval-* set: **max 4/30 (13%) at any single epoch, no empty gap after a spike**; on the calib set: **max 6/30 (20%)**. The previous cumulative curve (fit to running totals) was far too high per-epoch and produced a bimodal cliff (11/30 died at exactly epoch 5); per-epoch targets remove that cliff. Reported as measured — not band-forced.
 
-**Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The **[45,110,360] first-three targets are the authorized ladder** from the preceding cycle, preserved exactly; the formula extends them indefinitely. The corrected policy reaches deep runs against them — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
+**Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The per-epoch target formula is fit to the measured bank rate so runs end naturally via lives — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
 
 ## Determinism
 

@@ -238,8 +238,9 @@ function score(before, after) {
   const dl = after.lives - before.lives             // lives change (usually 0)
   const need = needOf(after.epoch)
   const playsLeft = after.playsLeft
-  // banked-Growth potential: can the epoch target still be reached?
-  const gap = Math.max(0, need - after.flourishing)
+  // banked-Growth potential: can the PER-EPOCH target still be reached this
+  // epoch? (Growth banked this epoch, not the lifetime total)
+  const gap = Math.max(0, need - after.epochGrowth)
   const reachable = playsLeft > 0 ? gap <= playsLeft * 40 : gap <= 0 // ~40/play practical ceiling
   const reachPenalty = reachable ? 0 : 300
   // seeds are only worth so much once near the 30 cap
@@ -247,7 +248,7 @@ function score(before, after) {
   // a life is precious: losing one here is bad; a second loss (0 lives) is terminal-ish
   const lifePenalty = dl < 0 ? (after.lives === 0 ? 400 : 120) : 0
   // surplus above the target is worth much less than closing a gap
-  const surplus = after.flourishing >= need ? Math.min(df, 30) : 0
+  const surplus = after.epochGrowth >= need ? Math.min(df, 30) : 0
   return df * 3 + surplus * 0.5 + seedsWorth - reachPenalty - lifePenalty
 }
 

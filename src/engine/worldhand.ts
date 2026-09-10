@@ -41,7 +41,7 @@ export type { Suit } from './poker'
  *  EXACT matching category. A save whose version or structure does not match
  *  the CURRENT engine is rejected (never reinterpreted) and preserved as
  *  recoverable legacy data — see `validateState` + src/ui/save.ts. */
-export const SAVE_VERSION = 4
+export const SAVE_VERSION = 5
 /** SCHEMA_VERSION: envelope/layout generation, tracked separately from the
  *  rules so a pure layout change does not imply a rules change. */
 export const SCHEMA_VERSION = 3
@@ -66,23 +66,20 @@ export const SEEDS_START = 8
 export const MARKET_SIZE = 3
 export const LIVES_CAP = 3
 
-/** The escalating epoch target: cumulative Growth (Flourishing), one per epoch,
- *  strictly increasing, computed by a formula that escalates indefinitely.
- *  Epochs 1–3 are the exact original values (45, 110, 360) so early play is
- *  unchanged. The unique quadratic through those three (92.5n² − 212.5n + 165)
- *  was tried first but FAILED calibration: its post-3 increments (435, 620,
- *  805…) outpace the ~150 Growth/epoch a bounded policy banks, so runs died at
- *  epoch 5. A gentler escalation continues from 360 at ~130/epoch growing
- *  slowly, so runs go deep and end naturally via lives. Monotonic increasing. */
+/** The escalating epoch target: Growth to bank DURING this epoch (per-epoch,
+ *  not cumulative). Each epoch you must bank `need(n)` Growth within that
+ *  epoch; Growth banked resets at each epoch boundary for the target. A
+ *  separate lifetime Flourishing total is kept for score/display. Epochs 1–3
+ *  are the original values (45, 110, 360) so early play is unchanged; the
+ *  formula escalates indefinitely. Monotonic increasing. */
 export function epochTarget(epoch: number): number {
-  if (epoch <= 3) return [45, 110, 360][epoch - 1]
-  const d = epoch - 3
-  return Math.round(360 + 130 * d + 6 * d * d)
+  const d = epoch - 1
+  return Math.round(100 + d + 0.1 * d * d)
 }
 
 /** Human-readable target descriptor for the current epoch. */
 export function epochTargetDesc(epoch: number): string {
-  return `Growth ${epochTarget(epoch)} (cumulative Flourishing)`
+  return `Growth ${epochTarget(epoch)} this epoch`
 }
 
 export type Phase = 'select' | 'market' | 'epoch-end' | 'game-over'
@@ -219,7 +216,11 @@ export interface GameState {
   seedText: string
   epoch: number // 1..3
   phase: Phase
+  /** Lifetime total Flourishing (score/display) — keeps growing across epochs. */
   flourishing: number
+  /** Growth banked DURING the current epoch — resets at each epoch boundary;
+   *  the per-epoch target is measured against this, not the lifetime total. */
+  epochGrowth: number
   /** Balatro-style lives: a missed epoch target costs 1; 0 → game over (withered). */
   lives: number
   seeds: number
@@ -437,6 +438,7 @@ export function applyPlanEffects(s: GameState, plan: ResolutionPlan): void {
   for (const e of plan.effects) {
     if (e.kind === 'flourishing') {
       s.flourishing += e.amount
+      s.epochGrowth += e.amount
     } else if (e.kind === 'seeds') {
       s.seeds += e.amount
     }
@@ -496,6 +498,7 @@ function setupWorld(seed: Seed, seedText: string): GameState {
     epoch: 1,
     phase: 'select',
     flourishing: FLOURISH_START,
+    epochGrowth: 0,
     lives: SURVIVAL_START,
     seeds: SEEDS_START,
     regions,
@@ -593,10 +596,11 @@ export function applyAction(state: GameState, action: Action): GameState {
       s.lastResolution = plan
       s.log.push({ at: `e${s.epoch}`, text: `Played ${plan.categoryLabel}: ${plan.summary}` })
       s.selected = []
-      // EARLY ADVANCE: if the play reached the epoch target, close the epoch
-      // immediately — unused plays and discards are forfeited, exactly as in
-      // Balatro. Otherwise close only when all plays are spent.
-      if (s.flourishing >= epochTarget(s.epoch)) return endEpoch(s)
+      // EARLY ADVANCE: if the play reached the PER-EPOCH target (Growth banked
+      // this epoch), close the epoch immediately — unused plays and discards
+      // are forfeited, exactly as in Balatro. Otherwise close only when all
+      // plays are spent.
+      if (s.epochGrowth >= epochTarget(s.epoch)) return endEpoch(s)
       if (s.playsLeft === 0) return endEpoch(s)
       return refill(s)
     }
@@ -702,7 +706,7 @@ export function validateState(v: unknown): string | null {
   if (s.version !== SAVE_VERSION) {
     return `state version ${JSON.stringify(s.version)} is not the current engine rules version (${SAVE_VERSION})`
   }
-  for (const k of ['seed', 'seedText', 'epoch', 'phase', 'flourishing', 'lives', 'seeds'] as const) {
+  for (const k of ['seed', 'seedText', 'epoch', 'phase', 'flourishing', 'epochGrowth', 'lives', 'seeds'] as const) {
     if (!(k in s)) return missing(k)
   }
   if (typeof s.seed !== 'number' || !Number.isFinite(s.seed)) return bad('seed', 'must be a finite number')
@@ -713,7 +717,7 @@ export function validateState(v: unknown): string | null {
   if (!VALID_PHASES.includes(s.phase as Phase)) {
     return `phase "${String(s.phase)}" is not a valid Phase (${VALID_PHASES.join(' | ')})`
   }
-  for (const k of ['flourishing', 'seeds'] as const) {
+  for (const k of ['flourishing', 'epochGrowth', 'seeds'] as const) {
     if (typeof s[k] !== 'number' || !Number.isFinite(s[k])) return bad(k, 'must be a finite number')
   }
   // lives: present and numeric is the load-bearing check (the pre-v3 contract
@@ -813,12 +817,13 @@ function endEpoch(state: GameState): GameState {
   s.hand = []
   s.selected = []
 
-  // epoch target check: the ONE target per epoch is cumulative Growth (Flourishing)
+  // epoch target check: the ONE target per epoch is Growth banked DURING this
+  // epoch (per-epoch, not cumulative) — `epochGrowth` resets at each boundary.
   const targetNeed = epochTarget(s.epoch)
-  const metTarget = s.flourishing >= targetNeed
+  const metTarget = s.epochGrowth >= targetNeed
   s.log.push({
     at: `e${s.epoch}`,
-    text: `Epoch ${s.epoch} target "${epochTargetDesc(s.epoch)}": ${metTarget ? 'met' : 'missed'} (Flourishing ${s.flourishing}).`,
+    text: `Epoch ${s.epoch} target "${epochTargetDesc(s.epoch)}": ${metTarget ? 'met' : 'missed'} (banked ${s.epochGrowth} this epoch).`,
   })
 
   // Balatro-style lives: EVERY missed epoch target costs 1 life; the run ends
@@ -835,7 +840,7 @@ function endEpoch(state: GameState): GameState {
     })
     s.log.push({
       at: `e${s.epoch}`,
-      text: `Flourishing ${s.flourishing} fell short of ${targetNeed} — the next epoch's market opens with the penalty applied.`,
+      text: `Banked ${s.epochGrowth} this epoch, short of ${targetNeed} — the next epoch's market opens with the penalty applied.`,
     })
   }
 
@@ -898,6 +903,7 @@ function advanceToNextEpoch(state: GameState): GameState {
   s.epoch += 1
   s.playsLeft = PLAYS_PER_EPOCH
   s.discardsLeft = DISCARDS_PER_EPOCH
+  s.epochGrowth = 0 // per-epoch target resets at the boundary
   s.log.push({ at: 'world', text: `— Epoch ${s.epoch} begins —` })
   return startEpoch(s)
 }

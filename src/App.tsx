@@ -228,9 +228,13 @@ export default function App() {
       </header>
 
       <section className="hud" aria-label="World status">
-        <div className="hud-item" title="Flourishing now — this epoch's single Growth target is the bar to clear">
+        <div className="hud-item" title="Growth banked THIS epoch against this epoch's target — resets each epoch">
+          <span className="hud-label">This epoch</span>
+          <strong>{state.epochGrowth}<span className="hud-of">/{targetNeed}</span></strong>
+        </div>
+        <div className="hud-item" title="Lifetime Flourishing — the planet's total score, keeps growing across epochs">
           <span className="hud-label">Flourishing</span>
-          <strong>{state.flourishing}<span className="hud-of">/{targetNeed}</span></strong>
+          <strong>{state.flourishing}</strong>
         </div>
         <div className="hud-item" title="Seeds — the market currency (uncapped)">
           <span className="hud-label">Seeds</span>
@@ -354,9 +358,9 @@ export default function App() {
                     {plan.cards.map((c, i) => <li key={i} className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>{cardName(c)}</li>)}
                   </ul>
                   <p className="pv-summary">{plan.summary}</p>
-                  {plan.valid && state.flourishing + plan.growth >= targetNeed && (
+                  {plan.valid && state.epochGrowth + plan.growth >= targetNeed && (
                     <p className="pv-close-epoch" data-testid="pv-close-epoch" role="status">
-                      This play reaches the epoch target — the epoch closes immediately (unused plays and discards are forfeited).
+                      This play reaches this epoch's target — the epoch closes immediately (unused plays and discards are forfeited).
                     </p>
                   )}
                 </section>
@@ -381,7 +385,7 @@ export default function App() {
                   <div className="growth-hero muted" data-testid="growth-hero">
                     <span className="growth-hero-label">Growth</span>
                     <span className="growth-hero-num">—</span>
-                    <span className="growth-hero-breakdown">select 1–5 cards to bank Growth toward {targetNeed}</span>
+                    <span className="growth-hero-breakdown">select 1–5 cards to bank Growth toward this epoch's {targetNeed}</span>
                   </div>
                 )}
                 {plan?.valid && plan.growthParts.regions > 0 && (

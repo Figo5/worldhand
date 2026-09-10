@@ -20,7 +20,7 @@ import { describe, it, expect } from 'vitest'
 import {
   newGame, applyAction, preview, buildPlan, validateState,
   PAIR_BASE, TWOPAIR_BASE, FLUSH_BASE, DEV_STEP, DEV_BONUS_CAP,
-  MARKET_ITEMS, SAVE_VERSION,
+  MARKET_ITEMS, SAVE_VERSION, epochTarget,
   type GameState, type Region,
 } from '../src/engine/worldhand'
 import type { Card, Suit as PSuit } from '../engine/poker'
@@ -335,13 +335,13 @@ describe('expansion shop surfaces two specializations (existing mechanism + pric
   })
 })
 
-describe('SAVE_VERSION 4 + validation + legacy preservation', () => {
-  it('SAVE_VERSION is 4 (scoring rules changed); the schema layout stays 3', () => {
-    expect(SAVE_VERSION).toBe(4)
+describe('SAVE_VERSION 5 + validation + legacy preservation', () => {
+  it('SAVE_VERSION is 5 (per-epoch targets changed scoring); the schema layout stays 3', () => {
+    expect(SAVE_VERSION).toBe(5)
   })
 
-  it('a fresh v4 state passes validateState (specializations legal)', () => {
-    expect(validateState(JSON.parse(JSON.stringify(newGame('validate-4'))))).toBeNull()
+  it('a fresh v5 state passes validateState (specializations legal)', () => {
+    expect(validateState(JSON.parse(JSON.stringify(newGame('validate-5'))))).toBeNull()
   })
 
   it('an illegal specialization value is rejected', () => {
@@ -387,8 +387,8 @@ describe('SAVE_VERSION 4 + validation + legacy preservation', () => {
       expect(store.get(res.legacyKey!)).toBe(legacyV3)
       expect(store.get('worldhand.save')).toBe(legacyV3)
       expect(mod.listLegacySaves().some((l) => l.key === res.legacyKey)).toBe(true)
-      // and a valid v4 save still loads
-      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 4, savedAt: '2026-01-05T00:00:00.000Z', state: JSON.parse(JSON.stringify(newGame('v4-fresh'))) }))
+      // and a valid v5 save still loads
+      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 5, savedAt: '2026-01-05T00:00:00.000Z', state: JSON.parse(JSON.stringify(newGame('v5-fresh'))) }))
       const res4 = mod.loadGameDetailed()
       expect(res4.state).not.toBeNull()
       expect(res4.rejectedReason).toBeNull()
@@ -496,7 +496,9 @@ describe('final-epoch outcome + reload idempotency with regional bonuses', () =>
     })
     s.epoch = 3
     s.phase = 'select'
-    s.flourishing = 100
+    // start so the target is reached only on the 4th play WITH the bonus, and
+    // falls just short WITHOUT it (per-epoch target ~103)
+    s.epochGrowth = epochTarget(3) - 4 * 64 - 1
     s.lives = 2
     const tp = [C(9, 'S'), C(9, 'H'), C(7, 'D'), C(7, 'C')]
     for (let i = 0; i < 4; i++) {
@@ -507,11 +509,11 @@ describe('final-epoch outcome + reload idempotency with regional bonuses', () =>
     return s
   }
 
-  it('the region bonus TIPS the epoch-3 target: 100 + 4x69 = 376 clears it where 356 falls short', () => {
+  it('the region bonus TIPS the epoch-3 target: 4x69 = 276 clears it where 4x64 = 256 falls short', () => {
     const withBonus = finalRun(true)
-    // the bonus lets the run clear the target (early advance fires on the 4th
-    // play) — the run continues into the market, no life lost
-    expect(withBonus.flourishing).toBe(100 + 4 * 69) // each play banks 64 + 5
+    // the bonus lets the run clear the per-epoch target (early advance fires on
+    // the 4th play) — the run continues into the market, no life lost
+    expect(withBonus.epochGrowth).toBeGreaterThanOrEqual(epochTarget(3))
     expect(withBonus.phase).toBe('market') // unlimited epochs: run continues
     expect(withBonus.lives).toBe(2) // target met — no life lost
     expect(withBonus.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(0)
@@ -519,7 +521,7 @@ describe('final-epoch outcome + reload idempotency with regional bonuses', () =>
 
     // counterfactual: the SAME cards/plays with the region dormant fall short
     const without = finalRun(false)
-    expect(without.flourishing).toBe(100 + 4 * 64) // 356 < 360
+    expect(without.epochGrowth).toBeLessThan(epochTarget(3))
     expect(without.lives).toBe(1) // the miss still cost its life
     expect(without.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(1)
   })

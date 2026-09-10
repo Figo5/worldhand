@@ -47,10 +47,8 @@ describe('worldhand core contracts (Balatro-simple)', () => {
     }
   })
   it('ONE escalating Flourishing (Growth) target per epoch, strictly increasing, indefinite', () => {
-    // epochs 1–3 are the exact original values; the formula escalates forever
-    expect(epochTarget(1)).toBe(45)
-    expect(epochTarget(2)).toBe(110)
-    expect(epochTarget(3)).toBe(360)
+    // per-epoch target: Growth to bank DURING this epoch; escalates forever
+    expect(epochTarget(1)).toBe(100)
     for (let n = 2; n < 30; n++) {
       expect(epochTarget(n)).toBeGreaterThan(epochTarget(n - 1))
       expect(Number.isInteger(epochTarget(n))).toBe(true)
@@ -59,10 +57,10 @@ describe('worldhand core contracts (Balatro-simple)', () => {
   it('targets are calibrated against measured bounded play, not the final target alone', () => {
     // scripts/solve.mjs (corrected policy: category-spanning 1-5 candidates,
     // current-mechanics score, disjoint calibration/evaluation seeds). The
-    // formula continues from 360 at ~130/epoch growing slowly so runs go deep
-    // and end naturally via lives (measured median depth ~10 at LOOK=30).
-    expect(epochTarget(3)).toBe(360)
-    expect(epochTarget(4)).toBeGreaterThan(360)
+    // per-epoch curve is fit so a bounded policy at LOOK=30 gets a smooth depth
+    // distribution (no single epoch >20% of deaths, no gap after a spike).
+    expect(epochTarget(1)).toBe(100)
+    expect(epochTarget(2)).toBeGreaterThan(epochTarget(1))
     expect(epochTarget(10)).toBeGreaterThan(epochTarget(9))
   })
   it('card conservation holds after every action type (52 always)', () => {
@@ -297,12 +295,12 @@ describe('Balatro-style lives', () => {
   })
   it('meeting the epoch target costs no life', () => {
     let s = newGame('lives-met')
-    s.flourishing = 40 // 5 short of the 45 target
+    s.epochGrowth = epochTarget(1) - 10 // 90, 10 short of the 100 target
     s.epoch = 1
-    s = forceHand(s, [C(14, 'H')]) // ace high = 14 Growth → 54 ≥ 45
+    s = forceHand(s, [C(14, 'H')]) // ace high = 14 Growth → 104 ≥ 100
     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
     s = applyAction(s, { type: 'play' })
-    expect(s.flourishing).toBeGreaterThanOrEqual(epochTarget(1))
+    expect(s.epochGrowth).toBeGreaterThanOrEqual(epochTarget(1))
     expect(s.lives).toBe(SURVIVAL_START)
     expect(s.log.every((l) => !l.text.includes('a life is lost'))).toBe(true)
   })
@@ -381,7 +379,7 @@ describe('Balatro-style lives', () => {
     let s = newGame('win')
     s.epoch = 3
     s.phase = 'epoch-end'
-    s.flourishing = epochTarget(3) + 10
+    s.epochGrowth = epochTarget(3) + 10
     const s2 = applyAction(s, { type: 'closeEpoch' })
     expect(s2.phase).toBe('select') // unlimited epochs: epoch 4 begins
     expect(s2.epoch).toBe(4)
@@ -472,12 +470,12 @@ describe('early advance on target + unlimited epochs', () => {
   it('a play that reaches the epoch target closes the epoch immediately (unused plays forfeited)', () => {
     let s = newGame('early-advance')
     s.epoch = 1
-    s.flourishing = 40 // 5 short of the 45 target
+    s.epochGrowth = epochTarget(1) - 10 // 90, 10 short of the 100 target
     s.playsLeft = 4
-    s = forceHand(s, [C(14, 'H')]) // ace high = 14 Growth → 40+14 = 54 ≥ 45
+    s = forceHand(s, [C(14, 'H')]) // ace high = 14 Growth → 104 ≥ 100
     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
     s = applyAction(s, { type: 'play' })
-    expect(s.flourishing).toBeGreaterThanOrEqual(epochTarget(1))
+    expect(s.epochGrowth).toBeGreaterThanOrEqual(epochTarget(1))
     expect(s.phase).toBe('market') // closed immediately, not after 4 plays
     expect(s.playsLeft).toBe(3) // 3 plays forfeited
   })
@@ -505,7 +503,7 @@ describe('early advance on target + unlimited epochs', () => {
       s.playsLeft = 4
       s.discardsLeft = 3
       // bank enough to clear the target in one play
-      s.flourishing = epochTarget(epoch) - 1
+      s.epochGrowth = epochTarget(epoch) - 1
       s = forceHand(s, [C(14, 'H'), C(13, 'H'), C(12, 'H'), C(11, 'H'), C(10, 'H')])
       for (const i of [0, 1, 2, 3, 4]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
       s = applyAction(s, { type: 'play' })
@@ -526,6 +524,68 @@ describe('early advance on target + unlimited epochs', () => {
     s.phase = 'select'
     const j = JSON.parse(JSON.stringify(s))
     expect(validateState(j)).toBeNull()
+  })
+})
+
+describe('per-epoch targets (not cumulative)', () => {
+  it('epochGrowth resets at the epoch boundary; lifetime flourishing keeps growing', () => {
+    let s = newGame('per-epoch-reset')
+    s.epoch = 1
+    s.epochGrowth = 0
+    s.flourishing = 3
+    s.playsLeft = 1 // single play closes the epoch
+    s = forceHand(s, [C(14, 'H')]) // ace high = 14 Growth
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    expect(s.epochGrowth).toBe(14)
+    expect(s.flourishing).toBe(17)
+    expect(s.phase).toBe('market') // epoch closed (4th play)
+    // advance to epoch 2
+    s = applyAction(s, { type: 'endMarket' })
+    s = applyAction(s, { type: 'closeEpoch' })
+    expect(s.epoch).toBe(2)
+    expect(s.epochGrowth).toBe(0) // reset
+    expect(s.flourishing).toBe(17) // lifetime kept
+  })
+
+  it('a missed epoch costs one life but the run continues and can succeed the next epoch', () => {
+    let s = newGame('per-epoch-recover')
+    s.epoch = 1
+    s.epochGrowth = 0 // miss epoch 1 (target 100)
+    s.lives = 3
+    s.playsLeft = 1 // single weak play closes the epoch
+    s = forceHand(s, [C(2, 'H')]) // 2 Growth, far short
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    expect(s.lives).toBe(2) // miss cost a life
+    expect(s.phase).toBe('market') // run continues
+    s = applyAction(s, { type: 'endMarket' })
+    s = applyAction(s, { type: 'closeEpoch' })
+    expect(s.epoch).toBe(2)
+    expect(s.epochGrowth).toBe(0) // reset — the deficit is NOT carried forward
+    // now meet epoch 2's target with a big hand
+    s = forceHand(s, [C(14, 'H'), C(13, 'H'), C(12, 'H'), C(11, 'H'), C(10, 'H')])
+    for (const i of [0, 1, 2, 3, 4]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
+    s = applyAction(s, { type: 'play' })
+    expect(s.epochGrowth).toBeGreaterThanOrEqual(epochTarget(2))
+    expect(s.lives).toBe(2) // no further life lost
+    expect(s.phase).toBe('market') // early advance — recovered
+  })
+
+  it('lifetime flourishing accumulates across a miss (score/display total)', () => {
+    let s = newGame('per-epoch-lifetime')
+    s.epoch = 1
+    s.epochGrowth = 0
+    s.flourishing = 3
+    s.playsLeft = 1 // single play closes the epoch
+    s = forceHand(s, [C(14, 'H')])
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    const afterE1 = s.flourishing
+    s = applyAction(s, { type: 'endMarket' })
+    s = applyAction(s, { type: 'closeEpoch' })
+    expect(s.epoch).toBe(2)
+    expect(s.flourishing).toBe(afterE1) // lifetime kept across the miss
   })
 })
 
@@ -718,10 +778,10 @@ describe('capped world stats', () => {
 })
 
 describe('versioned save envelope + structural validation', () => {
-  it('v4 state round-trips through JSON (v4 = regional-bonus rules generation)', () => {
+  it('v5 state round-trips through JSON (v5 = per-epoch targets rules generation)', () => {
     const s = newGame('roundtrip')
     const j = JSON.parse(JSON.stringify(s))
-    expect(j.version).toBe(4)
+    expect(j.version).toBe(5)
     expect(j.hand).toHaveLength(8)
     expect(j.regions).toHaveLength(12)
     const back = JSON.parse(JSON.stringify(j)) as GameState
@@ -731,7 +791,7 @@ describe('versioned save envelope + structural validation', () => {
     const mod = await import('../src/ui/save')
     expect(typeof mod.saveGame).toBe('function')
     expect(typeof mod.loadGame).toBe('function')
-    expect(mod.CURRENT_VERSION).toBe(4) // v4 = regional-bonus rules generation
+    expect(mod.CURRENT_VERSION).toBe(5) // v5 = per-epoch targets rules generation
     expect(mod.SCHEMA_VERSION_CURRENT).toBe(3)
   })
 })
@@ -741,9 +801,9 @@ describe('save versioning + structural validation (legacy preserved, never reint
   // through the exported validateState + the envelope's version fields.
   const fresh = () => JSON.parse(JSON.stringify(newGame('validator'))) as any
 
-  it('CURRENT_VERSION is 4 (regional-bonus rules generation) and SCHEMA_VERSION is 3', async () => {
+  it('CURRENT_VERSION is 5 (per-epoch targets rules generation) and SCHEMA_VERSION is 3', async () => {
     const w = await import('../src/engine/worldhand')
-    expect(w.SAVE_VERSION).toBe(4)
+    expect(w.SAVE_VERSION).toBe(5)
     expect(w.SCHEMA_VERSION).toBe(3)
   })
 
@@ -866,9 +926,9 @@ describe('save versioning + structural validation (legacy preserved, never reint
       expect(store.get('worldhand.save')).toBe(legacyV2)
       expect(mod.listLegacySaves().some((l) => l.key === res.legacyKey)).toBe(true)
 
-      // structurally corrupt v4 state (missing lives): same preserve+reject path
+      // structurally corrupt v5 state (missing lives): same preserve+reject path
       const corruptState = fresh(); delete corruptState.lives
-      const env3 = JSON.stringify({ schema: 3, version: 4, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
+      const env3 = JSON.stringify({ schema: 3, version: 5, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
       store.set('worldhand.save', env3)
       const res2 = mod.loadGameDetailed()
       expect(res2.state).toBeNull()
@@ -876,8 +936,8 @@ describe('save versioning + structural validation (legacy preserved, never reint
       expect(store.get(res2.legacyKey!)).toBe(env3)
       expect(store.get('worldhand.save')).toBe(env3)
 
-      // a valid v4 save still loads
-      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 4, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
+      // a valid v5 save still loads
+      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 5, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
       const res3 = mod.loadGameDetailed()
       expect(res3.state).not.toBeNull()
       expect(res3.rejectedReason).toBeNull()
@@ -911,7 +971,7 @@ describe('lives: every missed target costs 1, 0 ends the run, win while lives re
     let s = newGame('win-lives-remain')
     s.epoch = 8
     s.phase = 'epoch-end'
-    s.flourishing = epochTarget(8) + 10
+    s.epochGrowth = epochTarget(8) + 10
     const s2 = applyAction(s, { type: 'closeEpoch' })
     expect(s2.phase).toBe('select')
     expect(s2.epoch).toBe(9)
