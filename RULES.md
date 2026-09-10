@@ -54,7 +54,7 @@ PAIR_BASE = 3 · TWOPAIR_BASE = 4 · FLUSH_BASE = 6 · DEV_STEP = 2 · DEV_BONUS
 
 A **Pair** region with development 4 therefore grants 3 + 2 = **5**. The development share caps at **+4** (floor(10/2) = 5 → min(4, 5) = 4), so a maxed Pair region pays 7, a maxed Two-Pair region 8, a maxed Flush region 10. **Dormant specialized regions contribute exactly 0.**
 
-**Stacking & order**: bonuses stack **additively** across all awake regions whose specialization matches the played category (two awake Pair regions add; never a multiplicative chain). The regional total is applied **once**, AFTER the existing law-adjusted Growth — the law multiplier never re-multiplies the regional bonus: `Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)`. A hand earning a regional bonus also earns its Seeds off the full number (`ceil(Growth / 4)` nominal, credited truthfully under the 30-Seed cap).
+**Stacking & order**: bonuses stack **additively** across all awake regions whose specialization matches the played category (two awake Pair regions add; never a multiplicative chain). The regional total is applied **once**, AFTER the existing law-adjusted Growth — the law multiplier never re-multiplies the regional bonus: `Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)`. A hand earning a regional bonus also earns its Seeds off the full number (`ceil(Growth / 4)`).
 
 **How the two dormant specializations become obtainable**: the existing wake-* expansions — **Wake Pellucid (12 Seeds)** and **Wake Vantage (12 Seeds)**, matching the existing Wake Laguna / Wake Brumal 12-Seed convention — awaken their advertised region and activate its bonus; the market offers state which poker category benefits, the current bonus, and how development scales it. No new interface, no new economy.
 
@@ -78,11 +78,9 @@ Every play earns Seeds instantly — there is no gather action:
 
 ```
 nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
-credited       = min(SEEDS_CAP − balance, nominal)  (never below 0)
-overflow       = nominal − credited                 (the part the cap refused)
 ```
 
-**1 Seed per 4 Growth** (a 15-Growth hand nominally pays 4 Seeds). The **nominal** figure is what the hand earned; the **credited** figure is what actually lands in the bank under the 30-Seeds cap; **overflow** is what the cap refused. When overflow is 0 the UI just says "Gains N Seeds"; when the cap binds, the preview, the committed summary, and the chronicle all show the same truthful clause — e.g. `Gains 16 Seeds (Credited 6; overflow 10)` for a balance of 24 — because preview, commit and log all read one shared contract (`seedCredit`). Epoch end pays +1 Seed per living **healthy** region (stability > 0) plus law income, halved on a missed epoch target, and is credited under the same cap with the same truthful clause. Seeds can never go negative.
+**1 Seed per 4 Growth** (a 15-Growth hand nominally pays 4 Seeds). Seeds **accumulate without ceiling** — every play banks the full nominal earn, so the preview, the committed summary, and the chronicle all read the same single `amount` (no credited/overflow split). Epoch end pays +1 Seed per living **healthy** region (stability > 0) plus law income, halved on a missed epoch target, and is banked in full. Seeds can never go negative.
 
 ## Discards
 
@@ -95,12 +93,12 @@ overflow       = nominal − credited                 (the part the cap refused)
 1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 45**; epoch 2 needs **110**; epoch 3 needs **360**. **Missing ANY target — including the epoch-3 one — costs 1 life and halves that epoch's Seed income.** The epoch-3 miss additionally ends the run short of the win (final-target check); a met epoch-3 target wins. **The final epoch resolves straight to the verdict after its 4th play** — no market phase for a finished run.
 2. **Decay**: every living region with stability left loses **1 stability** per epoch. **Mycorrhiza Network reduces this decay by 1 — i.e. living regions stop decaying entirely (1 → 0)**; decay is floored at 0 (never a gain, never a double loss) and regions at 0 stay at 0. Decay is **not purely cosmetic**: the income below counts only living regions with **stability > 0**, so decayed-out regions stop paying Seeds (Mycorrhiza protects that income base).
 3. **Civilization growth**: every living region gains +1 development — this drives the 3D planet's evolution icons and the globe's visible size. No gameplay read.
-4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target), credited under the Seed cap with the truthful credited/overflow clause (see the auto-Seeds formula).
+4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target), banked in full (uncapped).
 5. **Market phase** — epochs 1 and 2 only; the final epoch has none.
 
 ## Market (spend Seeds on a smarter civilization)
 
-- Up to 3 offers per epoch from the item pool, bought with Seeds. **Max 5 owned items**; buying is blocked at the cap until you explicitly remove an item (no refund, frees the slot). Owned items never reappear. Seeds cap at 30.
+- Up to 3 offers per epoch from the item pool, bought with Seeds. **Max 5 owned items**; buying is blocked at the cap until you explicitly remove an item (no refund, frees the slot). Owned items never reappear. Seeds accumulate without ceiling.
 - **Hand upgrades**: Canopy Choir (+3 Growth every play), Stone Masonry (+6 Growth every play), Open Canals (Growth ×1.2 every play). Bonuses apply exactly once per play.
 - **Card additions**: Fourth Counsel (hand 9), Fifth Counsel (hand 10) — new unique ids; deck conservation still holds at 52.
 - **Expansions**: Wake Laguna / Wake Brumal — awaken a specific dormant region; the planet visibly grows. **Wake Pellucid / Wake Vantage (12 Seeds each, same convention)** — awaken the Two-Pair / Flush-specialized region and activate its regional Growth bonus (see *Regional bonus* above).
@@ -120,7 +118,7 @@ overflow       = nominal − credited                 (the part the cap refused)
 The solver was corrected in this pass (the old `score()` still carried drought/stability-era terms, and its bounded candidate list was filled entirely with 1–2-card combinations, so it never evaluated a real poker hand). The corrected policy:
 
 - **Candidates span 1–5 cards across poker categories**: all 1–2-card selections PLUS deliberate category candidates — pairs/trips/quads groups, two-pairs, full houses, flushes (best + lowest 5-card same-suit subsets), straights (incl. ace-low wheels, suit-preferred for straight-flush attempts), and generic best-rank 3/4/5-card fillers. `LOOK` caps how many are considered per play; unset = exhaustive.
-- **Scores only current mechanics**: Growth banked toward the epoch target (chips×mult + laws, with a reachability penalty once the target is out of reach), Seeds gained (discounted near the cap), and lives (a lost life is heavily penalized). No drought/stability terms exist.
+- **Scores only current mechanics**: Growth banked toward the epoch target (chips×mult + laws, with a reachability penalty once the target is out of reach), Seeds gained, and lives (a lost life is heavily penalized). No drought/stability terms exist.
 - **Discards sensibly**: when every candidate scores weak, it dumps the cards the best play did not want (≤5), refills, and keeps the discard only if the post-refill best play clearly beats the pre-discard one.
 - **Buys in a documented priority order**: canopy-choir (+3 flat on every play, cheapest Growth/Seed) → seed-vaults (+3 Seeds/epoch) → barter-routes (−2 all purchases) → open-canals (×1.2 every play) → stone-masonry (+6 flat) → fourth-counsel (9-card hands). Specialized wakes are considered when affordable and their category is in/near the current hand: Wake Pellucid activates Two Pair (+4 base) and Wake Vantage activates Flush (+6 base). Non-specialized wakes, Mycorrhiza, and Fifth Counsel remain skipped by this bounded policy.
 - **Calibration and evaluation seeds are disjoint**: `--set calib` runs the `probe-0..29` set (used only for target sweeps); `--set eval` runs the `eval-0..29` set (the reported result); no flags run both. Output is labeled **bounded solver result** everywhere.

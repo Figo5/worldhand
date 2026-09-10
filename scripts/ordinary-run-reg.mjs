@@ -51,8 +51,8 @@ for (let g = 0; g < 500; g++) {
       const sel = []
       for (let i = 0; i < n; i++) if (mask & (1 << i)) sel.push(i)
       if (sel.length > 5) continue
-      const withR = buildPlan(hand, sel, st.laws, st.seeds, st.regions)
-      const noR = buildPlan(hand, sel, st.laws, st.seeds, st.regions.map((r) => ({ ...r, dormant: true })))
+      const withR = buildPlan(hand, sel, st.laws, st.regions)
+      const noR = buildPlan(hand, sel, st.laws, st.regions.map((r) => ({ ...r, dormant: true })))
       subsets.push({ sel, g1: withR.growth, g0: noR.growth, cat: withR.categoryLabel })
     }
     const bestWith = subsets.reduce((a, b) => (b.g1 > a.g1 ? b : a))

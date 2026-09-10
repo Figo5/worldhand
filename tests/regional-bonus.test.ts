@@ -20,7 +20,7 @@ import { describe, it, expect } from 'vitest'
 import {
   newGame, applyAction, preview, buildPlan, validateState,
   PAIR_BASE, TWOPAIR_BASE, FLUSH_BASE, DEV_STEP, DEV_BONUS_CAP,
-  MARKET_ITEMS, SEEDS_CAP, SAVE_VERSION,
+  MARKET_ITEMS, SAVE_VERSION,
   type GameState, type Region,
 } from '../src/engine/worldhand'
 import type { Card, Suit as PSuit } from '../engine/poker'
@@ -80,7 +80,7 @@ describe('declared constants + deterministic mapping', () => {
 describe('exact-category matching (dormant vs awake, no hidden contains-a-pair logic)', () => {
   it('awake pair region pays its base on an EXACT pair only', () => {
     const s = withRegions(newGame('pair-exact'), (rs) => { rs[PAIR_REGION].dormant = false })
-    const plan = buildPlan([C(13, 'S'), C(13, 'H'), C(9, 'D')], [0, 1, 2], [], 0, s.regions)
+    const plan = buildPlan([C(13, 'S'), C(13, 'H'), C(9, 'D')], [0, 1, 2], [], s.regions)
     expect(plan.category).toBe('pair')
     expect(plan.growthParts.regions).toBe(PAIR_BASE)
     expect(plan.growth).toBe(Math.round(35 * 1.5) + PAIR_BASE) // 53 + 3
@@ -88,7 +88,7 @@ describe('exact-category matching (dormant vs awake, no hidden contains-a-pair l
 
   it('trips do NOT match a pair specialization (exact category, not contains-a-pair)', () => {
     const s = withRegions(newGame('trips-nomatch'), (rs) => { rs[PAIR_REGION].dormant = false })
-    const plan = buildPlan([C(9, 'S'), C(9, 'H'), C(9, 'D')], [0, 1, 2], [], 0, s.regions)
+    const plan = buildPlan([C(9, 'S'), C(9, 'H'), C(9, 'D')], [0, 1, 2], [], s.regions)
     expect(plan.category).toBe('trips')
     expect(plan.growthParts.regions).toBe(0)
     expect(plan.growth).toBe(Math.round(27 * 2.5)) // 68 — no bonus
@@ -100,7 +100,7 @@ describe('exact-category matching (dormant vs awake, no hidden contains-a-pair l
       rs[6].dormant = false
       rs[11].dormant = false
     })
-    const plan = buildPlan([C(14, 'H')], [0], [], 0, s.regions)
+    const plan = buildPlan([C(14, 'H')], [0], [], s.regions)
     expect(plan.category).toBe('high')
     expect(plan.growthParts.regions).toBe(0)
     expect(plan.growth).toBe(14)
@@ -125,11 +125,11 @@ describe('exact-category matching (dormant vs awake, no hidden contains-a-pair l
 
   it('a flush only pays the FLUSH-specialized region (and vice versa)', () => {
     const flush = [C(14, 'H'), C(2, 'H'), C(6, 'H'), C(7, 'H'), C(9, 'H')] // chips 38
-    const dormantOnly = buildPlan(flush, [0, 1, 2, 3, 4], [], 0, newGame('flush-dormant').regions)
+    const dormantOnly = buildPlan(flush, [0, 1, 2, 3, 4], [], newGame('flush-dormant').regions)
     expect(dormantOnly.category).toBe('flush')
     expect(dormantOnly.growthParts.regions).toBe(0) // Vantage starts dormant
     const s = withRegions(newGame('flush-match'), (rs) => { rs[FLUSH_REGION].dormant = false })
-    const plan = buildPlan(flush, [0, 1, 2, 3, 4], [], 0, s.regions)
+    const plan = buildPlan(flush, [0, 1, 2, 3, 4], [], s.regions)
     expect(plan.growthParts.regions).toBe(FLUSH_BASE)
     expect(plan.growth).toBe(Math.round(38 * 4) + FLUSH_BASE) // 152 + 6
   })
@@ -153,11 +153,11 @@ describe('development scaling + DEV_BONUS_CAP', () => {
         rs[PAIR_REGION].dormant = false; rs[PAIR_REGION].development = dev
         rs[FLUSH_REGION].dormant = false; rs[FLUSH_REGION].development = dev
       })
-      const pairPlan = buildPlan([C(13, 'S'), C(13, 'H')], [0, 1], [], 0, s.regions)
+      const pairPlan = buildPlan([C(13, 'S'), C(13, 'H')], [0, 1], [], s.regions)
       expect(pairPlan.category).toBe('pair')
       expect(pairPlan.growthParts.regions).toBe(pairExp)
       const flushPlan = buildPlan(
-        [C(14, 'H'), C(2, 'H'), C(6, 'H'), C(7, 'H'), C(9, 'H')], [0, 1, 2, 3, 4], [], 0, s.regions,
+        [C(14, 'H'), C(2, 'H'), C(6, 'H'), C(7, 'H'), C(9, 'H')], [0, 1, 2, 3, 4], [], s.regions,
       )
       expect(flushPlan.growthParts.regions).toBe(flushExp)
     }
@@ -167,7 +167,7 @@ describe('development scaling + DEV_BONUS_CAP', () => {
     const s = withRegions(newGame('dev4'), (rs) => {
       rs[PAIR_REGION].development = 4; rs[PAIR_REGION].dormant = false
     })
-    const plan = buildPlan([C(13, 'S'), C(13, 'H')], [0, 1], [], 0, s.regions)
+    const plan = buildPlan([C(13, 'S'), C(13, 'H')], [0, 1], [], s.regions)
     expect(plan.growthParts.regions).toBe(5)
   })
 })
@@ -178,7 +178,7 @@ describe('additive stacking across multiple matching regions', () => {
       rs[0].specialization = 'pair'; rs[0].dormant = false; rs[0].development = 2
       rs[1].specialization = 'pair'; rs[1].dormant = false; rs[1].development = 4
     })
-    const plan = buildPlan([C(13, 'S'), C(13, 'H')], [0, 1], [], 0, s.regions)
+    const plan = buildPlan([C(13, 'S'), C(13, 'H')], [0, 1], [], s.regions)
     // (3 + floor(2/2)) + (3 + floor(4/2)) = 4 + 5 = 9 — additive, not 3*3 or any product
     expect(plan.growthParts.regions).toBe(9)
     expect(plan.growth).toBe(Math.round(26 * 1.5) + 9)
@@ -190,7 +190,7 @@ describe('additive stacking across multiple matching regions', () => {
       rs[6].dormant = false // Pellucid: twopair, dev 0
     })
     const tp = [C(9, 'S'), C(9, 'H'), C(7, 'D'), C(7, 'C')]
-    const plan = buildPlan(tp, [0, 1, 2, 3], [], 0, s.regions)
+    const plan = buildPlan(tp, [0, 1, 2, 3], [], s.regions)
     expect(plan.category).toBe('two-pair')
     expect(plan.growthParts.regions).toBe(TWOPAIR_BASE) // 4 — only Pellucid matches
     expect(plan.growth).toBe(64 + 4)
@@ -201,7 +201,7 @@ describe('no double application with existing laws', () => {
   it('Open Canals multiplies ONLY pokerBase; the region bonus is added once after', () => {
     const s = withRegions(newGame('canals'), (rs) => { rs[PAIR_REGION].dormant = false })
     const canals = [{ id: 'open-canals', title: 'Open Canals', desc: '', cost: 14, kind: 'upgrade' as const, growthMult: 1.2 }]
-    const plan = buildPlan([C(14, 'S'), C(14, 'H'), C(13, 'D'), C(12, 'C'), C(11, 'H')], [0, 1, 2, 3, 4], canals, 0, s.regions)
+    const plan = buildPlan([C(14, 'S'), C(14, 'H'), C(13, 'D'), C(12, 'C'), C(11, 'H')], [0, 1, 2, 3, 4], canals, s.regions)
     expect(plan.category).toBe('pair')
     const pokerBase = Math.round(64 * 1.5) // 96
     expect(plan.growthParts.poker).toBe(pokerBase)
@@ -213,13 +213,13 @@ describe('no double application with existing laws', () => {
   it('Canopy Choir flat + region bonus each apply exactly once', () => {
     const s = withRegions(newGame('choir'), (rs) => { rs[PAIR_REGION].dormant = false })
     const choir = [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade' as const, growthFlat: 3 }]
-    const plan = buildPlan([C(13, 'S'), C(13, 'H')], [0, 1], choir, 0, s.regions)
+    const plan = buildPlan([C(13, 'S'), C(13, 'H')], [0, 1], choir, s.regions)
     expect(plan.growth).toBe(39 + 3 + PAIR_BASE)
     expect(plan.growthParts).toEqual({ poker: 39, laws: 3, regions: PAIR_BASE })
   })
 
   it('laws alone (no matching region) keep the exact pre-change numbers', () => {
-    const plan = buildPlan([C(10, 'H')], [0], [{ id: 'open-canals', title: 'Open Canals', desc: '', cost: 14, kind: 'upgrade' as const, growthMult: 1.2 }], 0, [])
+    const plan = buildPlan([C(10, 'H')], [0], [{ id: 'open-canals', title: 'Open Canals', desc: '', cost: 14, kind: 'upgrade' as const, growthMult: 1.2 }], [])
     expect(plan.growth).toBe(12)
     expect(plan.growthParts).toEqual({ poker: 10, laws: 2, regions: 0 })
   })
@@ -241,7 +241,7 @@ describe('shared scoring contract: parts reconcile + preview == commit', () => {
       C(2, 'S'), C(3, 'S'), C(4, 'S'),
     ]
     for (const sel of [[0], [0, 1], [0, 1, 2], [0, 1, 2, 3], [0, 1, 2, 3, 4], [5, 6, 7], [5, 6, 7, 2], [4, 5, 6, 7]]) {
-      const plan = buildPlan(hand, sel, laws, s.seeds, s.regions)
+      const plan = buildPlan(hand, sel, laws, s.regions)
       expect(plan.valid).toBe(true)
       expect(plan.growth).toBe(Math.max(0, plan.growthParts.poker + plan.growthParts.laws + plan.growthParts.regions))
     }
@@ -265,29 +265,27 @@ describe('shared scoring contract: parts reconcile + preview == commit', () => {
     expect(committed.lastResolution!.effects).toEqual(pv.effects)
     expect(committed.lastResolution!.summary).toBe(pv.summary)
     expect(committed.flourishing).toBe(newGame('pv-commit-reg').flourishing + 71)
-    // truthful capped Seed credit against the CURRENT balance 24: ceil(71/4) = 18
-    const fx = pv.effects.find((e) => e.kind === 'seeds') as { amount: number; credited: number; overflow: number }
+    // uncapped Seed earn against the CURRENT balance 24: ceil(71/4) = 18
+    const fx = pv.effects.find((e) => e.kind === 'seeds') as { amount: number }
     expect(fx.amount).toBe(18)
-    expect(fx.credited).toBe(6)
-    expect(fx.overflow).toBe(12)
-    expect(pv.summary).toContain('(Credited 6; overflow 12)')
-    expect(committed.seeds).toBe(30)
+    expect(pv.summary).toContain('Gains 18 Seeds')
+    expect(pv.summary).not.toContain('overflow')
+    expect(committed.seeds).toBe(42)
   })
 
-  it('capped Seed rewards stay truthful after a regional bonus (balance 30 -> credited 0)', () => {
+  it('Seed rewards stay truthful after a regional bonus (balance 30 -> 44, uncapped)', () => {
     let s = withRegions(newGame('cap-reg'), (rs) => { rs[PAIR_REGION].dormant = false })
-    s.seeds = SEEDS_CAP
+    s.seeds = 30
     s = forceHand(s, [C(13, 'S'), C(13, 'H'), C(9, 'D')])
     for (const i of [0, 1, 2]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
     const pv = preview(s)
     expect(pv.growth).toBe(56) // 53 base + 3 region
-    const fx = pv.effects.find((e) => e.kind === 'seeds') as { amount: number; credited: number; overflow: number }
+    const fx = pv.effects.find((e) => e.kind === 'seeds') as { amount: number }
     expect(fx.amount).toBe(14)
-    expect(fx.credited).toBe(0)
-    expect(fx.overflow).toBe(14)
     const committed = applyAction(s, { type: 'play' })
-    expect(committed.seeds).toBe(SEEDS_CAP)
-    expect(committed.log.at(-1)!.text).toContain('(Credited 0; overflow 14)')
+    expect(committed.seeds).toBe(44)
+    expect(committed.log.at(-1)!.text).toContain('Gains 14 Seeds')
+    expect(committed.log.at(-1)!.text).not.toContain('overflow')
   })
 })
 
@@ -325,12 +323,12 @@ describe('expansion shop surfaces two specializations (existing mechanism + pric
     expect(s.laws.some((l) => l.id === 'wake-vantage')).toBe(true)
     // the advertised bonus is live on an exact flush
     const flush = [C(14, 'H'), C(2, 'H'), C(6, 'H'), C(7, 'H'), C(9, 'H')]
-    const plan = buildPlan(flush, [0, 1, 2, 3, 4], [], s.seeds, s.regions)
+    const plan = buildPlan(flush, [0, 1, 2, 3, 4], [], s.regions)
     expect(plan.category).toBe('flush')
     expect(plan.growthParts.regions).toBe(FLUSH_BASE)
     // and it scales with development as epochs advance (dev 2 -> +1)
     const dev2 = withRegions(s, (rs) => { rs[FLUSH_REGION].development = 2 })
-    const plan2 = buildPlan(flush, [0, 1, 2, 3, 4], [], dev2.seeds, dev2.regions)
+    const plan2 = buildPlan(flush, [0, 1, 2, 3, 4], [], dev2.regions)
     expect(plan2.growthParts.regions).toBe(FLUSH_BASE + Math.floor(2 / DEV_STEP))
   })
 })
@@ -433,8 +431,8 @@ describe('CHOICE REVERSAL fixture 1 (pair vs two-pair, exact tie broken by the r
   const TWOPAIR_SEL = [0, 5, 6, 7, 8]
 
   it('build A (awake maxed Pair region): the PAIR is favored', () => {
-    const aPair = buildPlan(HAND, PAIR_SEL, [], 0, buildA())
-    const aTwopair = buildPlan(HAND, TWOPAIR_SEL, [], 0, buildA())
+    const aPair = buildPlan(HAND, PAIR_SEL, [], buildA())
+    const aTwopair = buildPlan(HAND, TWOPAIR_SEL, [], buildA())
     expect(aPair.category).toBe('pair')
     expect(aTwopair.category).toBe('two-pair')
     expect(aPair.growth).toBe(96 + 7) // 103 — pair region bonus
@@ -444,8 +442,8 @@ describe('CHOICE REVERSAL fixture 1 (pair vs two-pair, exact tie broken by the r
 
   it('build B (awake maxed Two-Pair region, no Pair): the TWO-PAIR is favored — REVERSAL', () => {
     const regions = buildB('twopair')
-    const bPair = buildPlan(HAND, PAIR_SEL, [], 0, regions)
-    const bTwopair = buildPlan(HAND, TWOPAIR_SEL, [], 0, regions)
+    const bPair = buildPlan(HAND, PAIR_SEL, [], regions)
+    const bTwopair = buildPlan(HAND, TWOPAIR_SEL, [], regions)
     expect(bPair.growth).toBe(96) // pair region dormant — no bonus
     expect(bTwopair.growth).toBe(96 + 8) // 104 — twopair region bonus
     expect(bTwopair.growth).toBeGreaterThan(bPair.growth)
@@ -464,8 +462,8 @@ describe('CHOICE REVERSAL fixture 2 (flush vs pair under Open Canals, laws ident
   const LAWS = [{ id: 'open-canals', title: 'Open Canals', desc: '', cost: 14, kind: 'upgrade' as const, growthMult: 1.2 }]
 
   it('build A (awake maxed Pair region): the PAIR is favored', () => {
-    const aPair = buildPlan(HAND, PAIR_SEL, LAWS, 0, buildA())
-    const aFlush = buildPlan(HAND, FLUSH_SEL, LAWS, 0, buildA())
+    const aPair = buildPlan(HAND, PAIR_SEL, LAWS, buildA())
+    const aFlush = buildPlan(HAND, FLUSH_SEL, LAWS, buildA())
     expect(aPair.category).toBe('pair')
     expect(aFlush.category).toBe('flush')
     expect(aPair.growth).toBe(115 + 7) // 122
@@ -475,8 +473,8 @@ describe('CHOICE REVERSAL fixture 2 (flush vs pair under Open Canals, laws ident
 
   it('build B (awake maxed Flush region, no Pair): the FLUSH is favored — REVERSAL', () => {
     const regions = buildB('flush')
-    const bPair = buildPlan(HAND, PAIR_SEL, LAWS, 0, regions)
-    const bFlush = buildPlan(HAND, FLUSH_SEL, LAWS, 0, regions)
+    const bPair = buildPlan(HAND, PAIR_SEL, LAWS, regions)
+    const bFlush = buildPlan(HAND, FLUSH_SEL, LAWS, regions)
     expect(bPair.growth).toBe(115)
     expect(bFlush.growth).toBe(110 + 10) // 120 — flush region bonus added AFTER the law mult
     expect(bFlush.growth).toBeGreaterThan(bPair.growth)

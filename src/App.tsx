@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   newGame, applyAction, preview,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_EPOCHS, TOTAL_REGIONS,
-  STABILITY_MAX, SEEDS_CAP, EPOCH_TARGETS, SURVIVAL_START, LAW_SLOTS,
+  STABILITY_MAX, EPOCH_TARGETS, SURVIVAL_START, LAW_SLOTS,
   SPECIALIZATION_LABEL, SPECIALIZATION_BASE, DEV_STEP, DEV_BONUS_CAP,
   specOfCategory, regionBonusOf,
   type Action, type GameState, type Region, type Law, type Specialization,
@@ -232,9 +232,9 @@ export default function App() {
           <span className="hud-label">Flourishing</span>
           <strong>{state.flourishing}<span className="hud-of">/{target.need}</span></strong>
         </div>
-        <div className="hud-item" title="Seeds — the market currency (cap 30)">
+        <div className="hud-item" title="Seeds — the market currency (uncapped)">
           <span className="hud-label">Seeds</span>
-          <strong>{state.seeds}<span className="hud-of">/{SEEDS_CAP}</span></strong>
+          <strong>{state.seeds}</strong>
         </div>
         <div className="hud-item" title="Lives — EVERY missed epoch target (all 3 epochs) costs 1; 0 ends the run">
           <span className="hud-label">Lives</span>

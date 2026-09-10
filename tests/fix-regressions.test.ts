@@ -7,8 +7,8 @@
 //           EXACTLY ONCE, with no market phase and no advertised epoch 4.
 import { describe, it, expect } from 'vitest'
 import {
-  newGame, applyAction, preview, buildPlan, seedCredit,
-  SEEDS_PER_GROWTH, SEEDS_CAP, MARKET_ITEMS, EPOCH_TARGETS,
+  newGame, applyAction, preview, buildPlan,
+  SEEDS_PER_GROWTH, MARKET_ITEMS, EPOCH_TARGETS,
   STABILITY_BASE, SURVIVAL_START, TOTAL_EPOCHS, validateState,
   type GameState, type PlanEffect,
 } from '../src/engine/worldhand'
@@ -100,13 +100,13 @@ describe('FIX 1: Mycorrhiza decay — living-region decay is ZERO with the law, 
     s.regions[0].stability = 1
     s.regions[1].stability = 1
     s = playOut(s)
-    expect(s.log.some((l) => l.text.includes('Epoch end: +4 Seeds (Credited 4; overflow 0)'))).toBe(true)
+    expect(s.log.some((l) => l.text.includes('Epoch end: +4 Seeds'))).toBe(true)
     let t = newGame('fix1-income-no')
     t.flourishing = 100
     t.regions[0].stability = 1
     t.regions[1].stability = 1
     t = playOut(t)
-    expect(t.log.some((l) => l.text.includes('Epoch end: +2 Seeds (Credited 2; overflow 0)'))).toBe(true)
+    expect(t.log.some((l) => l.text.includes('Epoch end: +2 Seeds'))).toBe(true)
   })
 
   it('Mycorrhiza applies exactly once per epoch (stability 10 stays exactly 10 — no gain, no double-softening)', () => {
@@ -125,21 +125,13 @@ describe('FIX 1: Mycorrhiza decay — living-region decay is ZERO with the law, 
 })
 
 // ---------------------------------------------------------------------------
-// FIX 2 — truthful Seed credit
+// FIX 2 — uncapped Seed accumulation
 // ---------------------------------------------------------------------------
 
-describe('FIX 2: truthful Seed credit — nominal vs credited vs overflow via ONE shared contract', () => {
+describe('FIX 2: Seeds accumulate without ceiling — every play banks the full nominal earn', () => {
   const nominal = (growth: number) => Math.ceil(growth * SEEDS_PER_GROWTH)
 
-  it('seedCredit contract table: mid / boundary / at-cap / zero / partial', () => {
-    expect(seedCredit(8, 16)).toEqual({ credited: 16, overflow: 0 })
-    expect(seedCredit(24, 16)).toEqual({ credited: 6, overflow: 10 })
-    expect(seedCredit(SEEDS_CAP, 16)).toEqual({ credited: 0, overflow: 16 })
-    expect(seedCredit(8, 0)).toEqual({ credited: 0, overflow: 0 })
-    expect(seedCredit(29, 3)).toEqual({ credited: 1, overflow: 2 })
-  })
-
-  it('the plan itself carries nominal, credited AND overflow for the live balance (preview reads them)', () => {
+  it('every play banks the full nominal earn (no credited/overflow split)', () => {
     let s = newGame('fix2-plan')
     s.seeds = 24
     s = forceHand(s, TWOPAIR16)
@@ -147,14 +139,14 @@ describe('FIX 2: truthful Seed credit — nominal vs credited vs overflow via ON
     const pv = preview(s)
     const fx = seedsFx(pv)
     expect(fx.amount).toBe(16)
-    expect(fx.credited).toBe(6)
-    expect(fx.overflow).toBe(10)
+    expect(fx.credited).toBeUndefined()
+    expect(fx.overflow).toBeUndefined()
     expect(pv.summary).toContain('Gains 16 Seeds')
-    expect(pv.summary).toContain('Credited 6')
-    expect(pv.summary).toContain('overflow 10')
+    expect(pv.summary).not.toContain('overflow')
+    expect(pv.summary).not.toContain('Credited')
   })
 
-  it('task examples: 8+16→24 · 24+16→+6 overflow 10 · 30+16→+0 overflow 16', () => {
+  it('uncapped accumulation: 8+16→24 · 24+16→40 · 30+16→46 (no cap, no overflow)', () => {
     const run = (seeds: number) => {
       let s = newGame('fix2-examples')
       s.seeds = seeds
@@ -166,21 +158,19 @@ describe('FIX 2: truthful Seed credit — nominal vs credited vs overflow via ON
     }
     const a = run(8)
     expect(a.fx.amount).toBe(16)
-    expect(a.fx.credited).toBe(16)
-    expect(a.fx.overflow).toBe(0)
     expect(a.committed.seeds).toBe(24)
     const b = run(24)
-    expect(b.fx.credited).toBe(6)
-    expect(b.fx.overflow).toBe(10)
-    expect(b.committed.seeds).toBe(30)
-    expect(b.pv.summary).toContain('(Credited 6; overflow 10)')
-    expect(b.committed.lastResolution!.summary).toBe(b.pv.summary)
-    expect(b.committed.log.at(-1)!.text).toContain('(Credited 6; overflow 10)')
-    const c = run(SEEDS_CAP)
-    expect(c.fx.credited).toBe(0)
-    expect(c.fx.overflow).toBe(16)
-    expect(c.committed.seeds).toBe(SEEDS_CAP)
-    expect(c.committed.log.at(-1)!.text).toContain('(Credited 0; overflow 16)')
+    expect(b.fx.amount).toBe(16)
+    expect(b.committed.seeds).toBe(40)
+    expect(b.pv.summary).toBe(b.committed.lastResolution!.summary)
+    expect(b.pv.summary).toContain('Gains 16 Seeds')
+    expect(b.pv.summary).not.toContain('overflow')
+    expect(b.committed.log.at(-1)!.text).toContain('Gains 16 Seeds')
+    expect(b.committed.log.at(-1)!.text).not.toContain('overflow')
+    const c = run(30)
+    expect(c.fx.amount).toBe(16)
+    expect(c.committed.seeds).toBe(46)
+    expect(c.committed.log.at(-1)!.text).not.toContain('overflow')
   })
 
   it('mid balance: credited == nominal, no overflow clause, balance applies exactly once', () => {
@@ -191,15 +181,13 @@ describe('FIX 2: truthful Seed credit — nominal vs credited vs overflow via ON
     const pv = preview(s)
     const fx = seedsFx(pv)
     expect(fx.amount).toBe(3)
-    expect(fx.credited).toBe(3)
-    expect(fx.overflow).toBe(0)
     const committed = applyAction(s, { type: 'play' })
     expect(committed.seeds).toBe(11)
     expect(committed.log.at(-1)!.text).toContain('Gains 3 Seeds')
     expect(committed.log.at(-1)!.text).not.toContain('overflow')
   })
 
-  it('preview == commit == log agree on nominal/credited/overflow across balances', () => {
+  it('preview == commit == log agree on the amount across balances (uncapped)', () => {
     for (const bal of [0, 8, 24, 29, 30]) {
       let s = newGame('fix2-agree' + bal)
       s.seeds = bal
@@ -210,51 +198,45 @@ describe('FIX 2: truthful Seed credit — nominal vs credited vs overflow via ON
       const pfx = seedsFx(pv)
       const cfx = seedsFx(committed.lastResolution!)
       expect(cfx.amount).toBe(pfx.amount)
-      expect(cfx.credited).toBe(pfx.credited)
-      expect(cfx.overflow).toBe(pfx.overflow)
       expect(pv.summary).toBe(committed.lastResolution!.summary)
-      // log echoes the plan's truthful summary (the clause appears exactly
-      // when overflow > 0 — the credited figure is always present when it is)
-      if (cfx.overflow > 0) {
-        expect(committed.log.at(-1)!.text).toContain(`(Credited ${cfx.credited}; overflow ${cfx.overflow})`)
-      } else {
-        expect(committed.log.at(-1)!.text).toContain('Gains 16 Seeds')
-        expect(committed.log.at(-1)!.text).not.toContain('overflow')
-      }
-      expect(committed.seeds).toBe(bal + cfx.credited)
-      expect(committed.seeds).toBeLessThanOrEqual(SEEDS_CAP)
+      expect(committed.log.at(-1)!.text).toContain('Gains 16 Seeds')
+      expect(committed.log.at(-1)!.text).not.toContain('overflow')
+      expect(committed.seeds).toBe(bal + cfx.amount)
     }
   })
 
-  it('epoch-end income is capped honestly: at cap the chronicle says Credited 0 / overflow N', () => {
+  it('epoch-end income is banked in full (no cap, no overflow clause)', () => {
     // clubs-only singles bank 43 total → the epoch-1 target (45) is MISSED, so
-    // the nominal income 4 is halved to 2; at cap the credit is 0, overflow 2
+    // the nominal income 4 is halved to 2; the full 2 is banked (no cap).
+    // 30 + 4 plays × 1 Seed (Growth 4 → ceil(4/4) = 1) + 2 income = 36
     let s = newGame('fix2-epochend')
-    s.seeds = SEEDS_CAP
+    s.seeds = 30
     s = playOut(s)
-    expect(s.seeds).toBe(SEEDS_CAP)
+    expect(s.seeds).toBe(36)
     const line = s.log.find((l) => l.text.startsWith('Epoch end: +'))!
-    expect(line.text).toContain('(Credited 0; overflow 2)')
+    expect(line.text).toContain('Epoch end: +2 Seeds')
+    expect(line.text).not.toContain('overflow')
   })
 
-  it('epoch-end partial credit at a met target: 28 + 4 → +2 credited, overflow 2', () => {
-    // 24 + 1 Seed per weak play (Growth 4 → ceil(4/4) = 1) ×4 = 28 at epoch end
+  it('epoch-end income at a met target: 24 + 4 plays + 4 income → 32 (full income, no cap)', () => {
+    // 24 + 1 Seed per weak play (Growth 4 → ceil(4/4) = 1) ×4 = 28, then +4 income
     let s = newGame('fix2-epochend2')
     s.seeds = 24
     s.flourishing = 100 // target met → income not halved
     s = playOut(s)
-    expect(s.seeds).toBe(30)
+    expect(s.seeds).toBe(32)
     const line = s.log.find((l) => l.text.startsWith('Epoch end: +'))!
-    expect(line.text).toContain('(Credited 2; overflow 2)')
+    expect(line.text).toContain('Epoch end: +4 Seeds')
+    expect(line.text).not.toContain('overflow')
   })
 
-  it('the nominal figure stays in the summary; credited is carried alongside (buildPlan requires the balance)', () => {
-    const plan = buildPlan([C(10, 'H')], [0], [], 8)
+  it('buildPlan is balance-agnostic (no seeds param — the plan carries just the amount)', () => {
+    const plan = buildPlan([C(10, 'H')], [0], [])
     expect(plan.summary).toMatch(/Gains 3 Seeds/)
     const fx = seedsFx(plan)
     expect(fx.amount).toBe(3)
-    expect(fx.credited).toBe(3)
-    expect(fx.overflow).toBe(0)
+    expect(fx.credited).toBeUndefined()
+    expect(fx.overflow).toBeUndefined()
   })
 })
 

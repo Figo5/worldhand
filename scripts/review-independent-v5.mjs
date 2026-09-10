@@ -3,15 +3,15 @@
 // implementation worker's tests):
 //   A. Mycorrhiza decay: baseline exactly 1; Mycorrhiza exactly 0 (never a
 //      gain); dormant/zero-stability well-defined; income follows stability.
-//   B. seedCredit truth table + worked examples 8+16 / 24+16 / 30+16
-//      end-to-end (preview == commit == log == balance), partial credit,
-//      and the epoch-end income clause.
+//   B. uncapped Seed accumulation: every play banks the full nominal earn
+//      (no credited/overflow split), end-to-end (preview == commit == log ==
+//      balance), and the epoch-end income line.
 //   C. Final-epoch flow: exactly-once resolution, no market, no epoch 4,
 //      epochs 1–2 unchanged, legacy epoch-end state, reload inert.
-//   D. buildPlan default-balance contract (nominal-only plan) documented.
-import { newGame, applyAction, preview, buildPlan, seedCredit,
+//   D. buildPlan contract (no balance param — the plan is balance-agnostic).
+import { newGame, applyAction, preview, buildPlan,
   validateState, MARKET_ITEMS, EPOCH_TARGETS, STABILITY_BASE,
-  SEEDS_CAP, SURVIVAL_START, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
+  SURVIVAL_START, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
 
 const results = []
 const ok = (name, cond, note) => results.push({ name, pass: !!cond, note })
@@ -81,14 +81,10 @@ const TWOPAIR = [C(9, 'S'), C(9, 'H'), C(7, 'D'), C(7, 'C')]
     MYCO.desc.includes('1 less') && MYCO.desc.includes('0'), `"${MYCO.desc}"`)
 }
 
-// ---------------- B. truthful Seed credit ----------------
+// ---------------- B. uncapped Seed accumulation ----------------
 {
-  ok('B1 seedCredit table (8,16)/(24,16)/(30,16)/(8,0)/(29,3)',
-    JSON.stringify(seedCredit(8, 16)) === '{"credited":16,"overflow":0}'
-    && JSON.stringify(seedCredit(24, 16)) === '{"credited":6,"overflow":10}'
-    && JSON.stringify(seedCredit(30, 16)) === '{"credited":0,"overflow":16}'
-    && JSON.stringify(seedCredit(8, 0)) === '{"credited":0,"overflow":0}'
-    && JSON.stringify(seedCredit(29, 3)) === '{"credited":1,"overflow":2}')
+  ok('B1 every play banks the full nominal earn (no credited/overflow split)',
+    seedsFx(buildPlan([C(10, 'H')], [0], [])).amount === 3)
 
   const run = (seeds) => {
     let s = newGame(`v5-credit-${seeds}-zz`)
@@ -100,32 +96,31 @@ const TWOPAIR = [C(9, 'S'), C(9, 'H'), C(7, 'D'), C(7, 'C')]
     return { pv, committed, pvFx: seedsFx(pv), cFx: seedsFx(committed.lastResolution) }
   }
   const a = run(8)
-  ok('B2 balance 8 + nominal 16 -> credited 16, balance 24, no overflow clause',
-    a.pvFx.amount === 16 && a.pvFx.credited === 16 && a.pvFx.overflow === 0
-    && a.committed.seeds === 24 && !a.pv.summary.includes('overflow')
+  ok('B2 balance 8 + nominal 16 -> balance 24, no overflow clause',
+    a.pvFx.amount === 16 && a.committed.seeds === 24 && !a.pv.summary.includes('overflow')
     && a.pv.summary.includes('Gains 16 Seeds'))
   const b = run(24)
-  ok('B3 balance 24 + nominal 16 -> credited 6 overflow 10, balance 30, identical text everywhere',
-    b.pvFx.credited === 6 && b.pvFx.overflow === 10 && b.committed.seeds === 30
+  ok('B3 balance 24 + nominal 16 -> balance 40 (uncapped), identical text everywhere',
+    b.pvFx.amount === 16 && b.committed.seeds === 40
     && b.pv.summary === b.committed.lastResolution.summary
-    && b.pv.summary.includes('Gains 16 Seeds (Credited 6; overflow 10)')
-    && ((b.committed.log.at(-1) || {}).text || '').includes('(Credited 6; overflow 10)'))
+    && b.pv.summary.includes('Gains 16 Seeds')
+    && !b.pv.summary.includes('overflow'))
   const c = run(30)
-  ok('B4 balance 30 + positive -> credited 0 overflow 16, balance stays 30',
-    c.pvFx.credited === 0 && c.pvFx.overflow === 16 && c.committed.seeds === 30
-    && c.pv.summary.includes('(Credited 0; overflow 16)'))
+  ok('B4 balance 30 + nominal 16 -> balance 46 (uncapped, no credited/overflow)',
+    c.pvFx.amount === 16 && c.committed.seeds === 46
+    && !c.pv.summary.includes('overflow'))
 
   const d = run(29)
-  ok('B5 balance 29 + nominal 16 -> credited 1 overflow 15, balance 30',
-    d.pvFx.credited === 1 && d.pvFx.overflow === 15 && d.committed.seeds === 30)
+  ok('B5 balance 29 + nominal 16 -> balance 45 (uncapped)',
+    d.pvFx.amount === 16 && d.committed.seeds === 45)
 
-  let e = newGame('v5-epochend-cap')
-  e.seeds = SEEDS_CAP
+  let e = newGame('v5-epochend-uncapped')
+  e.seeds = 30
   e.flourishing = 100
   e = playOut(e)
   const el = (e.log.find((l) => l.text.startsWith('Epoch end: +')) || {}).text || ''
-  ok('B6 epoch-end income at cap: credited 0, overflow = nominal, balance unchanged',
-    e.seeds === 30 && el.includes('(Credited 0; overflow 4)'), `"${el}"`)
+  ok('B6 epoch-end income is banked in full (no cap, no overflow clause)',
+    e.seeds === 30 + 4 + 4 && el.includes('Epoch end: +4 Seeds') && !el.includes('overflow'), `"${el}" seeds=${e.seeds}`)
 }
 
 // ---------------- C. final-epoch flow ----------------
@@ -189,16 +184,12 @@ const TWOPAIR = [C(9, 'S'), C(9, 'H'), C(7, 'D'), C(7, 'C')]
     `valid=${valid} seeds=${j.seeds} lives=${j.lives} f=${j.flourishing}`)
 }
 
-// ---------------- D. buildPlan default-balance contract ----------------
+// ---------------- D. buildPlan contract (no balance param) ----------------
 {
   const p = buildPlan([C(10, 'H')], [0], [])
   const fx = seedsFx(p)
-  ok('D1 buildPlan without balance: nominal-only plan (amount=3, credited=3, overflow=0)',
-    fx.amount === 3 && fx.credited === 3 && fx.overflow === 0)
-  const p8 = buildPlan([C(10, 'H')], [0], [], 8)
-  ok('D2 buildPlan with balance 8: credited 3 overflow 0', seedsFx(p8).credited === 3)
-  const p29 = buildPlan([C(10, 'H')], [0], [], 29)
-  ok('D3 buildPlan with balance 29: credited 1 overflow 2', seedsFx(p29).credited === 1 && seedsFx(p29).overflow === 2)
+  ok('D1 buildPlan: balance-agnostic plan (amount=3, no credited/overflow)',
+    fx.amount === 3 && fx.credited === undefined && fx.overflow === undefined)
 }
 
 const failed = results.filter((r) => !r.pass)

@@ -31,7 +31,7 @@ Every play earns Seeds instantly — no Mine action:
 seedsGained = ceil(Growth × SEEDS_PER_GROWTH)   with SEEDS_PER_GROWTH = 1/4
 ```
 
-i.e. **1 Seed per 4 Growth** (a 15-Growth hand nominally pays 4 Seeds). What the UI states is **truthful under the cap**: the plan carries the **nominal** earn, the **credited** amount (what actually fits under the 30-Seeds cap) and the **overflow** (what the cap refused) — one shared contract (`seedCredit`) feeds the preview, the committed summary and the chronicle, so all three agree; e.g. at a balance of 24 a 16-Seed earn shows `Gains 16 Seeds (Credited 6; overflow 10)`. When nothing overflows the message stays the simple `Gains N Seeds`. Epoch end also pays +1 Seed per living healthy region (stability > 0) plus law income (`extraSeedsPerEpoch`), halved on a missed epoch target, and is credited under the same contract with the same truthful clause.
+i.e. **1 Seed per 4 Growth** (a 15-Growth hand nominally pays 4 Seeds). Seeds **accumulate without ceiling** — every play banks the full nominal earn, so the preview, the committed summary, and the chronicle all read the same single `amount` (no credited/overflow split). Epoch end also pays +1 Seed per living healthy region (stability > 0) plus law income (`extraSeedsPerEpoch`), halved on a missed epoch target, and is banked in full.
 
 ## Lives, epochs, winning
 

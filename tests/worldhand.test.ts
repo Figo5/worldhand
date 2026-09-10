@@ -4,7 +4,7 @@ import {
   applyPlanEffects, EPOCH_TARGETS, SEEDS_PER_GROWTH, LAW_SLOTS,
   SURVIVAL_START, MARKET_ITEMS,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, HAND_SIZE, TOTAL_EPOCHS, TOTAL_REGIONS,
-  STABILITY_BASE, STABILITY_MAX, SEEDS_CAP, START_REGIONS,
+  STABILITY_BASE, STABILITY_MAX, START_REGIONS,
 } from '../src/engine/worldhand'
 import { CATEGORY_MULT } from '../src/engine/poker'
 import type { GameState } from '../src/engine/worldhand'
@@ -141,7 +141,7 @@ describe('selection 1–5 and ResolutionPlan', () => {
     expect(s2.lastResolution!.effects).toEqual(pv.effects)
     for (const e of pv.effects) {
       if (e.kind === 'flourishing') expect(s2.flourishing).toBe(before.f + e.amount)
-      if (e.kind === 'seeds') expect(s2.seeds).toBe(Math.min(SEEDS_CAP, before.seeds + e.amount))
+      if (e.kind === 'seeds') expect(s2.seeds).toBe(before.seeds + e.amount)
     }
   })
   it('buildPlan rejects empty selection with a reason', () => {
@@ -165,7 +165,7 @@ describe('auto-Seeds economy (no Mine action)', () => {
     const big = buildPlan([C(14, 'H')], [0], [])
     expect(big.effects.find((e) => e.kind === 'seeds')).toMatchObject({ amount: 4 }) // ceil(14/4)
   })
-  it('auto-Seeds are applied on commit and capped at SEEDS_CAP (never negative)', () => {
+  it('auto-Seeds are applied on commit and accumulate without ceiling (never negative)', () => {
     let s = newGame('autoseeds-apply')
     s.seeds = 0
     s = forceHand(s, [C(10, 'H')])
@@ -174,14 +174,14 @@ describe('auto-Seeds economy (no Mine action)', () => {
     const committed = applyAction(s, { type: 'play' })
     const gain = pv.effects.find((e) => e.kind === 'seeds')!.amount
     expect(gain).toBe(3) // ceil(10 Growth / 4)
-    expect(committed.seeds).toBe(Math.min(SEEDS_CAP, gain))
-    // cap: at 30 the play cannot push past it
-    let c = newGame('autoseeds-cap')
-    c.seeds = SEEDS_CAP
+    expect(committed.seeds).toBe(gain)
+    // uncapped: at 30 the play still banks the full earn
+    let c = newGame('autoseeds-uncapped')
+    c.seeds = 30
     c = forceHand(c, [C(14, 'D')])
     c = applyAction(c, { type: 'toggleCard', cardIdx: 0 })
     c = applyAction(c, { type: 'play' })
-    expect(c.seeds).toBe(SEEDS_CAP)
+    expect(c.seeds).toBe(34) // 30 + ceil(14/4) = 30 + 4
   })
   it('epoch-end income still exists (living healthy regions + laws), halved on a missed target', () => {
     let s = newGame('income')
@@ -648,14 +648,6 @@ describe('market: Seeds, laws, upgrades, expansions, card additions', () => {
 })
 
 describe('capped world stats', () => {
-  it('seeds cap at 30 (auto-Seeds and income both capped)', () => {
-    let s = newGame('cap2')
-    s.seeds = SEEDS_CAP
-    s = forceHand(s, [C(14, 'D')])
-    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
-    s = applyAction(s, { type: 'play' })
-    expect(s.seeds).toBe(SEEDS_CAP)
-  })
   it('stability caps at 10 via applyPlanEffects (engine-level cap retained)', () => {
     const s = newGame('cap')
     s.regions[0].stability = 10

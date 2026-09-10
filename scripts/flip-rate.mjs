@@ -40,7 +40,7 @@ function argmaxSelection(state, regions) {
     if (sel.length > 5) continue
     let plan
     try {
-      plan = buildPlan(hand, sel, state.laws, state.seeds, regions)
+      plan = buildPlan(hand, sel, state.laws, regions)
     } catch {
       continue
     }
