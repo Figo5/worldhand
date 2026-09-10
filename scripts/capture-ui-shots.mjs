@@ -1,5 +1,6 @@
-// Capture fresh card-first UI screenshots (wide + narrow) showing the
-// card hand + the big Growth number + the 3D planet. Acceptance evidence only.
+// Capture fresh Celestial Card Table UI screenshots (wide + narrow) showing the
+// one-row hand + resolution preview + Growth hero + framed 3D planet.
+// Acceptance evidence only.
 import { chromium } from 'playwright'
 import { mkdirSync } from 'fs'
 
@@ -20,13 +21,16 @@ async function shot(width, height, tag) {
   await page.click('text=Begin New World')
   await page.waitForSelector('canvas.planet3d-canvas')
   await page.waitForSelector('.hand-cards .pcard-btn')
-  // select two cards so the hero Growth number + breakdown is live
+  // select two cards so the resolution preview + hero Growth number is live
   await page.locator('.hand-cards .pcard-btn').nth(0).click()
   await page.locator('.hand-cards .pcard-btn').nth(1).click()
+  await page.waitForSelector('[data-testid="preview"]')
   await page.waitForSelector('[data-testid="growth-hero"]')
   await page.waitForTimeout(1500) // let the globe settle a few frames
   const growth = await page.locator('[data-testid="growth-hero"]').innerText()
   if (!/Growth/.test(growth) || !/\d/.test(growth)) throw new Error(`growth hero not numeric: ${growth}`)
+  const pv = await page.locator('[data-testid="preview"]').innerText()
+  if (!/Resolution preview/.test(pv)) throw new Error(`preview missing: ${pv.slice(0, 60)}`)
   await page.screenshot({ path: `${OUT}/ui-${tag}-growth.png`, fullPage: false })
   await page.screenshot({ path: `${OUT}/ui-${tag}-growth-full.png`, fullPage: true })
   console.log(`shot ${tag}: growth-hero = ${growth.replace(/\n/g, ' | ')}`)

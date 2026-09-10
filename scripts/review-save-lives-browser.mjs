@@ -101,7 +101,9 @@ await page.click('[data-testid="play-btn"]')
 await page.waitForTimeout(150)
 const before = await page.evaluate(() => localStorage.getItem('worldhand.save'))
 ok('autosave wrote a save after a play', !!before)
-await page.click('button:has-text("Quit")')
+await page.click('[data-testid="menu-btn"]')
+await page.waitForSelector('[data-testid="menu-pop"]')
+await page.click('[data-testid="menu-pop"] button:has-text("Quit to menu")')
 await page.waitForSelector('.intro')
 const afterQuit = await page.evaluate(() => localStorage.getItem('worldhand.save'))
 ok('Quit preserves the save byte-for-byte', afterQuit === before)
@@ -109,13 +111,15 @@ ok('Quit preserves the save byte-for-byte', afterQuit === before)
 await page.reload()
 await page.waitForLoadState('networkidle')
 const resumed = await page.locator('.shell:not(.intro)').count()
-const hud = resumed ? await page.locator('.hud').innerText() : ''
+const hud = resumed ? await page.locator('[data-testid="run-rail"]').innerText() : ''
 ok('reload resumes the saved run (auto-load)', resumed === 1 && /Plays/.test(hud))
 
 // destructive reset (Clear Save) — is it guarded by a confirmation?
 // (the app uses a two-step in-UI Confirm/Cancel gate, not window.confirm).
 // The gate lives on the intro screen: quit back to the menu first.
-await page.click('button:has-text("Quit")')
+await page.click('[data-testid="menu-btn"]')
+await page.waitForSelector('[data-testid="menu-pop"]')
+await page.click('[data-testid="menu-pop"] button:has-text("Quit to menu")')
 await page.waitForSelector('.intro')
 const clearBtn = page.locator('.intro button:has-text("Clear Save")')
 const clearCount = await clearBtn.count()

@@ -40,7 +40,9 @@ const s2 = await snap()
 if (!/Discarded/.test(s2.logTop)) throw new Error('discard not auto-saved: ' + JSON.stringify(s2))
 
 // quit WITHOUT pressing Save — save must remain at the post-discard state
-await page.click('button:has-text("Quit")')
+await page.click('[data-testid="menu-btn"]')
+await page.waitForSelector('[data-testid="menu-pop"]')
+await page.click('[data-testid="menu-pop"] button:has-text("Quit to menu")')
 await page.waitForSelector('.intro')
 const s3 = await page.evaluate(() => localStorage.getItem('worldhand.save') && JSON.parse(localStorage.getItem('worldhand.save')).state.log.slice(-1)[0].text)
 if (!/Discarded/.test(s3)) throw new Error('quit lost the auto-saved state: ' + s3)
@@ -48,7 +50,7 @@ if (!/Discarded/.test(s3)) throw new Error('quit lost the auto-saved state: ' + 
 // reload restores exactly where we left off
 await page.click('text=Load Saved World')
 await page.waitForSelector('.hand-cards .pcard-btn')
-const plays = await page.locator('.hud-item:has-text("Plays")').innerText()
+const plays = (await page.locator('[data-testid="run-rail"]').innerText()).replace(/\n/g, ' ')
 if (!/3\/4/.test(plays)) throw new Error('reload lost progress: ' + plays)
 
 console.log('AUTOSAVE CHECKS PASSED — post-start, post-play, post-discard saves + quit/reload preserve them; errors:', errors.length === 0 ? '[]' : errors)

@@ -29,7 +29,7 @@ async function runViewport(width, height, tag) {
   const counts = await page.evaluate(() => ({
     regions: document.querySelectorAll('.region-btn').length,
     cards: document.querySelectorAll('.pcard-btn').length,
-    hud: document.querySelector('.hud')?.innerText.replace(/\n/g, ' | '),
+    hud: document.querySelector('[data-testid="run-rail"]')?.innerText.replace(/\n/g, ' | '),
     overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
   }))
   rec(`[${tag}] counts`, counts)
@@ -44,8 +44,8 @@ async function runViewport(width, height, tag) {
   rec(`[${tag}] preview`, previewText.replace(/\n/g, ' | '))
   await page.locator('[data-testid="play-btn"]').click()
   await page.waitForTimeout(150)
-  // save via button (no auto-save) then read log from save
-  await page.click('button:has-text("Save")'); await page.waitForTimeout(100)
+  // autosave already persisted; read log from save
+  await page.waitForTimeout(100)
   const logTop = await page.evaluate(() => JSON.parse(localStorage.getItem('worldhand.save') ?? 'null')?.state.log.slice(-1)[0]?.text)
   const pvAmt = previewText.match(/Banks (\d+) Growth/)?.[1]
   rec(`[${tag}] preview-equals-commit`, logTop ? logTop.includes(`Banks ${pvAmt} Growth`) : false, { pvAmt, logTop })
@@ -58,7 +58,7 @@ async function runViewport(width, height, tag) {
   await dBtn.click()
   await page.waitForTimeout(150)
   const dAfter = await dBtn.innerText()
-  await page.click('button:has-text("Save")'); await page.waitForTimeout(100)
+  await page.waitForTimeout(100)
   const handAfter = await page.evaluate(() => JSON.parse(localStorage.getItem('worldhand.save') ?? 'null')?.state.hand.length)
   rec(`[${tag}] discard`, { before: dBefore, after: dAfter, handAfter })
 
@@ -70,10 +70,11 @@ async function runViewport(width, height, tag) {
   rec(`[${tag}] map-selection`, detail.replace(/\n/g, ' | '))
   await page.screenshot({ path: `${OUT}/${tag}-03-map.png`, fullPage: true })
 
-  // quit preserves save
-  await page.click('button:has-text("Save")'); await page.waitForTimeout(100)
+  // quit preserves save (autosave checkpoint already ran)
   const saveBytes = await page.evaluate(() => localStorage.getItem('worldhand.save')?.length ?? 0)
-  await page.click('button:has-text("Quit")')
+  await page.click('[data-testid="menu-btn"]')
+  await page.waitForSelector('[data-testid="menu-pop"]')
+  await page.click('[data-testid="menu-pop"] button:has-text("Quit to menu")')
   await page.waitForTimeout(150)
   const afterQuit = await page.evaluate(() => ({ menu: !!document.querySelector('#seed'), saveBytes: localStorage.getItem('worldhand.save')?.length ?? 0 }))
   rec(`[${tag}] quit-preserves-save`, { saveBytes, afterQuit })
@@ -82,7 +83,7 @@ async function runViewport(width, height, tag) {
   // reload + auto-load
   await page.reload({ waitUntil: 'networkidle' })
   await page.waitForTimeout(400)
-  const hudAfterReload = await page.locator('.hud').innerText().catch(() => 'MENU_NO_AUTOLOAD')
+  const hudAfterReload = await page.locator('[data-testid="run-rail"]').innerText().catch(() => 'MENU_NO_AUTOLOAD')
   rec(`[${tag}] reload-auto-load`, hudAfterReload.replace(/\n/g, ' | '))
   await page.screenshot({ path: `${OUT}/${tag}-05-after-reload.png`, fullPage: true })
 

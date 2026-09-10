@@ -59,7 +59,7 @@ console.log('=== reached phase:', phase, '===')
 // In the market, inspect what's offered
 const marketText = await page.locator('.market').innerText()
 console.log('=== MARKET SECTIONS PRESENT ===')
-for (const s of ['Jokers', 'Planet cards', 'Consumables', 'Vouchers', 'World Level', 'World Projects']) {
+for (const s of ['Jokers', 'Planets', 'Consumables', 'Vouchers', 'World Level', 'World Projects']) {
   console.log(s + ':', marketText.includes(s))
 }
 
@@ -113,7 +113,7 @@ if (await boostBtn.count()) {
 }
 
 // HUD after purchases
-const hud = await page.locator('.hud').innerText()
+const hud = await page.locator('[data-testid="run-rail"]').innerText()
 console.log('=== HUD AFTER PURCHASES ===')
 console.log(hud.replace(/\n/g, ' | '))
 
@@ -125,11 +125,11 @@ await page.waitForTimeout(150)
 // reload and check the state persisted
 await page.reload({ waitUntil: 'networkidle' })
 await page.waitForTimeout(300)
-const hudAfterReload = await page.locator('.hud').innerText()
+const hudAfterReload = await page.locator('[data-testid="run-rail"]').innerText()
 console.log('=== HUD AFTER RELOAD ===')
 console.log(hudAfterReload.replace(/\n/g, ' | '))
 console.log('=== RELOAD PRESERVES STATE? ===')
-console.log('world level visible:', /World Level/.test(hudAfterReload))
+console.log('world level visible:', /World Lv\b/.test(hudAfterReload))
 console.log('world score visible:', /World Score/.test(hudAfterReload))
 
 console.log('=== PAGE ERRORS ===')

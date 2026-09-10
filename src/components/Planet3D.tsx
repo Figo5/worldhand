@@ -562,6 +562,9 @@ export default function Planet3D({ regions, focus, onFocus, previewSpec, matchin
       raf = requestAnimationFrame(tick)
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
+      // Hidden tab: skip the evolve/render work entirely (rAF is throttled by
+      // the browser anyway; this avoids accumulating dt and burning battery).
+      if (document.visibilityState === 'hidden') return
       t += dt
       evolve(dt)
       if (!reducedRef.current) world.rotation.y += dt * 0.12 // slow living drift

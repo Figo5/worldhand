@@ -19,7 +19,7 @@ console.log('preview:', preview.replace(/\n/g, ' | '))
 console.log('extracted-amount:', amt)
 await p.locator('[data-testid="play-btn"]').click()
 await p.waitForTimeout(150)
-await p.click('button:has-text("Save")'); await p.waitForTimeout(100)
+await p.waitForTimeout(100) // autosave checkpoint
 const logTop = await p.evaluate(() => JSON.parse(localStorage.getItem('worldhand.save')).state.log.slice(-1)[0].text)
 console.log('commit-log:', logTop)
 console.log('MATCH:', amt ? logTop.includes(`Banks ${amt} Growth`) : false)
