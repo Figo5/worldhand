@@ -1,0 +1,388 @@
+diff --git a/PLAYTEST_HANDOFF.md b/PLAYTEST_HANDOFF.md
+index dc4a03f..47e11be 100644
+--- a/PLAYTEST_HANDOFF.md
++++ b/PLAYTEST_HANDOFF.md
+@@ -166,6 +166,7 @@ One complete run, seed `regional-ordinary-1`, driven through the real UI (`scrip
+ ### Remaining difficulty and shop limitations (recorded, NOT tuned)
+ 
+ - The naive highest-Growth play policy still wins comfortably (F1225 vs 360) — the regional bonus adds decision texture, not difficulty. No tuning was applied and none is planned in this pass.
+-- The solver's documented buy priority still skips expansions (Wake Pellucid/Vantage pay no direct Growth in that heuristic), so the bounded policy mostly plays with Auralia only; the two dormant specializations are a HUMAN purchase path (each is a genuine 12-Seed alternative at the shop).
++- ~~The solver's documented buy priority still skips expansions~~ **CORRECTED (v4.1)**: the stale "expansions pay nothing" comment was wrong since 785556a (wake-pellucid pays +4 on exact Two Pair plays, wake-vantage +6 on exact Flush plays). The solver now buys those wakes when affordable and the corresponding category is IN or NEAR the current hand (documented rule in scripts/solve.mjs). Re-measured bounded solver on eval-*: **18/30 (60%)** with the non-match penalty + wake purchases (vs 20/30 = 67% pre-penalty with wakes skipped — the penalty makes non-matching hands cost more, and the bounded policy nets −2 wins on this seed set; exhaustive stays 30/30 oracle-class).
++- **Non-Match Penalty flip-rate (permanent metric `scripts/flip-rate.mjs`, eval-0..29 × 12 plays = 360 plays/condition):** as-shipped **3.9% (14/360) → 6.9% (25/360)** — the world now changes 6.9% of argmax selections (up from 4.0%/3.9%, above the 4% prediction bar); all-three-awake **1.4% (5/360) → 1.9% (7/360)** — above its own pre-penalty rate but still BELOW the as-shipped rate (1.9% < 6.9%), so the pre-declared monotonicity prediction (all-three ≥ as-shipped) is **NOT met**; the shape shipped exactly as declared with no post-measurement iteration.
+ - A specialized region's bonus scales only with development (+1 per 2 epochs, cap +4); there is no way to target a specific region's development (deliberately — no region targeting was added).
+ - The dormant-specialization note only fires while a matching hand is previewed; it does not re-explain the system outside the select phase (the legend/inspector do).
+diff --git a/RULES.md b/RULES.md
+index b73c599..6b494e3 100644
+--- a/RULES.md
++++ b/RULES.md
+@@ -54,7 +54,17 @@ PAIR_BASE = 3 · TWOPAIR_BASE = 4 · FLUSH_BASE = 6 · DEV_STEP = 2 · DEV_BONUS
+ 
+ A **Pair** region with development 4 therefore grants 3 + 2 = **5**. The development share caps at **+4** (floor(10/2) = 5 → min(4, 5) = 4), so a maxed Pair region pays 7, a maxed Two-Pair region 8, a maxed Flush region 10. **Dormant specialized regions contribute exactly 0.**
+ 
+-**Stacking & order**: bonuses stack **additively** across all awake regions whose specialization matches the played category (two awake Pair regions add; never a multiplicative chain). The regional total is applied **once**, AFTER the existing law-adjusted Growth — the law multiplier never re-multiplies the regional bonus: `Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)`. A hand earning a regional bonus also earns its Seeds off the full number (`ceil(Growth / 4)` nominal, credited truthfully under the 30-Seed cap).
++**NON-MATCH PENALTY (the contrastive shape, v4.1)** — declared BEFORE the flip-rate was measured; the constants are pinned by tests (`NON_MATCH_PENALTY = 3`, the smallest base):
++
++```
++NON_MATCH_PENALTY = 3
++```
++
++A hand whose exact category **matches an awake specialized region** still receives that region's bonus (formula unchanged above). A hand that **matches NO awake specialized region** — including high card, trips, quads, straights and every other category no awake region carries — now **incurs −3 Growth**, applied **once, additively, after the law arithmetic** (never re-multiplied; Growth stays floored at 0, so a tiny hand can never go negative). **Dormant specialized regions contribute nothing and never trigger the penalty**; with no specialized region awake at all the game reverts to the plain poker+laws score. The preview shows the penalty as `-3 regions (no awake specialization matches)` in the growth breakdown and summary.
++
++**Pre-declared hypothesis (recorded verbatim, tested by the flip-rate below)**: *"the 4.0%->0.8% anti-scale happens because flat additive bonuses are all-positive, so waking more specializations raises every play's floor and reverts ranking to raw poker. A contrastive rule makes awakening strictly monotonic: a hand whose exact category MATCHES an awake specialized region still receives that region's bonus (base + min(DEV_BONUS_CAP, floor(dev/DEV_STEP)) unchanged), but a hand that matches NO awake specialized region now incurs a small penalty."* Prediction: the as-shipped flip rate rises above 4% AND the all-three-awake flip rate is NOT below the as-shipped rate.
++
++**Stacking & order**: bonuses stack **additively** across all awake regions whose specialization matches the played category (two awake Pair regions add; never a multiplicative chain). The regional total (bonus or −penalty) is applied **once**, AFTER the existing law-adjusted Growth — the law multiplier never re-multiplies the regional part: `Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)`. A hand earning a regional bonus also earns its Seeds off the full number (`ceil(Growth / 4)` nominal, credited truthfully under the 30-Seed cap).
+ 
+ **How the two dormant specializations become obtainable**: the existing wake-* expansions — **Wake Pellucid (12 Seeds)** and **Wake Vantage (12 Seeds)**, matching the existing Wake Laguna / Wake Brumal 12-Seed convention — awaken their advertised region and activate its bonus; the market offers state which poker category benefits, the current bonus, and how development scales it. No new interface, no new economy.
+ 
+@@ -122,7 +132,7 @@ The solver was corrected in this pass (the old `score()` still carried drought/s
+ - **Candidates span 1–5 cards across poker categories**: all 1–2-card selections PLUS deliberate category candidates — pairs/trips/quads groups, two-pairs, full houses, flushes (best + lowest 5-card same-suit subsets), straights (incl. ace-low wheels, suit-preferred for straight-flush attempts), and generic best-rank 3/4/5-card fillers. `LOOK` caps how many are considered per play; unset = exhaustive.
+ - **Scores only current mechanics**: Growth banked toward the epoch target (chips×mult + laws, with a reachability penalty once the target is out of reach), Seeds gained (discounted near the cap), and lives (a lost life is heavily penalized). No drought/stability terms exist.
+ - **Discards sensibly**: when every candidate scores weak, it dumps the cards the best play did not want (≤5), refills, and keeps the discard only if the post-refill best play clearly beats the pre-discard one.
+-- **Buys in a documented priority order**: canopy-choir (+3 flat on every play, cheapest Growth/Seed) → seed-vaults (+3 Seeds/epoch) → barter-routes (−2 all purchases) → open-canals (×1.2 every play) → stone-masonry (+6 flat) → fourth-counsel (9-card hands). Expansions, Mycorrhiza, and Fifth Counsel are skipped: none pay toward the Growth targets.
++- **Buys in a documented priority order**: canopy-choir (+3 flat on every play, cheapest Growth/Seed) → seed-vaults (+3 Seeds/epoch) → barter-routes (−2 all purchases) → open-canals (×1.2 every play) → stone-masonry (+6 flat) → fourth-counsel (9-card hands). **The poker-specialization wakes are purchasable** (corrected this pass — the old "expansions pay nothing" comment was stale since 785556a): **wake-pellucid / wake-vantage** are bought when affordable whenever the corresponding category is IN or NEAR the current hand (two pair: two doubled ranks, or one doubled rank in a 5+ hand; flush: 3+ of a suit) — their awake regions pay +4/+6 Growth on exact Two Pair / Flush plays toward the targets. The non-specialized wakes (wake-laguna / wake-brumal), Mycorrhiza, and Fifth Counsel are still skipped: they pay no Growth.
+ - **Calibration and evaluation seeds are disjoint**: `--set calib` runs the `probe-0..29` set (used only for target sweeps); `--set eval` runs the `eval-0..29` set (the reported result); no flags run both. Output is labeled **bounded solver result** everywhere.
+ 
+ The shipped [45, 110, 360] measures on the eval-* set (calibration set in parentheses):
+@@ -135,6 +145,19 @@ The shipped [45, 110, 360] measures on the eval-* set (calibration set in parent
+ 
+ **Post-v4 re-measure (regional bonus shipped; policy and targets untouched)**: LOOK=30 now measures **20/30 (67%) eval / 21/30 (70%) calib**, exhaustive still 30/30. The always-awake Auralia Pair specialization adds a small flat bonus to pair plays, which the bounded policy's pair-heavy candidates convert into wins; the formula was NOT retuned after shipping (constants stayed at the declared PAIR_BASE=3 / TWOPAIR_BASE=4 / FLUSH_BASE=6 / DEV_STEP=2 / DEV_BONUS_CAP=4), targets stayed [45,110,360], and the solver's buy policy was not touched. Reported as measured — not band-forced.
+ 
++**Post-non-match-penalty re-measure (v4.1; targets untouched, solver wakes now purchasable)**: with the Non-Match Penalty shipped AND the solver's corrected wake-buying policy, LOOK=30 on the eval-* set measures **18/30 (60%)** (final F min 311 / median 369 / max 414) — **down 2 wins from the 20/30 (67%) pre-penalty baseline**. Reported as measured: the contrastive shape makes the world stricter on non-matching hands, and the bounded policy (which cannot plan its hand shapes as well as the exhaustive oracle) nets out slightly weaker on this seed set. No target was retuned and the formula was not iterated after measurement.
++
++## Flip-rate (the "world affects poker choices" acceptance metric)
++
++`scripts/flip-rate.mjs` (run: `npx vite-node scripts/flip-rate.mjs`) is the permanent counterfactual metric: at every play it picks the argmax selection with specializations ON, re-picks on a clone with EVERY region's specialization nulled, and records whether the chosen selection changed. It measures BOTH conditions over the SAME disjoint eval-* seed set (eval-0..29, 12 plays each = 360 plays per condition — the documented ≥30-seed ≥300-play bar). This is not a human win-rate; it measures how often the regional layer decides a selection.
++
++| Condition | BEFORE (flat additive) | AFTER (non-match penalty) |
++|---|---|---|
++| (a) as-shipped (Pair awake) | 14/360 = **3.9%** (19/480 = 4.0% on the coordinator's independent 40-seed/480-play measurement) | 25/360 = **6.9%** |
++| (b) all three awake | 5/360 = **1.4%** (4/480 = 0.8% independent) | 7/360 = **1.9%** |
++
++**Read honestly**: the as-shipped flip rate ROSE from 3.9% to 6.9% (above the 4% prediction bar). The all-three-awake rate rose from 1.4% to 1.9% and stayed ABOVE the pre-penalty number — but it is still BELOW the as-shipped rate (1.9% < 6.9%), so the pre-declared monotonicity prediction (all-three-awake ≥ as-shipped) is **NOT met on this measurement**: awakening all three specializations still makes the world matter LESS than the shipped pair-only planet, by this metric. The shape is reported as implemented, once, without iteration.
++
+ **Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The **[45,110,360] targets are the authorized ladder** from the preceding cycle, restored per the goal (this cycle was for correctness fixes, not another balance redesign). The corrected policy measures a high bounded win rate against them — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
+ 
+ ## Determinism
+diff --git a/scripts/solve.mjs b/scripts/solve.mjs
+index 67f8dca..87e9693 100644
+--- a/scripts/solve.mjs
++++ b/scripts/solve.mjs
+@@ -32,8 +32,17 @@
+ //     4. open-canals    — ×1.2 Growth every play: strongest late multiplier.
+ //     5. stone-masonry  — +6 flat every play: bought when Seeds allow.
+ //     6. fourth-counsel — 9-card hands find more/better poker shapes.
+-//   Expansions (wake-*) are skipped: they cost Seeds and only pay via Seed
+-//   income headcount, never toward the Growth targets the solver must hit.
++//     7. wake-pellucid / wake-vantage — the poker specializations DO pay toward
++//        the Growth targets (since 785556a): an awake Pellucid adds +4 Growth
++//        to EXACT Two Pair plays (+1 per 2 development, cap +4) and Vantage
++//        +6 to EXACT Flush plays, while the non-match penalty (−3) makes every
++//        non-matching play slightly cheaper to avoid. WAKE RULE (documented):
++//        a wake-* specialization is bought when affordable (after the priority
++//        list above) whenever its region is still dormant AND its category is
++//        IN or NEAR the current hand (a pair/two-pair/flush shape is already
++//        held or is ≤2 cards of the needed shape) — otherwise the Seeds are
++//        kept. wake-laguna / wake-brumal remain skipped: no specialization, so
++//        they pay no Growth and only add Seed-income headcount.
+ //   mycorrhiza / fifth-counsel are skipped (cosmetic decay relief / hand 10 is
+ //   not worth the Seeds under the Growth targets).
+ //
+@@ -288,8 +297,12 @@ function playSeed(seedText) {
+       s = b.next
+     } else if (s.phase === 'market') {
+       // documented purchase policy (see header): priority order below, bought
+-      // greedily while affordable; expansions and mycorrhiza are skipped
+-      // because they pay nothing toward the Growth targets.
++      // greedily while affordable. The poker-specialization wakes (wake-
++      // pellucid / wake-vantage) ARE purchasable by the category-in-hand rule:
++      // their regions pay +4/+6 Growth on exact Two Pair / Flush plays toward
++      // the Growth targets (since 785556a), so "expansions pay nothing" is
++      // STALE — only the non-specialized wakes (wake-laguna/brumal) stay
++      // skipped, and mycorrhiza/fifth-counsel stay skipped as before.
+       let bought = true
+       while (bought) {
+         bought = false
+@@ -299,6 +312,37 @@ function playSeed(seedText) {
+           if (!item) continue
+           try { s = applyAction(s, { type: 'buy', itemId: id }); bought = true; break } catch {}
+         }
++        if (bought) continue
++        // specialization wakes: buy when affordable AND the corresponding
++        // category is IN or NEAR the current hand (2 cards of the shape away
++        // or less, at any point in the run). Pellucid pays Two Pair (+4),
++        // Vantage pays Flush (+6) — both exceed the wake's Seed cost over the
++        // remaining plays when their category shows up even a few times.
++        for (const [id, specKind] of [['wake-pellucid', 'twopair'], ['wake-vantage', 'flush']]) {
++          const item = s.market.find((m) => m.id === id)
++          if (!item) continue
++          const r = s.regions.find((x) => x.id === item.wakeRegionId)
++          if (!r || !r.dormant) continue // already awake — nothing to buy
++          const cost = 12 - s.laws.reduce((n, l) => n + (l.marketDiscount ?? 0), 0)
++          if (s.seeds < Math.max(1, cost)) continue
++          const hand = s.hand
++          const suitGroups = new Map()
++          for (const c of hand) suitGroups.set(c.s, (suitGroups.get(c.s) ?? 0) + 1)
++          const rankGroups = new Map()
++          for (const c of hand) rankGroups.set(c.r, (rankGroups.get(c.r) ?? 0) + 1)
++          let near = false
++          if (specKind === 'twopair') {
++            // two pair IN hand (two ranks doubled) or NEAR (one doubled rank + any 2 cards to come)
++            let doubled = 0
++            for (const n of rankGroups.values()) if (n >= 2) doubled++
++            near = doubled >= 2 || (doubled >= 1 && hand.length >= 5)
++          } else {
++            // flush IN hand (4+ same suit) or NEAR (3 same suit + draws to come)
++            for (const n of suitGroups.values()) if (n >= 3) near = true
++          }
++          if (!near) continue
++          try { s = applyAction(s, { type: 'buy', itemId: id }); bought = true; break } catch {}
++        }
+       }
+       s = applyAction(s, { type: 'endMarket' })
+     } else if (s.phase === 'epoch-end') {
+diff --git a/src/engine/worldhand.ts b/src/engine/worldhand.ts
+index 716dda3..2c0b231 100644
+--- a/src/engine/worldhand.ts
++++ b/src/engine/worldhand.ts
+@@ -10,7 +10,11 @@
+ // - HERO SCORE — every play resolves to ONE number, **Growth**:
+ //       1. poker base = rankSum ("chips") × CATEGORY_MULT[category]
+ //       2. World Laws = owned flat bonus laws (growBonus)
+-//     Growth = max(0, pokerBase + lawBonus). No region/drought modifiers.
++//       3. Regions = the NON-MATCH PENALTY shape: an awake specialized region
++//          pays its bonus on the hand's EXACT category; a hand matching NO
++//          awake specialized region pays −NON_MATCH_PENALTY (dormant regions
++//          neither pay nor trigger).
++//     Growth = max(0, pokerBase + lawBonus + regionsPart). No drought.
+ //   Flourishing (the single epoch target) is the cumulative sum of Growth.
+ // - Survival is exactly Balatro-style lives: start 3; EVERY missed epoch
+ //   target (all three epochs) costs 1 life; 0 → game over (withered).
+@@ -172,6 +176,23 @@ const SPECIALIZATION_MAP: Record<number, Specialization | null> = {
+ /** Which specialized regions begin the run dormant (everything but Auralia). */
+ export const SPECIALIZATION_START_DORMANT = [6, 11]
+ 
++/** NON-MATCH PENALTY (the contrastive regional shape, declared BEFORE the
++ *  flip-rate was measured — no post-hoc iteration). The pre-declared
++ *  hypothesis, verbatim: "the 4.0%->0.8% anti-scale happens because flat
++ *  additive bonuses are all-positive, so waking more specializations raises
++ *  every play's floor and reverts ranking to raw poker. A contrastive rule
++ *  makes awakening strictly monotonic: a hand whose exact category MATCHES an
++ *  awake specialized region still receives that region's bonus (base +
++ *  min(DEV_BONUS_CAP, floor(dev/DEV_STEP)) unchanged), but a hand that matches
++ *  NO awake specialized region now incurs a small penalty."
++ *  The penalty is the smallest base: every play of a category that NO awake
++ *  specialized region boosts loses NON_MATCH_PENALTY Growth (additive, once,
++ *  after the law arithmetic — the law multiplier never re-multiplies it).
++ *  Dormant specialized regions still contribute nothing and never trigger it;
++ *  with no awake specialized region on the planet the game reverts to the
++ *  plain poker+laws score. Growth stays floored at 0 (never negative). */
++export const NON_MATCH_PENALTY = 3
++
+ export interface Law {
+   id: string
+   title: string
+@@ -390,6 +411,10 @@ export function buildPlan(
+   //    equals the hand's EXACT evaluated category (dormant → 0; additive
+   //    stacking across multiple matching regions; applied ONCE, AFTER the law
+   //    arithmetic — the law multiplier never re-multiplies this part).
++  //    NON-MATCH PENALTY (contrastive shape): when at least one AWAKE
++  //    specialized region exists but NONE matches the played hand's category,
++  //    the play pays −NON_MATCH_PENALTY instead (dormant regions never
++  //    trigger it; zero awake specializations = the plain poker+laws game).
+   const wantedSpec = specOfCategory(res.category)
+   let regionsBonus = 0
+   const regionContribs: ResolutionPlan['regionContribs'] = []
+@@ -402,6 +427,15 @@ export function buildPlan(
+     if (existing) { existing.count += 1; existing.bonus += bonus }
+     else regionContribs.push({ spec: r.specialization, count: 1, bonus })
+   }
++  // the penalty condition, exactly as declared: the hand wanted a
++  // specialization (or wants none at all — a category no region carries),
++  // NO awake matching region paid anything, AND at least one awake
++  // specialized region exists on the planet. Dormant regions neither pay
++  // nor trigger. One flat additive term, once, never re-multiplied.
++  const awakeSpecs = regions.filter((r) => !r.dormant && r.specialization !== null)
++  if (regionsBonus === 0 && awakeSpecs.length > 0) {
++    regionsBonus = -NON_MATCH_PENALTY
++  }
+   const growthParts = { poker: pokerBase, laws: lawBonus, regions: regionsBonus }
+   const growth = Math.max(0, Math.round(pokerBase * lawMult) + lawFlat + regionsBonus)
+ 
+@@ -422,12 +456,15 @@ export function buildPlan(
+     { kind: 'seeds', amount: seedsGain, credited: credit.credited, overflow: credit.overflow },
+   ]
+   // Honest summary: rankSum × mult (the true chips×mult equation), then the
+-  // already-multiplied base, then the regional bonus when one applies, then the
+-  // TRUTHFUL Seed credit. e.g.
++  // already-multiplied base, then the regional term (bonus or −penalty), then
++  // the TRUTHFUL Seed credit. e.g.
+   // "chips 32 x 2 mult = base 64 +7 regions. Gains 18 Seeds (Credited 6; overflow 12)."
++  // or "chips 14 x 1 mult = base 14 -3 regions. Gains 3 Seeds."
+   const regionClause = regionsBonus > 0
+     ? ` +${regionsBonus} region${regionContribs.length > 1 ? 's' : ''}`
+-    : ''
++    : regionsBonus < 0
++      ? ` -${-regionsBonus} regions (no awake specialization matches)`
++      : ''
+   const summary = `Banks ${growth} Growth (chips ${sum} x ${mult} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}${regionClause}). Gains ${seedsGain} Seeds${overflowClause}.`
+ 
+   return {
+diff --git a/tests/fix-regressions.test.ts b/tests/fix-regressions.test.ts
+index 55658d3..b8a13fa 100644
+--- a/tests/fix-regressions.test.ts
++++ b/tests/fix-regressions.test.ts
+@@ -190,12 +190,15 @@ describe('FIX 2: truthful Seed credit — nominal vs credited vs overflow via ON
+     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+     const pv = preview(s)
+     const fx = seedsFx(pv)
+-    expect(fx.amount).toBe(3)
+-    expect(fx.credited).toBe(3)
++    // non-match-penalty pass: the shipped planet keeps Auralia (pair) AWAKE, a
++    // high-card play matches nothing → −3 (Growth 10−3 = 7, ceil(7/4) = 2).
++    // The credit contract itself is untouched — this was a 3, now 2 by the rule.
++    expect(fx.amount).toBe(2)
++    expect(fx.credited).toBe(2)
+     expect(fx.overflow).toBe(0)
+     const committed = applyAction(s, { type: 'play' })
+-    expect(committed.seeds).toBe(11)
+-    expect(committed.log.at(-1)!.text).toContain('Gains 3 Seeds')
++    expect(committed.seeds).toBe(10)
++    expect(committed.log.at(-1)!.text).toContain('Gains 2 Seeds')
+     expect(committed.log.at(-1)!.text).not.toContain('overflow')
+   })
+ 
+diff --git a/tests/regional-bonus.test.ts b/tests/regional-bonus.test.ts
+index 4875e72..9575dee 100644
+--- a/tests/regional-bonus.test.ts
++++ b/tests/regional-bonus.test.ts
+@@ -20,7 +20,7 @@ import { describe, it, expect } from 'vitest'
+ import {
+   newGame, applyAction, preview, buildPlan, validateState,
+   PAIR_BASE, TWOPAIR_BASE, FLUSH_BASE, DEV_STEP, DEV_BONUS_CAP,
+-  MARKET_ITEMS, SEEDS_CAP, SAVE_VERSION,
++  MARKET_ITEMS, SEEDS_CAP, SAVE_VERSION, NON_MATCH_PENALTY,
+   type GameState, type Region,
+ } from '../src/engine/worldhand'
+ import type { Card, Suit as PSuit } from '../engine/poker'
+@@ -90,11 +90,14 @@ describe('exact-category matching (dormant vs awake, no hidden contains-a-pair l
+     const s = withRegions(newGame('trips-nomatch'), (rs) => { rs[PAIR_REGION].dormant = false })
+     const plan = buildPlan([C(9, 'S'), C(9, 'H'), C(9, 'D')], [0, 1, 2], [], 0, s.regions)
+     expect(plan.category).toBe('trips')
+-    expect(plan.growthParts.regions).toBe(0)
+-    expect(plan.growth).toBe(Math.round(27 * 2.5)) // 68 — no bonus
++    // non-match-penalty pass: exact-category matching still holds (trips never
++    // receive a pair bonus), and a hand matching nothing while a spec is awake
++    // pays the declared −3 — how the shape now proves the hand did not match.
++    expect(plan.growthParts.regions).toBe(-NON_MATCH_PENALTY)
++    expect(plan.growth).toBe(Math.round(27 * 2.5) - NON_MATCH_PENALTY) // 68 − 3 = 65
+   })
+ 
+-  it('high card pays no regional bonus anywhere', () => {
++  it('high card pays no regional bonus (penalized while a spec is awake; 0 with none awake)', () => {
+     const s = withRegions(newGame('high-nobonus'), (rs) => {
+       rs[0].dormant = false
+       rs[6].dormant = false
+@@ -102,8 +105,13 @@ describe('exact-category matching (dormant vs awake, no hidden contains-a-pair l
+     })
+     const plan = buildPlan([C(14, 'H')], [0], [], 0, s.regions)
+     expect(plan.category).toBe('high')
+-    expect(plan.growthParts.regions).toBe(0)
+-    expect(plan.growth).toBe(14)
++    expect(plan.growthParts.regions).toBe(-NON_MATCH_PENALTY) // no category match → −3
++    expect(plan.growth).toBe(14 - NON_MATCH_PENALTY) // 11
++    // with NO specialized region awake (empty planet), the same hand scores the
++    // plain 14 — no bonus AND no penalty
++    const bare = buildPlan([C(14, 'H')], [0], [], 0, [])
++    expect(bare.growthParts.regions).toBe(0)
++    expect(bare.growth).toBe(14)
+   })
+ 
+   it('a DORMANT specialized region contributes exactly zero (preview AND commit)', () => {
+@@ -125,9 +133,10 @@ describe('exact-category matching (dormant vs awake, no hidden contains-a-pair l
+ 
+   it('a flush only pays the FLUSH-specialized region (and vice versa)', () => {
+     const flush = [C(14, 'H'), C(2, 'H'), C(6, 'H'), C(7, 'H'), C(9, 'H')] // chips 38
++    // Auralia (pair) awake, Vantage dormant: a flush matches nothing → −3
+     const dormantOnly = buildPlan(flush, [0, 1, 2, 3, 4], [], 0, newGame('flush-dormant').regions)
+     expect(dormantOnly.category).toBe('flush')
+-    expect(dormantOnly.growthParts.regions).toBe(0) // Vantage starts dormant
++    expect(dormantOnly.growthParts.regions).toBe(-NON_MATCH_PENALTY) // non-match penalty
+     const s = withRegions(newGame('flush-match'), (rs) => { rs[FLUSH_REGION].dormant = false })
+     const plan = buildPlan(flush, [0, 1, 2, 3, 4], [], 0, s.regions)
+     expect(plan.growthParts.regions).toBe(FLUSH_BASE)
+@@ -438,7 +447,8 @@ describe('CHOICE REVERSAL fixture 1 (pair vs two-pair, exact tie broken by the r
+     expect(aPair.category).toBe('pair')
+     expect(aTwopair.category).toBe('two-pair')
+     expect(aPair.growth).toBe(96 + 7) // 103 — pair region bonus
+-    expect(aTwopair.growth).toBe(96) // no matching awake region
++    // non-match-penalty pass: the two-pair matches nothing under build A → −3
++    expect(aTwopair.growth).toBe(96 - NON_MATCH_PENALTY) // 93
+     expect(aPair.growth).toBeGreaterThan(aTwopair.growth)
+   })
+ 
+@@ -446,11 +456,12 @@ describe('CHOICE REVERSAL fixture 1 (pair vs two-pair, exact tie broken by the r
+     const regions = buildB('twopair')
+     const bPair = buildPlan(HAND, PAIR_SEL, [], 0, regions)
+     const bTwopair = buildPlan(HAND, TWOPAIR_SEL, [], 0, regions)
+-    expect(bPair.growth).toBe(96) // pair region dormant — no bonus
++    // non-match-penalty pass: the pair matches nothing under build B → −3
++    expect(bPair.growth).toBe(96 - NON_MATCH_PENALTY) // 93 — pair region dormant
+     expect(bTwopair.growth).toBe(96 + 8) // 104 — twopair region bonus
+     expect(bTwopair.growth).toBeGreaterThan(bPair.growth)
+     // the SAME cards + SAME laws rank pair>twopair in A and twopair>pair in B
+-    expect(bTwopair.growth - bPair.growth).toBe(8)
++    expect(bTwopair.growth - bPair.growth).toBe(8 + NON_MATCH_PENALTY) // 104 − 93 = 11 (bonus 8 + one −3)
+   })
+ })
+ 
+@@ -469,7 +480,8 @@ describe('CHOICE REVERSAL fixture 2 (flush vs pair under Open Canals, laws ident
+     expect(aPair.category).toBe('pair')
+     expect(aFlush.category).toBe('flush')
+     expect(aPair.growth).toBe(115 + 7) // 122
+-    expect(aFlush.growth).toBe(110) // no bonus — and NOT re-multiplied with any bonus
++    // non-match-penalty pass: the flush matches nothing under build A → −3
++    expect(aFlush.growth).toBe(110 - NON_MATCH_PENALTY) // 107 — NOT re-multiplied with any bonus
+     expect(aPair.growth).toBeGreaterThan(aFlush.growth)
+   })
+ 
+@@ -477,7 +489,8 @@ describe('CHOICE REVERSAL fixture 2 (flush vs pair under Open Canals, laws ident
+     const regions = buildB('flush')
+     const bPair = buildPlan(HAND, PAIR_SEL, LAWS, 0, regions)
+     const bFlush = buildPlan(HAND, FLUSH_SEL, LAWS, 0, regions)
+-    expect(bPair.growth).toBe(115)
++    // non-match-penalty pass: the pair matches nothing under build B → −3
++    expect(bPair.growth).toBe(115 - NON_MATCH_PENALTY) // 112
+     expect(bFlush.growth).toBe(110 + 10) // 120 — flush region bonus added AFTER the law mult
+     expect(bFlush.growth).toBeGreaterThan(bPair.growth)
+     // documented provenance of the flip: flush gained exactly its +10 bonus
+@@ -517,9 +530,12 @@ describe('final-epoch outcome + reload idempotency with regional bonuses', () =>
+     expect(withBonus.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(0)
+     expect(withBonus.log.filter((l) => l.text.startsWith('Epoch end: +'))).toHaveLength(1)
+ 
+-    // counterfactual: the SAME cards/plays with the region dormant fall short
++    // counterfactual: the SAME cards/plays with the region dormant fall short.
++    // non-match-penalty pass: with Pellucid dormant the four two-pair plays
++    // match nothing while Auralia (pair) stays awake → −3 each (64−3 = 61),
++    // so 100 + 4×61 = 344 < 360.
+     const without = finalRun(false)
+-    expect(without.flourishing).toBe(100 + 4 * 64) // 356 < 360
++    expect(without.flourishing).toBe(100 + 4 * 61) // 344 < 360
+     expect(without.outcome).toBe('withered')
+     expect(without.outcomeReason).toContain('fell short')
+     expect(without.lives).toBe(1) // the miss still cost its life
+diff --git a/tests/worldhand.test.ts b/tests/worldhand.test.ts
+index e23e0ee..1806152 100644
+--- a/tests/worldhand.test.ts
++++ b/tests/worldhand.test.ts
+@@ -172,8 +172,10 @@ describe('auto-Seeds economy (no Mine action)', () => {
+     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+     const pv = preview(s)
+     const committed = applyAction(s, { type: 'play' })
++    // non-match-penalty pass: Auralia (pair) is awake, a high-card play matches
++    // nothing → −3 (Growth 10−3 = 7, ceil(7/4) = 2 — was 3 under the flat shape).
+     const gain = pv.effects.find((e) => e.kind === 'seeds')!.amount
+-    expect(gain).toBe(3) // ceil(10 Growth / 4)
++    expect(gain).toBe(2) // ceil(7 Growth / 4)
+     expect(committed.seeds).toBe(Math.min(SEEDS_CAP, gain))
+     // cap: at 30 the play cannot push past it
+     let c = newGame('autoseeds-cap')

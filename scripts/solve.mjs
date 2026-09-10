@@ -32,8 +32,17 @@
 //     4. open-canals    — ×1.2 Growth every play: strongest late multiplier.
 //     5. stone-masonry  — +6 flat every play: bought when Seeds allow.
 //     6. fourth-counsel — 9-card hands find more/better poker shapes.
-//   Expansions (wake-*) are skipped: they cost Seeds and only pay via Seed
-//   income headcount, never toward the Growth targets the solver must hit.
+//     7. wake-pellucid / wake-vantage — the poker specializations DO pay toward
+//        the Growth targets (since 785556a): an awake Pellucid adds +4 Growth
+//        to EXACT Two Pair plays (+1 per 2 development, cap +4) and Vantage
+//        +6 to EXACT Flush plays, while the non-match penalty (−3) makes every
+//        non-matching play slightly cheaper to avoid. WAKE RULE (documented):
+//        a wake-* specialization is bought when affordable (after the priority
+//        list above) whenever its region is still dormant AND its category is
+//        IN or NEAR the current hand (a pair/two-pair/flush shape is already
+//        held or is ≤2 cards of the needed shape) — otherwise the Seeds are
+//        kept. wake-laguna / wake-brumal remain skipped: no specialization, so
+//        they pay no Growth and only add Seed-income headcount.
 //   mycorrhiza / fifth-counsel are skipped (cosmetic decay relief / hand 10 is
 //   not worth the Seeds under the Growth targets).
 //
@@ -288,8 +297,12 @@ function playSeed(seedText) {
       s = b.next
     } else if (s.phase === 'market') {
       // documented purchase policy (see header): priority order below, bought
-      // greedily while affordable; expansions and mycorrhiza are skipped
-      // because they pay nothing toward the Growth targets.
+      // greedily while affordable. The poker-specialization wakes (wake-
+      // pellucid / wake-vantage) ARE purchasable by the category-in-hand rule:
+      // their regions pay +4/+6 Growth on exact Two Pair / Flush plays toward
+      // the Growth targets (since 785556a), so "expansions pay nothing" is
+      // STALE — only the non-specialized wakes (wake-laguna/brumal) stay
+      // skipped, and mycorrhiza/fifth-counsel stay skipped as before.
       let bought = true
       while (bought) {
         bought = false
@@ -297,6 +310,37 @@ function playSeed(seedText) {
         for (const id of order) {
           const item = s.market.find((m) => m.id === id)
           if (!item) continue
+          try { s = applyAction(s, { type: 'buy', itemId: id }); bought = true; break } catch {}
+        }
+        if (bought) continue
+        // specialization wakes: buy when affordable AND the corresponding
+        // category is IN or NEAR the current hand (2 cards of the shape away
+        // or less, at any point in the run). Pellucid pays Two Pair (+4),
+        // Vantage pays Flush (+6) — both exceed the wake's Seed cost over the
+        // remaining plays when their category shows up even a few times.
+        for (const [id, specKind] of [['wake-pellucid', 'twopair'], ['wake-vantage', 'flush']]) {
+          const item = s.market.find((m) => m.id === id)
+          if (!item) continue
+          const r = s.regions.find((x) => x.id === item.wakeRegionId)
+          if (!r || !r.dormant) continue // already awake — nothing to buy
+          const cost = 12 - s.laws.reduce((n, l) => n + (l.marketDiscount ?? 0), 0)
+          if (s.seeds < Math.max(1, cost)) continue
+          const hand = s.hand
+          const suitGroups = new Map()
+          for (const c of hand) suitGroups.set(c.s, (suitGroups.get(c.s) ?? 0) + 1)
+          const rankGroups = new Map()
+          for (const c of hand) rankGroups.set(c.r, (rankGroups.get(c.r) ?? 0) + 1)
+          let near = false
+          if (specKind === 'twopair') {
+            // two pair IN hand (two ranks doubled) or NEAR (one doubled rank + any 2 cards to come)
+            let doubled = 0
+            for (const n of rankGroups.values()) if (n >= 2) doubled++
+            near = doubled >= 2 || (doubled >= 1 && hand.length >= 5)
+          } else {
+            // flush IN hand (4+ same suit) or NEAR (3 same suit + draws to come)
+            for (const n of suitGroups.values()) if (n >= 3) near = true
+          }
+          if (!near) continue
           try { s = applyAction(s, { type: 'buy', itemId: id }); bought = true; break } catch {}
         }
       }

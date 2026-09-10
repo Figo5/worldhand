@@ -426,3 +426,47 @@ One full run, seed `regional-ordinary-1`, driven through the real UI only (every
 **Bottom line: on the frozen revision `785556a`, the regional-bonus system is correctly implemented — exact-category matching with dormant-zero, the declared constants and formula, additive once-after-laws application, an exact three-part reconciliation to the committed Growth, a deterministic three-region map with only Pair awake at start, two obtainable specializations at the existing 12-Seed expansion convention, a clean v4 save cut with verbatim legacy preservation, full preview-time UI legibility including a click-free globe highlight, and a demonstrated A-vs-B choice reversal in labeled design fixtures — and every choice reconciles to the committed total. The ordinary run shows the bonus can and did change one real selection (1 of 12). Gate fully green: tsc clean, 139/139 (from 108, nothing weakened), build clean, QA both viewports 0 errors, planet3d green, solver re-measured honestly at 20/30. No balance claim is made.**
 
 *Reviewer artifacts (this addendum): `/tmp/rev-probe.mts` (independent engine probe, outside the repo) + this dated addendum. No source/test/doc files were modified by me.*
+
+
+---
+
+## Independent review addendum — 2026-09-10 (reconciled non-match-penalty state)
+
+**Reviewer:** fresh independent subagent (Hermes, provider `ollama-cloud`, model `glm-5.3-flash`). Scope: the reconciled working tree on top of `d02b14c` (additive v4 restored), uncommitted diff inspected via `git diff`. No source/test/doc files modified by this review; only this addendum.
+
+### 1. Default scoring restored (PASS)
+- `src/engine/worldhand.ts`: `SAVE_VERSION = 4` (line 44); `EPOCH_TARGETS = [45, 110, 360]` (need 45/110/360). Confirmed by direct read.
+- `grep -rn "NON_MATCH_PENALTY|nonMatchPenalty|nonMatch" src tests scripts` → no matches (exit 1). The constant survives only inside the rejected-candidate archive (`.hermes/experiments/.../experiment.diff`), which is correct.
+- Save-rejection path unchanged: `src/ui/save.ts` still preserves incompatible saves verbatim under `worldhand.save.legacy.<ts>` (`preserveLegacy`); no migration, no erasure.
+- Drought unchanged: no drought/stability scoring terms in engine or solver (`"no drought, no wake terms — those mechanics do not exist anymore"` in scripts/solve.mjs header); '\''drought'\'' appears only as an obsolete market id in `OBSOLETE_ITEM_IDS`.
+- Working-tree diff touches only PLAYTEST_HANDOFF.md, RULES.md, scripts/solve.mjs (+52 lines: stale-expansion correction + wake-purchase rule), review/QA screenshots, and the untracked `.hermes/` archive + `scripts/flip-rate.mjs`. Engine and tests are untouched.
+
+### 2. Rejected-candidate archive (PASS)
+`.hermes/experiments/non-match-penalty-d02b14c/` contains `experiment.diff` (30.9 KB, the exact candidate diff incl. `NON_MATCH_PENALTY = 3`), `flip-rate.mjs` (candidate version), `capture-nmp-shots.mjs`, `stat.txt` (git diff --stat of the candidate). The recorded measurements match the docs exactly: as-shipped **25/360 = 6.9%**, all-three-awake **7/360 = 1.9%**, and the diff'\''s own honest text states the pre-declared monotonicity prediction (all-three ≥ as-shipped) was **NOT met** (1.9% < 6.9%). No tuning iteration claimed.
+
+### 3. scripts/flip-rate.mjs (PASS, independently re-run)
+- Retained, runnable (`npx vite-node scripts/flip-rate.mjs`, exit 0, 2.5 s).
+- Metric definition is clear: a FLIP = a **different selected card subset** between the specialization-ON argmax and the all-specializations-nulled re-pick on the **same recorded play state**; the header explicitly states it is NOT a human win-rate/strategy measure. One noted limitation: the script header says "This is NOT ... a strict preference reversal" only in the docs (PLAYTEST_HANDOFF/RULES); the script header itself does not separately call out category/strict-preference/margin distinctions — the docs do, and correctly (a flip can be a margin-level or tie-break difference with the same category). Docs wording verified accurate.
+- **Independently re-run result on restored additive v4, eval-0..29 × 12 plays:**
+  - (a) as-shipped: **14/360 = 3.9%**
+  - (b) all-three-awake: **5/360 = 1.4%**
+  - Matches the figures quoted in PLAYTEST_HANDOFF.md and RULES.md exactly.
+- Caveat (pre-existing, honest): this is low-impact evidence, not a balance claim; the docs label it as such.
+
+### 4. scripts/solve.mjs correction (PASS)
+- The stale "expansions pay nothing" claim is corrected in the header and market-phase comment; wake-pellucid (+4 exact Two Pair) and wake-vantage (+6 exact Flush) are now purchasable under a documented IN-or-NEAR-hand category rule; wake-laguna/brumal, mycorrhiza, fifth-counsel remain skipped.
+- **Independently re-run: `npx vite-node scripts/solve.mjs -- --set eval --look 30` → `20/30 wins (67%) — bounded solver (LOOK=30, need F>=360). final F: min 330, median 366, max 429`.** Matches the documented 20/30 with 0 percentage-point change. Bounded solver result only; not a human win-rate.
+
+### 5. Docs accuracy (PASS)
+- PLAYTEST_HANDOFF.md and RULES.md correctly record that both the implementation worker and the reviewer terminated on provider failures before a completed review, the exact preserved candidate evidence (25/360=6.9%, 7/360=1.9%), the failed monotonicity prediction, and the rejection. No claim of strategic success or balance is made anywhere ("low-impact evidence, not a claim of strategic success", "not a balance claim").
+
+### Gates (all run this session, exit codes recorded)
+- `npx tsc --noEmit` → exit 0, no output.
+- `npx vitest run` → **4 files passed, 139/139 tests passed** (268 ms).
+- `npm run build` → `✓ built in 211ms`; only a pre-existing chunk-size >500 kB warning, no errors.
+- `node scripts/qa.mjs` → `OK 1280 (1280x800) / OK narrow (480x800) / ALL PLAYWRIGHT CHECKS PASSED`, exit 0; **no console errors reported**.
+- `node scripts/review-planet3d.mjs` → `PLANET3D CHECKS PASSED`, exit 0 (map-detail, keyboard-arrow, canvas-click, pixel-stable, hover-cursor, raycast checks all pass).
+
+### Discrepancies
+None blocking. Minor note only: the flip-rate limitation language (category / strict preference / margin distinctions) lives in the docs rather than the script header itself — consistent with the task framing, not a defect. **No balance claim is made: the restored additive v4 world is low-impact on selection by this metric (3.9% / 1.4%) and the solver is 20/30 (67%); nothing here is a strategic-success or balanced-planet claim.**
+

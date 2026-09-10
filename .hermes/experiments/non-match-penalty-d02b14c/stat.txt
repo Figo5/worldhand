@@ -1,0 +1,26 @@
+ PLAYTEST_HANDOFF.md                        |   3 +-
+ RULES.md                                   |  27 +++++++++++++--
+ scripts/solve.mjs                          |  52 ++++++++++++++++++++++++++---
+ shots-review/drought-bloom-1.png           | Bin 335258 -> 349757 bytes
+ shots-review/drought-bloom-2.png           | Bin 337118 -> 351183 bytes
+ shots-review/drought-bloom-3.png           | Bin 338007 -> 351311 bytes
+ shots-review/full-run-final.png            | Bin 337352 -> 351762 bytes
+ shots-review/ordinary-run-final.png        | Bin 354541 -> 361631 bytes
+ shots-review/planet3d-narrow.png           | Bin 151150 -> 151278 bytes
+ shots-review/planet3d-reduced-motion.png   | Bin 361405 -> 360869 bytes
+ shots-review/planet3d-wide.png             | Bin 363495 -> 364593 bytes
+ shots-review/regional-legacy-v3-reject.png | Bin 372206 -> 372301 bytes
+ shots-review/regional-preview-match.png    | Bin 425742 -> 423948 bytes
+ shots-review/v5-epoch1-end.png             | Bin 343818 -> 358394 bytes
+ shots-review/v5-final-verdict.png          | Bin 342963 -> 350514 bytes
+ shots-review/v5-preview-credit.png         | Bin 400514 -> 400822 bytes
+ shots-review/v5-verdict-after-reload.png   | Bin 342961 -> 350514 bytes
+ shots/after-1280-map.png                   | Bin 357278 -> 358050 bytes
+ shots/after-1280-selected.png              | Bin 372716 -> 381073 bytes
+ shots/after-narrow-map.png                 | Bin 146714 -> 146721 bytes
+ shots/after-narrow-selected.png            | Bin 151759 -> 154676 bytes
+ src/engine/worldhand.ts                    |  45 ++++++++++++++++++++++---
+ tests/fix-regressions.test.ts              |  11 +++---
+ tests/regional-bonus.test.ts               |  44 ++++++++++++++++--------
+ tests/worldhand.test.ts                    |   4 ++-
+ 25 files changed, 156 insertions(+), 30 deletions(-)
