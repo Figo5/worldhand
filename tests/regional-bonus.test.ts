@@ -335,13 +335,13 @@ describe('expansion shop surfaces two specializations (existing mechanism + pric
   })
 })
 
-describe('SAVE_VERSION 5 + validation + legacy preservation', () => {
-  it('SAVE_VERSION is 5 (per-epoch targets changed scoring); the schema layout stays 3', () => {
-    expect(SAVE_VERSION).toBe(5)
+describe('SAVE_VERSION 6 + validation + legacy preservation', () => {
+  it('SAVE_VERSION is 6 (World Score + World Projects changed scoring); the schema layout stays 3', () => {
+    expect(SAVE_VERSION).toBe(6)
   })
 
-  it('a fresh v5 state passes validateState (specializations legal)', () => {
-    expect(validateState(JSON.parse(JSON.stringify(newGame('validate-5'))))).toBeNull()
+  it('a fresh v6 state passes validateState (specializations legal)', () => {
+    expect(validateState(JSON.parse(JSON.stringify(newGame('validate-6'))))).toBeNull()
   })
 
   it('an illegal specialization value is rejected', () => {
@@ -387,8 +387,8 @@ describe('SAVE_VERSION 5 + validation + legacy preservation', () => {
       expect(store.get(res.legacyKey!)).toBe(legacyV3)
       expect(store.get('worldhand.save')).toBe(legacyV3)
       expect(mod.listLegacySaves().some((l) => l.key === res.legacyKey)).toBe(true)
-      // and a valid v5 save still loads
-      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 5, savedAt: '2026-01-05T00:00:00.000Z', state: JSON.parse(JSON.stringify(newGame('v5-fresh'))) }))
+      // and a valid v6 save still loads
+      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 6, savedAt: '2026-01-05T00:00:00.000Z', state: JSON.parse(JSON.stringify(newGame('v6-fresh'))) }))
       const res4 = mod.loadGameDetailed()
       expect(res4.state).not.toBeNull()
       expect(res4.rejectedReason).toBeNull()

@@ -344,6 +344,18 @@ function playSeed(seedText) {
           if (!near) continue
           try { s = applyAction(s, { type: 'buy', itemId: id }); bought = true; break } catch {}
         }
+        if (bought) continue
+        // World Projects: buy the cheapest affordable project (repeatable
+        // Seed-sink — growth/score/dev projects all improve the world).
+        let bestProj = null
+        for (const p of s.projectMarket) {
+          const owned = s.projects.filter((x) => x.id === p.id).length
+          const cost = p.baseCost + owned * p.costGrowth
+          if (s.seeds >= cost && (!bestProj || cost < bestProj.cost)) bestProj = { p, cost }
+        }
+        if (bestProj) {
+          try { s = applyAction(s, { type: 'buyProject', projectId: bestProj.p.id }); bought = true } catch {}
+        }
       }
       s = applyAction(s, { type: 'endMarket' })
     } else if (s.phase === 'epoch-end') {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   newGame, applyAction, preview, buildPlan, cardConservation,
   applyPlanEffects, epochTarget, SEEDS_PER_GROWTH, LAW_SLOTS,
-  SURVIVAL_START, MARKET_ITEMS, validateState,
+  SURVIVAL_START, MARKET_ITEMS, validateState, worldScore,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, HAND_SIZE, TOTAL_REGIONS,
   STABILITY_BASE, STABILITY_MAX, START_REGIONS,
 } from '../src/engine/worldhand'
@@ -589,6 +589,85 @@ describe('per-epoch targets (not cumulative)', () => {
   })
 })
 
+describe('World Score + World Projects (the goal: make the world as good as you can)', () => {
+  it('worldScore rewards awakened regions, development, laws, and lifetime Flourishing', () => {
+    let s = newGame('score-baseline')
+    const base = worldScore(s)
+    // 4 awake regions = 40, 0 dev, 0 laws, floor(3/10)=0
+    expect(base).toBe(40)
+    // wake a region → +10
+    s.regions[4].dormant = false
+    expect(worldScore(s)).toBe(50)
+    // +development → +2 each
+    s.regions[0].development = 5
+    expect(worldScore(s)).toBe(60)
+    // +law → +15
+    s.laws = [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade', growthFlat: 3 }]
+    expect(worldScore(s)).toBe(75)
+    // +lifetime Flourishing → +1 per 10
+    s.flourishing = 100
+    expect(worldScore(s)).toBe(85)
+  })
+
+  it('buyProject funds a project: costs Seeds, applies its effect, and is repeatable with escalating cost', () => {
+    let s = newGame('proj-buy')
+    s.phase = 'market'
+    s.seeds = 100
+    // fund a development project on Auralia (id 0)
+    s = applyAction(s, { type: 'buyProject', projectId: 'proj-dev-auralia' })
+    expect(s.seeds).toBe(92) // 100 - 8
+    expect(s.regions[0].development).toBe(1)
+    expect(s.projects).toHaveLength(1)
+    // repeatable: cost escalates by costGrowth (8 + 4 = 12)
+    s = applyAction(s, { type: 'buyProject', projectId: 'proj-dev-auralia' })
+    expect(s.seeds).toBe(80) // 92 - 12
+    expect(s.regions[0].development).toBe(2)
+    expect(s.projects).toHaveLength(2)
+  })
+
+  it('a growth project adds flat Growth to every play (via buildPlan)', () => {
+    let s = newGame('proj-growth')
+    s.phase = 'market'
+    s.seeds = 100
+    s = applyAction(s, { type: 'buyProject', projectId: 'proj-growth' })
+    const plan = buildPlan([C(10, 'H')], [0], [], [], s.projects)
+    expect(plan.growth).toBe(12) // 10 + 2
+  })
+
+  it('a seeds project adds Seeds at each epoch end', () => {
+    let s = newGame('proj-seeds')
+    s.phase = 'market'
+    s.seeds = 100
+    s = applyAction(s, { type: 'buyProject', projectId: 'proj-seeds' })
+    s.phase = 'select' // back to play
+    s.epoch = 20 // high target so early-advance never fires
+    s.epochGrowth = epochTarget(20) - 16
+    s.flourishing = epochTarget(20) - 16
+    s = forceHand(s, [C(4, 'C'), C(4, 'C'), C(4, 'C'), C(4, 'C')])
+    for (let i = 0; i < 4; i++) {
+      s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+      s = applyAction(s, { type: 'play' })
+    }
+    // income = 2 (project) + 4 (living regions) = 6, not halved (target met)
+    expect(s.log.some((l) => l.text.includes('Epoch end: +6 Seeds'))).toBe(true)
+  })
+
+  it('all 12 regions are wakeable (4 new wake items for regions 5, 7, 8, 10)', () => {
+    const wakeIds = MARKET_ITEMS.filter((m) => m.kind === 'expansion').map((m) => m.wakeRegionId)
+    expect(wakeIds).toEqual(expect.arrayContaining([5, 7, 8, 10]))
+    // every region 0..11 has a wake path (4 start awake + 8 wake items)
+    expect(new Set(wakeIds).size).toBe(8)
+  })
+
+  it('development is uncapped (a region can exceed the old STABILITY_MAX cap)', () => {
+    let s = newGame('dev-uncapped')
+    s.phase = 'market'
+    s.seeds = 1000
+    for (let i = 0; i < 15; i++) s = applyAction(s, { type: 'buyProject', projectId: 'proj-dev-auralia' })
+    expect(s.regions[0].development).toBe(15) // > 10, uncapped
+  })
+})
+
 describe('epoch end: decay and development pressure', () => {
   it('epoch end applies decay of 1 to living regions (cosmetic pressure; lives govern loss)', () => {
     let s = newGame('decay')
@@ -778,10 +857,10 @@ describe('capped world stats', () => {
 })
 
 describe('versioned save envelope + structural validation', () => {
-  it('v5 state round-trips through JSON (v5 = per-epoch targets rules generation)', () => {
+  it('v6 state round-trips through JSON (v6 = World Score + World Projects rules generation)', () => {
     const s = newGame('roundtrip')
     const j = JSON.parse(JSON.stringify(s))
-    expect(j.version).toBe(5)
+    expect(j.version).toBe(6)
     expect(j.hand).toHaveLength(8)
     expect(j.regions).toHaveLength(12)
     const back = JSON.parse(JSON.stringify(j)) as GameState
@@ -791,7 +870,7 @@ describe('versioned save envelope + structural validation', () => {
     const mod = await import('../src/ui/save')
     expect(typeof mod.saveGame).toBe('function')
     expect(typeof mod.loadGame).toBe('function')
-    expect(mod.CURRENT_VERSION).toBe(5) // v5 = per-epoch targets rules generation
+    expect(mod.CURRENT_VERSION).toBe(6) // v6 = World Score + World Projects rules generation
     expect(mod.SCHEMA_VERSION_CURRENT).toBe(3)
   })
 })
@@ -801,9 +880,9 @@ describe('save versioning + structural validation (legacy preserved, never reint
   // through the exported validateState + the envelope's version fields.
   const fresh = () => JSON.parse(JSON.stringify(newGame('validator'))) as any
 
-  it('CURRENT_VERSION is 5 (per-epoch targets rules generation) and SCHEMA_VERSION is 3', async () => {
+  it('CURRENT_VERSION is 6 (World Score + World Projects rules generation) and SCHEMA_VERSION is 3', async () => {
     const w = await import('../src/engine/worldhand')
-    expect(w.SAVE_VERSION).toBe(5)
+    expect(w.SAVE_VERSION).toBe(6)
     expect(w.SCHEMA_VERSION).toBe(3)
   })
 
@@ -926,9 +1005,9 @@ describe('save versioning + structural validation (legacy preserved, never reint
       expect(store.get('worldhand.save')).toBe(legacyV2)
       expect(mod.listLegacySaves().some((l) => l.key === res.legacyKey)).toBe(true)
 
-      // structurally corrupt v5 state (missing lives): same preserve+reject path
+      // structurally corrupt v6 state (missing lives): same preserve+reject path
       const corruptState = fresh(); delete corruptState.lives
-      const env3 = JSON.stringify({ schema: 3, version: 5, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
+      const env3 = JSON.stringify({ schema: 3, version: 6, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
       store.set('worldhand.save', env3)
       const res2 = mod.loadGameDetailed()
       expect(res2.state).toBeNull()
@@ -936,8 +1015,8 @@ describe('save versioning + structural validation (legacy preserved, never reint
       expect(store.get(res2.legacyKey!)).toBe(env3)
       expect(store.get('worldhand.save')).toBe(env3)
 
-      // a valid v5 save still loads
-      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 5, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
+      // a valid v6 save still loads
+      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 6, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
       const res3 = mod.loadGameDetailed()
       expect(res3.state).not.toBeNull()
       expect(res3.rejectedReason).toBeNull()

@@ -427,6 +427,7 @@ button.advance { border-color: var(--accent2); }
 }
 .market .row button { font-variant-numeric: tabular-nums; }
 .market-slots { font-size: 0.78rem; margin: 4px 0 8px; }
+.market-subhead { margin: 0.6rem 0 0.3rem; font-size: 0.9rem; color: var(--muted); font-weight: 600; }
 .owned-row { margin-top: 10px; }
 .remove-btn {
   border-color: #6e2f2c;

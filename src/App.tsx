@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   newGame, applyAction, preview,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_REGIONS,
-  STABILITY_MAX, epochTarget, SURVIVAL_START, LAW_SLOTS,
+  STABILITY_MAX, epochTarget, SURVIVAL_START, LAW_SLOTS, worldScore,
   SPECIALIZATION_LABEL, SPECIALIZATION_BASE, DEV_STEP, DEV_BONUS_CAP,
   specOfCategory, regionBonusOf,
   type Action, type GameState, type Region, type Law, type Specialization,
@@ -252,6 +252,10 @@ export default function App() {
           <span className="hud-label">Discards</span>
           <strong>{state.discardsLeft}/{DISCARDS_PER_EPOCH}</strong>
         </div>
+        <div className="hud-item" title="World Score — the run's goal: how good you made the world (+10/awake region, +2/development, +15/law, +1 per 10 Flourishing, +project bonuses)">
+          <span className="hud-label">World Score</span>
+          <strong>{worldScore(state)}</strong>
+        </div>
         <div className="hud-item" title="Living (awake) regions of 12">
           <span className="hud-label">Living regions</span>
           <strong>{awakened.length}/{TOTAL_REGIONS}</strong>
@@ -314,6 +318,20 @@ export default function App() {
               ))}
             </div>
           )}
+          <h3 className="market-subhead">World Projects — fund the world (repeatable, cost rises each time)</h3>
+          <div className="row">
+            {state.projectMarket.map((p) => {
+              const owned = state.projects.filter((x) => x.id === p.id).length
+              const cost = p.baseCost + owned * p.costGrowth
+              return (
+                <button key={p.id} className="market-btn" disabled={state.seeds < cost} onClick={() => act({ type: 'buyProject', projectId: p.id })}>
+                  <strong>{p.title} — {cost} Seeds</strong>
+                  <span>{p.desc}</span>
+                  <span className="market-kind">project ×{owned}</span>
+                </button>
+              )
+            })}
+          </div>
           <div className="row controls-row">
             <button className="advance" onClick={() => act({ type: 'endMarket' })}>
               Continue → close epoch {state.epoch}

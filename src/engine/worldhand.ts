@@ -38,10 +38,13 @@ export type { Suit } from './poker'
  *  economy, market shop, and the every-miss-costs-a-life lives rule,
  *  4 = regional-bonus rules — regions carry a fixed `specialization`
  *  (pair / twopair / flush) that adds a flat Growth bonus to plays of the
- *  EXACT matching category. A save whose version or structure does not match
- *  the CURRENT engine is rejected (never reinterpreted) and preserved as
- *  recoverable legacy data — see `validateState` + src/ui/save.ts. */
-export const SAVE_VERSION = 5
+ *  EXACT matching category, 5 = per-epoch targets — Growth banked resets each
+ *  epoch, 6 = World Score + World Projects — a maximization goal, all 12
+ *  regions wakeable, uncapped development, and an infinite Seed-sink project
+ *  shop. A save whose version or structure does not match the CURRENT engine
+ *  is rejected (never reinterpreted) and preserved as recoverable legacy data
+ *  — see `validateState` + src/ui/save.ts. */
+export const SAVE_VERSION = 6
 /** SCHEMA_VERSION: envelope/layout generation, tracked separately from the
  *  rules so a pure layout change does not imply a rules change. */
 export const SCHEMA_VERSION = 3
@@ -193,6 +196,58 @@ export interface Law {
   wakeRegionId?: number
 }
 
+/** A World Project — an infinite Seed-sink that permanently improves the world.
+ *  Projects are NOT laws (they don't occupy a LAW_SLOT); each is repeatable and
+ *  its effect stacks. They give Seeds a purpose forever and are the "make the
+ *  world as good as you can" mechanism. */
+export interface WorldProject {
+  id: string
+  title: string
+  desc: string
+  baseCost: number
+  /** cost grows by this much each purchase (repeatable) */
+  costGrowth: number
+  /** +development to a specific region (id) — uncapped */
+  devRegionId?: number
+  /** +World Score flat */
+  scoreFlat?: number
+  /** +Growth per play (flat) */
+  growthFlat?: number
+  /** +Seeds per epoch */
+  seedsPerEpoch?: number
+}
+
+/** The World Projects pool — infinite, repeatable, cost-escalating. */
+export const WORLD_PROJECTS: WorldProject[] = [
+  { id: 'proj-dev-auralia', title: 'Cultivate Auralia', desc: '+1 development to Auralia (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 0 },
+  { id: 'proj-dev-veymark', title: 'Cultivate Veymark', desc: '+1 development to Veymark (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 1 },
+  { id: 'proj-dev-calder', title: 'Cultivate Calder', desc: '+1 development to Calder (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 2 },
+  { id: 'proj-dev-thessaly', title: 'Cultivate Thessaly', desc: '+1 development to Thessaly (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 3 },
+  { id: 'proj-dev-laguna', title: 'Cultivate Laguna', desc: '+1 development to Laguna (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 4 },
+  { id: 'proj-dev-ozurn', title: 'Cultivate Ozurn', desc: '+1 development to Ozurn (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 5 },
+  { id: 'proj-dev-pellucid', title: 'Cultivate Pellucid', desc: '+1 development to Pellucid (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 6 },
+  { id: 'proj-dev-harrow', title: 'Cultivate Harrow', desc: '+1 development to Harrow (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 7 },
+  { id: 'proj-dev-sequana', title: 'Cultivate Sequana', desc: '+1 development to Sequana (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 8 },
+  { id: 'proj-dev-brumal', title: 'Cultivate Brumal', desc: '+1 development to Brumal (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 9 },
+  { id: 'proj-dev-kestrel', title: 'Cultivate Kestrel', desc: '+1 development to Kestrel (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 10 },
+  { id: 'proj-dev-vantage', title: 'Cultivate Vantage', desc: '+1 development to Vantage (uncapped).', baseCost: 8, costGrowth: 4, devRegionId: 11 },
+  { id: 'proj-score', title: 'World Monument', desc: '+5 World Score.', baseCost: 20, costGrowth: 10, scoreFlat: 5 },
+  { id: 'proj-growth', title: 'Fertile Soil', desc: '+2 Growth on every play.', baseCost: 15, costGrowth: 8, growthFlat: 2 },
+  { id: 'proj-seeds', title: 'Seed Granary', desc: '+2 Seeds at each epoch end.', baseCost: 12, costGrowth: 6, seedsPerEpoch: 2 },
+]
+
+/** The World Score — the run's goal: how good you made the world.
+ *  +10 per awakened region, +2 per development point (uncapped), +15 per owned
+ *  law/upgrade, +1 per 10 lifetime Flourishing, + project scoreFlat. */
+export function worldScore(s: GameState): number {
+  const awake = s.regions.filter((r) => !r.dormant).length
+  const dev = s.regions.reduce((n, r) => n + r.development, 0)
+  const laws = s.laws.length
+  const flourish = Math.floor(s.flourishing / 10)
+  const projects = s.projects.reduce((n, p) => n + (p.scoreFlat ?? 0), 0)
+  return awake * 10 + dev * 2 + laws * 15 + flourish + projects
+}
+
 export const MARKET_ITEMS: Law[] = [
   { id: 'mycorrhiza', title: 'Mycorrhiza Network', desc: 'Regions decay 1 less each epoch (1 → 0: living regions stop decaying).', cost: 6, kind: 'law', decayDelta: -1 },
   { id: 'seed-vaults', title: 'Seed Vaults', desc: '+3 Seeds at each epoch end.', cost: 8, kind: 'law', extraSeedsPerEpoch: 3 },
@@ -206,6 +261,10 @@ export const MARKET_ITEMS: Law[] = [
   { id: 'wake-brumal', title: 'Wake Brumal', desc: 'Awaken the dormant steppe region — the planet visibly grows.', cost: 12, kind: 'expansion', wakeRegionId: 9 },
   { id: 'wake-pellucid', title: 'Wake Pellucid', desc: 'Awaken Pellucid — the planet visibly grows, and Two Pair hands gain +4 Growth there (grows with development).', cost: 12, kind: 'expansion', wakeRegionId: 6 },
   { id: 'wake-vantage', title: 'Wake Vantage', desc: 'Awaken Vantage — the planet visibly grows, and Flush hands gain +6 Growth there (grows with development).', cost: 12, kind: 'expansion', wakeRegionId: 11 },
+  { id: 'wake-ozurn', title: 'Wake Ozurn', desc: 'Awaken the dormant highland region — the planet visibly grows.', cost: 12, kind: 'expansion', wakeRegionId: 5 },
+  { id: 'wake-harrow', title: 'Wake Harrow', desc: 'Awaken the dormant forest region — the planet visibly grows.', cost: 12, kind: 'expansion', wakeRegionId: 7 },
+  { id: 'wake-sequana', title: 'Wake Sequana', desc: 'Awaken the dormant wetland region — the planet visibly grows.', cost: 12, kind: 'expansion', wakeRegionId: 8 },
+  { id: 'wake-kestrel', title: 'Wake Kestrel', desc: 'Awaken the dormant steppe region — the planet visibly grows.', cost: 12, kind: 'expansion', wakeRegionId: 10 },
 ]
 
 export interface LogEntry { at: string; text: string }
@@ -232,7 +291,11 @@ export interface GameState {
   playsLeft: number
   selected: number[] // indices into hand, 1..5 cards
   market: Law[]
+  /** World Projects offered this market phase (infinite Seed-sink) */
+  projectMarket: WorldProject[]
   laws: Law[]
+  /** owned World Projects (repeatable, cost-escalating Seed-sink) */
+  projects: WorldProject[]
   lastResolution: ResolutionPlan | null
   log: LogEntry[]
   outcome: 'flourishing' | 'withered' | null
@@ -245,6 +308,7 @@ export type Action =
   | { type: 'play' }
   | { type: 'discard'; cardIdxs: number[] }
   | { type: 'buy'; itemId: string }
+  | { type: 'buyProject'; projectId: string }
   | { type: 'removeLaw'; lawId: string }
   | { type: 'endMarket' }
   | { type: 'closeEpoch' }
@@ -338,6 +402,7 @@ export function buildPlan(
   selected: number[],
   laws: Law[],
   regions: Region[] = [],
+  projects: WorldProject[] = [],
 ): ResolutionPlan {
   const base: ResolutionPlan = {
     cards: [], category: 'high', categoryLabel: '—', categoryPoints: 0,
@@ -370,7 +435,7 @@ export function buildPlan(
   const pokerBase = Math.round(sum * mult)
   // 2. World Laws: × owned growthMult (floored at 1), then + owned growthFlat
   const lawMult = lawGrowthMult(laws)
-  const lawFlat = lawGrowthFlat(laws)
+  const lawFlat = lawGrowthFlat(laws) + projects.reduce((n, p) => n + (p.growthFlat ?? 0), 0)
   const lawBonus = Math.round(pokerBase * lawMult) + lawFlat - pokerBase
   // 3. REGIONS: sum the bonus of every AWAKE region whose fixed specialization
   //    equals the hand's EXACT evaluated category (dormant → 0; additive
@@ -446,7 +511,7 @@ export function applyPlanEffects(s: GameState, plan: ResolutionPlan): void {
 }
 
 export function preview(s: GameState): ResolutionPlan {
-  return buildPlan(s.hand, s.selected, s.laws, s.regions)
+  return buildPlan(s.hand, s.selected, s.laws, s.regions, s.projects)
 }
 
 // ---------------------------------------------------------------------------
@@ -509,7 +574,9 @@ function setupWorld(seed: Seed, seedText: string): GameState {
     playsLeft: PLAYS_PER_EPOCH,
     selected: [],
     market: [],
+    projectMarket: [],
     laws: [],
+    projects: [],
     lastResolution: null,
     log: [{ at: 'world', text: `The world of ${seedText} takes root. Four regions wake.` }],
     outcome: null,
@@ -526,7 +593,9 @@ function clone(s: GameState): GameState {
     discardPile: [...s.discardPile],
     selected: [...s.selected],
     market: s.market.map((m) => ({ ...m })),
+    projectMarket: s.projectMarket.map((p) => ({ ...p })),
     laws: s.laws.map((l) => ({ ...l })),
+    projects: s.projects.map((p) => ({ ...p })),
     lastResolution: s.lastResolution ? { ...s.lastResolution, cards: [...s.lastResolution.cards], effects: [...s.lastResolution.effects], suitCounts: { ...s.lastResolution.suitCounts } } : null,
     log: [...s.log],
   }
@@ -582,7 +651,7 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'play': {
       if (s.phase !== 'select') throw new Error('not in select phase')
       if (s.playsLeft <= 0) throw new Error('no plays left this epoch')
-      const plan = buildPlan(s.hand, s.selected, s.laws, s.regions)
+      const plan = buildPlan(s.hand, s.selected, s.laws, s.regions, s.projects)
       if (!plan.valid) throw new Error(plan.invalidReason || 'invalid selection')
       // apply plan effects (shared pipeline — preview and commit agree by construction)
       applyPlanEffects(s, plan)
@@ -635,6 +704,22 @@ export function applyAction(state: GameState, action: Action): GameState {
         if (r) r.dormant = false
       }
       s.log.push({ at: `e${s.epoch}`, text: `Acquired ${item.kind}: ${item.title} (-${cost} Seeds).` })
+      return s
+    }
+    case 'buyProject': {
+      if (s.phase !== 'market') throw new Error('not in market phase')
+      const proj = WORLD_PROJECTS.find((p) => p.id === action.projectId)
+      if (!proj) throw new Error('no such world project')
+      const owned = s.projects.filter((p) => p.id === proj.id).length
+      const cost = proj.baseCost + owned * proj.costGrowth
+      if (s.seeds < cost) throw new Error(`need ${cost} Seeds`)
+      s.seeds -= cost
+      s.projects.push({ ...proj })
+      if (proj.devRegionId !== undefined) {
+        const r = s.regions.find((x) => x.id === proj.devRegionId)
+        if (r) r.development += 1 // uncapped
+      }
+      s.log.push({ at: `e${s.epoch}`, text: `Funded ${proj.title} (-${cost} Seeds).` })
       return s
     }
     case 'removeLaw': {
@@ -709,6 +794,7 @@ export function validateState(v: unknown): string | null {
   for (const k of ['seed', 'seedText', 'epoch', 'phase', 'flourishing', 'epochGrowth', 'lives', 'seeds'] as const) {
     if (!(k in s)) return missing(k)
   }
+  if (!Array.isArray(s.projects)) return bad('projects', 'must be an array')
   if (typeof s.seed !== 'number' || !Number.isFinite(s.seed)) return bad('seed', 'must be a finite number')
   if (typeof s.seedText !== 'string') return bad('seedText', 'must be a string')
   if (!Number.isInteger(s.epoch) || (s.epoch as number) < 1) {
@@ -741,6 +827,8 @@ export function validateState(v: unknown): string | null {
     return bad('regions', `must have exactly ${TOTAL_REGIONS} entries`)
   }
   if (!Array.isArray(s.market) || !Array.isArray(s.laws)) return 'market and laws must be arrays'
+  if (!Array.isArray(s.projectMarket)) return bad('projectMarket', 'must be an array')
+  if (!Array.isArray(s.projects)) return bad('projects', 'must be an array')
   if (!Array.isArray(s.log)) return bad('log', 'must be an array')
   if (s.lastResolution !== null && typeof s.lastResolution !== 'object') {
     return bad('lastResolution', 'must be null or an object')
@@ -857,17 +945,20 @@ function endEpoch(state: GameState): GameState {
     r.stability = Math.max(0, r.stability - decay)
   }
 
-  // civilization growth (presentation only): every living region gains
+  // civilization growth (presentation + World Score): every living region gains
   // +1 development each epoch — this is what makes the 3D planet's evolution
-  // icons appear and the globe itself visibly grow. No gameplay read.
+  // icons appear and the globe itself visibly grow. Development is UNCAPPED so
+  // the world keeps growing as long as the run survives.
   for (const r of s.regions) {
-    if (!r.dormant) r.development = Math.min(STABILITY_MAX, r.development + 1)
+    if (!r.dormant) r.development += 1
   }
 
   // income: +1 per living healthy region (stability > 0 — decay above really
-  // feeds this) plus law income, halved on a missed target. Seeds accumulate
-  // without ceiling, so the full income is banked.
+  // feeds this) plus law income plus World-Project Seed income, halved on a
+  // missed target. Seeds accumulate without ceiling, so the full income is
+  // banked.
   const seedIncome = s.laws.reduce((n, l) => n + (l.extraSeedsPerEpoch ?? 0), 0)
+    + s.projects.reduce((n, p) => n + (p.seedsPerEpoch ?? 0), 0)
     + s.regions.filter((r) => !r.dormant && r.stability > 0).length
   const marketIncome = missedTarget ? Math.floor(seedIncome / 2) : seedIncome
   s.seeds += marketIncome
@@ -883,6 +974,10 @@ function endEpoch(state: GameState): GameState {
   const pool = MARKET_ITEMS.filter((m) => !s.laws.some((l) => l.id === m.id))
   const shuffled = rng.shuffle([...pool])
   s.market = shuffled.slice(0, Math.min(MARKET_SIZE, shuffled.length))
+  // World Projects: offer a rotating set of 3 each market (infinite Seed-sink —
+  // the shop never drains). Deterministic per epoch.
+  const projShuffled = rng.shuffle([...WORLD_PROJECTS])
+  s.projectMarket = projShuffled.slice(0, 3)
   s.phase = 'market'
   return s
 }
