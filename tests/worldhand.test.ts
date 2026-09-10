@@ -4,7 +4,7 @@ import {
   applyPlanEffects, epochTarget, SEEDS_PER_GROWTH, LAW_SLOTS,
   SURVIVAL_START, MARKET_ITEMS, validateState, worldScore,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, HAND_SIZE, TOTAL_REGIONS,
-  STABILITY_BASE, STABILITY_MAX, START_REGIONS,
+  STABILITY_BASE, STABILITY_MAX, START_REGIONS, JOKER_SLOTS,
 } from '../src/engine/worldhand'
 import { CATEGORY_MULT } from '../src/engine/poker'
 import type { GameState } from '../src/engine/worldhand'
@@ -724,9 +724,48 @@ describe('Balatro-hard: Jokers, Planet cards, Consumables, Vouchers, World Level
   })
 
   it('the steeper target forces a scaling engine (raw hands alone fall short by epoch ~6)', () => {
-    // epoch 6 target is 100 + 30*5 + 3*25 = 325; a raw 4-play epoch banks ~100
+    // epoch 6 target is 100 + 40*5 + 5*25 = 425; a raw 4-play epoch banks ~100
     expect(epochTarget(6)).toBeGreaterThan(300)
     expect(epochTarget(1)).toBe(100)
+  })
+
+  it('growthParts carries the world part and reconciles to growth when no joker/consumable fires', () => {
+    // world level 3 → +4 Growth/play; no joker, no consumable → parts sum to growth
+    const plan = buildPlan([C(10, 'H')], [0], [], [], [], { worldLevel: 3 })
+    expect(plan.growthParts.world).toBe(4)
+    expect(plan.growth).toBe(plan.growthParts.poker + plan.growthParts.laws + plan.growthParts.world + plan.growthParts.regions)
+    expect(plan.jokerMult).toBe(1)
+    expect(plan.consumableMult).toBe(1)
+  })
+
+  it('a firing joker is reported in jokerMult and jokerContribs (parts no longer reconcile to growth)', () => {
+    const jokers = [{ id: 'joker-pair', title: 'Pair Joker', desc: '', cost: 8, condition: 'pair', mult: 0.5 }]
+    const plan = buildPlan([C(9, 'S'), C(9, 'H')], [0, 1], [], [], [], { jokers })
+    expect(plan.jokerMult).toBe(1.5)
+    expect(plan.jokerContribs).toHaveLength(1)
+    expect(plan.jokerContribs[0].mult).toBe(0.5)
+    // the additive parts alone do NOT equal growth once a joker multiplies
+    expect(plan.growth).toBe(Math.round((plan.growthParts.poker + plan.growthParts.laws + plan.growthParts.world + plan.growthParts.regions) * plan.jokerMult))
+  })
+
+  it('a queued consumable is reported in consumableMult and consumed on play', () => {
+    const consumables = [{ id: 'cons-x2', title: 'Double Down', desc: '', cost: 8, xNext: 2 }]
+    const plan = buildPlan([C(10, 'H')], [0], [], [], [], { consumables })
+    expect(plan.consumableMult).toBe(2)
+    expect(plan.growth).toBe(Math.round((plan.growthParts.poker + plan.growthParts.laws + plan.growthParts.world + plan.growthParts.regions) * plan.consumableMult))
+  })
+
+  it('the joker shelf caps at JOKER_SLOTS (5) — a 6th buy is rejected', () => {
+    let s = newGame('joker-cap')
+    s.phase = 'market'
+    s.seeds = 1000
+    s.jokerMarket = [{ id: 'joker-any', title: 'All-In Joker', desc: '', cost: 10, condition: 'any', mult: 0.25 }]
+    for (let i = 0; i < JOKER_SLOTS; i++) {
+      s = applyAction(s, { type: 'buyJoker', jokerId: 'joker-any' })
+      s.jokerMarket = [{ id: 'joker-any', title: 'All-In Joker', desc: '', cost: 10, condition: 'any', mult: 0.25 }]
+    }
+    expect(s.jokers).toHaveLength(JOKER_SLOTS)
+    expect(() => applyAction(s, { type: 'buyJoker', jokerId: 'joker-any' })).toThrow(/joker slots are full/)
   })
 })
 

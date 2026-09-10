@@ -458,16 +458,22 @@ export interface ResolutionPlan {
   /** HERO SCORE: the one big number this play resolves to (>= 0).
    *  Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus). */
   growth: number
-  /** ordered breakdown of `growth`: poker → laws (mult + flat) → regions.
-   *  The regional part is the sum over awake regions whose fixed
-   *  specialization equals the hand's EXACT category; it is added AFTER the
-   *  law multiplier (never re-multiplied). poker + laws + regions === growth. */
-  growthParts: { poker: number; laws: number; regions: number }
+  /** ordered breakdown of `growth`: poker → laws → world → regions (the
+   *  additive pre-multiplier parts). Jokers and Consumables MULTIPLY the total
+   *  (see `jokerMult`/`consumableMult`), so the additive parts reconcile to
+   *  growth only when no joker fires and no consumable is queued. */
+  growthParts: { poker: number; laws: number; regions: number; world: number }
   /** which specializations actually contributed, for the UI breakdown
    *  (e.g. [{ spec: 'twopair', count: 1, bonus: 7 }]; empty when none) */
   regionContribs: { spec: Specialization; count: number; bonus: number }[]
   /** which jokers fired on this hand (for the UI breakdown) */
   jokerContribs: { id: string; title: string; mult: number }[]
+  /** the World Level flat Growth/play bonus (0 at level 1) */
+  worldBonus: number
+  /** the combined joker multiplier (product of (1+mult) over firing jokers) */
+  jokerMult: number
+  /** the combined consumable multiplier (product of xNext over queued) */
+  consumableMult: number
   effects: PlanEffect[]
   summary: string
   valid: boolean
@@ -535,7 +541,8 @@ export function buildPlan(
     cards: [], category: 'high', categoryLabel: '—', categoryPoints: 0,
     suitCounts: { S: 0, H: 0, D: 0, C: 0 },
     rankSum: 0, chips: 0, pokerBase: 0, mult: 1, growth: 0,
-    growthParts: { poker: 0, laws: 0, regions: 0 }, regionContribs: [], jokerContribs: [],
+    growthParts: { poker: 0, laws: 0, regions: 0, world: 0 }, regionContribs: [], jokerContribs: [],
+    worldBonus: 0, jokerMult: 1, consumableMult: 1,
     effects: [], summary: '', valid: false, invalidReason: '',
   }
   if (selected.length < 1 || selected.length > 5) {
@@ -602,7 +609,7 @@ export function buildPlan(
   // 6. CONSUMABLES: the queued ×N applies to the next hand (consumed on play).
   const consumableMult = (ctx.consumables ?? []).reduce((n, c) => n * c.xNext, 1)
 
-  const growthParts = { poker: pokerBase, laws: lawBonus, regions: regionsBonus }
+  const growthParts = { poker: pokerBase, laws: lawBonus, regions: regionsBonus, world: worldBonus }
   const growth = Math.max(0, Math.round((pokerBase * lawMult + lawFlat + worldBonus + regionsBonus) * jokerMult * consumableMult))
 
   // AUTO-EARN SEEDS: hand quality pays instantly. 1 Seed per 4 Growth
@@ -642,6 +649,9 @@ export function buildPlan(
     growthParts,
     regionContribs,
     jokerContribs,
+    worldBonus,
+    jokerMult,
+    consumableMult,
     effects,
     summary,
     valid: true,

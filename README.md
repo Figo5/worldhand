@@ -1,6 +1,6 @@
 # Worldhand
 
-A deterministic seeded planet-building card roguelike with a poker-scored engine — played in the browser, no backend. **Maximally Balatro-simple**: play poker hands, earn money, spend money to make the planet smarter. No per-suit actions, no region choices, no drought — just cards, one big Growth number, and a shop.
+A deterministic seeded planet-building card roguelike with a poker-scored engine — played in the browser, no backend. **Balatro-hard**: play poker hands, earn money, spend money to build a scaling engine (Jokers, Planet cards, Consumables, Vouchers, World Level) and outrun escalating blinds. No per-suit actions, no region choices, no drought — just cards, one big Growth number, and a shop.
 
 ## The core loop
 
@@ -16,10 +16,14 @@ A deterministic seeded planet-building card roguelike with a poker-scored engine
 
 Computed in one place (`buildPlan`), in a fixed order:
 
-1. **poker** = `round(chips × CATEGORY_MULT[category])` where **chips = rankSum = the sum of the ranks of ALL selected cards (kickers included — see below)** — high ×1, pair ×1.5, two-pair ×2, trips ×2.5, straight ×3, flush ×4, full-house ×5, quads ×6, straight-flush ×8.
-2. **World-Law bonuses only**: × owned `growthMult` (floored at 1, e.g. Open Canals ×1.2), then + owned `growthFlat` (Canopy Choir +3, Stone Masonry +6).
+1. **poker** = `round(chips × mult)` where **chips = rankSum = the sum of the ranks of ALL selected cards (kickers included — see below)** and `mult = CATEGORY_MULT[category] + planetBoosts` — high ×1, pair ×1.5, two-pair ×2, trips ×2.5, straight ×3, flush ×4, full-house ×5, quads ×6, straight-flush ×8. **Planet cards permanently raise a hand type's `mult`.**
+2. **World-Law bonuses**: × owned `growthMult` (floored at 1, e.g. Open Canals ×1.2), then + owned `growthFlat` (Canopy Choir +3, Stone Masonry +6).
+3. **World Level**: +2 Growth/play per level above 1 (the simplified worldbuilding number).
+4. **Regions**: the sum of the regional bonuses of every awake region whose fixed `specialization` equals the hand's exact category (dormant → 0).
+5. **Jokers**: × the product of `(1 + mult)` over every joker whose condition the hand meets (stack multiplicatively; Vouchers add to all joker mult).
+6. **Consumables**: × the product of the queued one-shot boosts (applied to the next hand, then consumed).
 
-`Growth = max(0, round(pokerBase × lawMult) + lawFlat)` where `pokerBase = round(chips × mult)` is the already-multiplied base. The UI shows the full honest equation — **`{chips} chips × {mult} mult = {base} base`** — so the multiplication is never implied twice. Breakdown displayed as `+15 poker · +2 laws`. No region, stability, or drought modifiers exist anymore. **Flourishing is the cumulative sum of banked Growth** toward the epoch target.
+`Growth = max(0, round((pokerBase × lawMult + lawFlat + worldBonus + totalRegionBonus) × jokerMult × consumableMult))` where `pokerBase = round(chips × mult)` is the already-multiplied base. The UI shows the full honest equation — **`{chips} chips × {mult} mult = {base} base`** — so the multiplication is never implied twice. Breakdown displayed as `+15 poker · +2 laws · +4 world · +7 regions ×1.5 joker`. **Flourishing is the lifetime sum of banked Growth**; the per-epoch target is measured against Growth banked THIS epoch.
 
 **Kickers contribute**: `rankSum` sums ALL selected cards, not just the scoring combination — an unrelated kicker adds its full rank to the chips (a pair K♠K♥ + Q♦ is `38 chips × 1.5 = 57`, not `26 × 1.5 = 39`). This is deliberate, documented, and pinned by a test (`pokerBase === round(chips × mult)`) so display and formula cannot drift.
 
@@ -42,14 +46,16 @@ i.e. **1 Seed per 4 Growth** (a 15-Growth hand nominally pays 4 Seeds). Seeds **
 
 ## The market (spend Seeds to make the civilization smarter)
 
-Up to 3 offers per epoch end from the item pool; **max 5 owned items** with explicit removal (no refund, frees the slot; buying is blocked at the cap):
+The shop is **Balatro-style** — four rotating card types plus the World Level boost, offered each epoch end:
 
-- **Poker-hand upgrades**: Canopy Choir (+3 Growth every play), Stone Masonry (+6 Growth every play), Open Canals (Growth ×1.2 every play).
-- **Card additions**: Fourth Counsel (hand 9), Fifth Counsel (hand 10) — new unique item ids; the dealt hand grows from the same 52-card deck, so conservation still holds exactly 52.
-- **Region expansion**: Wake Laguna / Wake Brumal — awaken a specific dormant region; the planet visibly grows.
-- **Laws**: Mycorrhiza Network (decay 1 → 0 — living regions stop decaying each epoch, protecting their Seed-income contribution), Seed Vaults (+3 Seeds/epoch), Barter Routes (market −2).
+- **Jokers** (max 5) — conditional multipliers that define your build: "×1.5 Growth when you play a Pair," "×2 on a Flush," "×1.5 if no face cards," "×1.25 on every hand." They stack multiplicatively.
+- **Planet cards** — permanently raise a hand type's base mult (build toward one hand).
+- **Consumables** — one-shot boosts queued before a hand ("next hand ×2"), consumed on play.
+- **Vouchers** — permanent globals (+1 hand size, all jokers +0.5 mult, +2 Seeds/epoch).
+- **World Level boost** — spend Seeds to raise the world level (+2 Growth/play, +1 Seed/epoch, +5 World Score per level above 1).
+- **World Projects** — an infinite repeatable Seed-sink (Cultivate a region, World Monument, Fertile Soil, Seed Granary); cost rises each purchase, so the shop never drains.
 
-Old per-suit upgrades (Deep Taproots, Rich Soil, Communal Tending) are removed along with the actions they buffed. Owned items never reappear; Seeds never go negative; purchases apply exactly once.
+Plus the classic items: **poker-hand upgrades** (Canopy Choir +3, Stone Masonry +6, Open Canals ×1.2), **card additions** (Fourth/Fifth Counsel — hand 9/10), **region expansions** (Wake Laguna/Brumal/Pellucid/Vantage/Ozurn/Harrow/Sequana/Kestrel), and **laws** (Mycorrhiza Network, Seed Vaults, Barter Routes). **Max 5 owned law/upgrade items** with explicit removal (no refund, frees the slot; buying is blocked at the cap); **max 5 owned Jokers**. Owned items never reappear; Seeds never go negative; purchases apply exactly once.
 
 ## The 3D planet
 
@@ -58,7 +64,7 @@ three.js globe (untouched mechanics): terrain patches, evolution icons that appe
 ## The UI (Balatro-fied, zero emojis)
 
 - Rich cream/white cards, saturated red (♥♦) / blue (♠♣) suits, bold ranks; selection = thick gold outline + glow (`.pcard-btn.sel`).
-- **ONE huge `Growth: N` hero number** per hand with the small ordered breakdown (`+15 poker · 0 laws`) and the honest **`15 chips × 1 mult = 15 base`** equation readout (chips = full rank sum, base = the already-multiplied poker part).
+- **ONE huge `Growth: N` hero number** per hand with the small ordered breakdown (`+15 poker · +2 laws · +4 world · +7 regions ×1.5 joker`) and the honest **`15 chips × 1 mult = 15 base`** equation readout (chips = full rank sum, base = the already-multiplied poker part).
 - Deep dark celestial background; greyed/minimal secondary HUD (Flourishing/target, Seeds, Lives, Plays, Discards, Living regions).
 - **No emojis anywhere in the rendered UI** (labels are plain text; suit symbols are typographic glyphs).
 - Full keyboard support and reduced-motion/accessibility preserved.
@@ -69,7 +75,7 @@ three.js globe (untouched mechanics): terrain patches, evolution icons that appe
 
 ## Saves
 
-Versioned localStorage envelope (`schema: 3` + state `version: 3` — v3 is the Balatro-simple rules generation) with **auto-save** after every committed action. On load, a save whose version or structure is incompatible with the current engine (old version, missing/non-numeric `lives`, obsolete era market items, invalid phase, malformed cards, broken 52-card conservation) is **rejected — never migrated, never reinterpreted, never erased**: the raw blob is preserved verbatim under a `worldhand.save.legacy.<ts>` key and the menu explains that a fresh run is needed because the engine rules changed. Quit never clears the save; "Clear Save" (and the game-over "Back to Menu") are destructive and both require an explicit confirmation. Rewards are applied once inside the engine commit, so auto-saving cannot double-apply them.
+Versioned localStorage envelope (`schema: 3` + state `version: 7` — v7 is the Balatro-hard rules generation) with **auto-save** after every committed action. On load, a save whose version or structure is incompatible with the current engine (old version, missing/non-numeric `lives`, obsolete era market items, invalid phase, malformed cards, broken 52-card conservation, invalid region specialization) is **rejected — never migrated, never reinterpreted, never erased**: the raw blob is preserved verbatim under a `worldhand.save.legacy.<ts>` key and the menu explains that a fresh run is needed because the engine rules changed. Quit never clears the save; "Clear Save" (and the game-over "Back to Menu") are destructive and both require an explicit confirmation. Rewards are applied once inside the engine commit, so auto-saving cannot double-apply them.
 
 ## Development
 

@@ -215,13 +215,13 @@ describe('no double application with existing laws', () => {
     const choir = [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade' as const, growthFlat: 3 }]
     const plan = buildPlan([C(13, 'S'), C(13, 'H')], [0, 1], choir, s.regions)
     expect(plan.growth).toBe(39 + 3 + PAIR_BASE)
-    expect(plan.growthParts).toEqual({ poker: 39, laws: 3, regions: PAIR_BASE })
+    expect(plan.growthParts).toEqual({ poker: 39, laws: 3, regions: PAIR_BASE, world: 0 })
   })
 
   it('laws alone (no matching region) keep the exact pre-change numbers', () => {
     const plan = buildPlan([C(10, 'H')], [0], [{ id: 'open-canals', title: 'Open Canals', desc: '', cost: 14, kind: 'upgrade' as const, growthMult: 1.2 }], [])
     expect(plan.growth).toBe(12)
-    expect(plan.growthParts).toEqual({ poker: 10, laws: 2, regions: 0 })
+    expect(plan.growthParts).toEqual({ poker: 10, laws: 2, regions: 0, world: 0 })
   })
 })
 
@@ -258,7 +258,7 @@ describe('shared scoring contract: parts reconcile + preview == commit', () => {
     for (const i of [0, 1, 2, 3]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
     const pv = preview(s)
     expect(pv.category).toBe('two-pair')
-    expect(pv.growthParts).toEqual({ poker: 64, laws: 0, regions: 7 })
+    expect(pv.growthParts).toEqual({ poker: 64, laws: 0, regions: 7, world: 0 })
     expect(pv.growth).toBe(71)
     const committed = applyAction(s, { type: 'play' })
     expect(committed.lastResolution!.growth).toBe(pv.growth)

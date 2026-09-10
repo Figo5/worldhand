@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   newGame, applyAction, preview,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_REGIONS,
-  STABILITY_MAX, epochTarget, SURVIVAL_START, LAW_SLOTS, worldScore,
+  STABILITY_MAX, epochTarget, SURVIVAL_START, LAW_SLOTS, JOKER_SLOTS, worldScore,
   SPECIALIZATION_LABEL, SPECIALIZATION_BASE, DEV_STEP, DEV_BONUS_CAP,
   specOfCategory, regionBonusOf,
   type Action, type GameState, type Region, type Law, type Specialization,
@@ -337,9 +337,10 @@ export default function App() {
             })}
           </div>
           <h3 className="market-subhead">Jokers — build your engine (conditional multipliers)</h3>
+          <p className="muted market-slots">Joker slots {state.jokers.length}/{JOKER_SLOTS} — buying is blocked at the cap.</p>
           <div className="row">
             {state.jokerMarket.map((j) => (
-              <button key={j.id} className="market-btn" disabled={state.seeds < j.cost} onClick={() => act({ type: 'buyJoker', jokerId: j.id })}>
+              <button key={j.id} className="market-btn" disabled={state.seeds < j.cost || state.jokers.length >= JOKER_SLOTS} onClick={() => act({ type: 'buyJoker', jokerId: j.id })}>
                 <strong>{j.title} — {j.cost} Seeds</strong>
                 <span>{j.desc}</span>
                 <span className="market-kind">joker</span>
@@ -447,8 +448,8 @@ export default function App() {
                     <span className="growth-hero-chips" title="chips = rank sum of ALL selected cards (kickers included); base = round(chips × mult) — shown as the full honest equation">
                       {plan.chips} chips × {plan.mult} mult = {plan.pokerBase} base
                     </span>
-                    <span className="growth-hero-breakdown" title="ordered breakdown: poker → laws → regions (regional bonuses are added once, after laws)">
-                      {fmtPart(plan.growthParts.poker)} poker · {fmtPart(plan.growthParts.laws)} laws · {fmtPart(plan.growthParts.regions)} regions
+                    <span className="growth-hero-breakdown" title="ordered breakdown: poker → laws → world → regions (additive); jokers and consumables multiply the total">
+                      {fmtPart(plan.growthParts.poker)} poker · {fmtPart(plan.growthParts.laws)} laws · {fmtPart(plan.growthParts.world)} world · {fmtPart(plan.growthParts.regions)} regions{plan.jokerMult !== 1 ? ` ×${plan.jokerMult.toFixed(2)} joker` : ''}{plan.consumableMult !== 1 ? ` ×${plan.consumableMult.toFixed(2)} consumable` : ''}
                     </span>
                   </div>
                 ) : (

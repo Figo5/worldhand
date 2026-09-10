@@ -100,7 +100,7 @@ export function loadGameDetailed(): LoadResult {
     const legacyKey = preserveLegacy(raw)
     return {
       state: null,
-      rejectedReason: `The save was made by engine version ${JSON.stringify(env.version ?? 'unknown')} (schema ${JSON.stringify(env.schema ?? 'unknown')}), but this build runs the Balatro-simple engine v${CURRENT_VERSION} (schema ${SCHEMA_VERSION_CURRENT}). The rules changed, so the old run cannot be continued. Your save has been preserved unchanged as legacy data — start a fresh world.`,
+      rejectedReason: `The save was made by engine version ${JSON.stringify(env.version ?? 'unknown')} (schema ${JSON.stringify(env.schema ?? 'unknown')}), but this build runs the Balatro-hard engine v${CURRENT_VERSION} (schema ${SCHEMA_VERSION_CURRENT}). The rules changed, so the old run cannot be continued. Your save has been preserved unchanged as legacy data — start a fresh world.`,
       legacyKey,
     }
   }

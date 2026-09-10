@@ -1,4 +1,4 @@
-# Worldhand — Rules (Balatro-simple edition)
+# Worldhand — Rules (Balatro-hard edition)
 
 ## Objective
 
@@ -27,11 +27,14 @@ Each epoch:
 
 Every play resolves to ONE number, **Growth**, computed in one shared pipeline (`buildPlan`) in a stable order:
 
-1. **poker** = `round(rankSum × CATEGORY_MULT[category])` — high ×1, pair ×1.5, two-pair ×2, trips ×2.5, straight ×3, flush ×4, full-house ×5, quads ×6, straight-flush ×8.
+1. **poker** = `round(rankSum × mult)` where `mult = CATEGORY_MULT[category] + planetBoosts` — high ×1, pair ×1.5, two-pair ×2, trips ×2.5, straight ×3, flush ×4, full-house ×5, quads ×6, straight-flush ×8. Planet cards permanently raise a hand type's `mult`.
 2. **World Laws** = × owned `growthMult` (floored at 1; Open Canals ×1.2), then + owned `growthFlat` (Canopy Choir +3, Stone Masonry +6).
-3. **Regions** = the sum of the regional bonuses of every **awake** region whose fixed `specialization` equals the played hand's **exact evaluated category** (dormant regions contribute **0**).
+3. **World Level** = +2 Growth/play per level above 1 (the simplified worldbuilding number).
+4. **Regions** = the sum of the regional bonuses of every **awake** region whose fixed `specialization` equals the played hand's **exact evaluated category** (dormant regions contribute **0**).
+5. **Jokers** = × the product of `(1 + mult)` over every joker whose condition the hand meets (stack multiplicatively; Vouchers add to all joker mult).
+6. **Consumables** = × the product of the queued one-shot boosts (applied to the next hand, then consumed).
 
-`Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)` — floored at 0, never negative. The breakdown is displayed in that order (`+15 poker · +2 laws · +7 regions`) under the big Growth readout. **The epoch target is PER-EPOCH**: you must bank `need(n)` Growth DURING that epoch; Growth banked resets at each boundary. A separate **lifetime Flourishing** total (the planet's score) keeps growing across epochs. The preview and the commit both call the same `buildPlan`, so the number you see is always the number you bank.
+`Growth = max(0, round((pokerBase × lawMult + lawFlat + worldBonus + totalRegionBonus) × jokerMult × consumableMult))` — floored at 0, never negative. The breakdown is displayed in that order (`+15 poker · +2 laws · +4 world · +7 regions ×1.5 joker`) under the big Growth readout. **The epoch target is PER-EPOCH**: you must bank `need(n)` Growth DURING that epoch; Growth banked resets at each boundary. A separate **lifetime Flourishing** total (the planet's score) keeps growing across epochs. The preview and the commit both call the same `buildPlan`, so the number you see is always the number you bank.
 
 ### Regional bonus (v4 — the planet's poker specialization)
 
@@ -90,7 +93,7 @@ nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 ## Epoch end
 
-1. **Target check** (logged): each epoch you must bank **`need(n)` Growth DURING that epoch** — `need(n) = 100 + (n−1) + 0.1·(n−1)²`, escalating indefinitely (epoch 1 = 100). **Missing ANY target costs 1 life and halves that epoch's Seed income.** A met target advances immediately (early advance). **Every epoch opens the market** — there is no fixed final epoch; the run ends only when lives run out or Flourishing collapses. Growth banked resets at each boundary, so a miss costs a life but leaves the run recoverable — the deficit is NOT carried forward.
+1. **Target check** (logged): each epoch you must bank **`need(n)` Growth DURING that epoch** — `need(n) = 100 + 40·(n−1) + 5·(n−1)²`, escalating indefinitely (epoch 1 = 100). **Missing ANY target costs 1 life and halves that epoch's Seed income.** A met target advances immediately (early advance). **Every epoch opens the market** — there is no fixed final epoch; the run ends only when lives run out or Flourishing collapses. Growth banked resets at each boundary, so a miss costs a life but leaves the run recoverable — the deficit is NOT carried forward.
 2. **Decay**: every living region with stability left loses **1 stability** per epoch. **Mycorrhiza Network reduces this decay by 1 — i.e. living regions stop decaying entirely (1 → 0)**; decay is floored at 0 (never a gain, never a double loss) and regions at 0 stay at 0. Decay is **not purely cosmetic**: the income below counts only living regions with **stability > 0**, so decayed-out regions stop paying Seeds (Mycorrhiza protects that income base).
 3. **Civilization growth**: every living region gains +1 development — this drives the 3D planet's evolution icons and the globe's visible size. No gameplay read.
 4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target), banked in full (uncapped).
@@ -115,25 +118,22 @@ nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 `scripts/solve.mjs` plays a greedy automated policy. **This is a bounded solver result, not an estimate of human performance** — the policy is a machine heuristic over a bounded candidate set, and the numbers below describe that policy only. Calibration uses the reference method directly: `LOOK=30 npx vite-node scripts/solve.mjs`.
 
-The solver was corrected in this pass (the old `score()` still carried drought/stability-era terms, and its bounded candidate list was filled entirely with 1–2-card combinations, so it never evaluated a real poker hand). The corrected policy:
+The corrected policy:
 
 - **Candidates span 1–5 cards across poker categories**: all 1–2-card selections PLUS deliberate category candidates — pairs/trips/quads groups, two-pairs, full houses, flushes (best + lowest 5-card same-suit subsets), straights (incl. ace-low wheels, suit-preferred for straight-flush attempts), and generic best-rank 3/4/5-card fillers. `LOOK` caps how many are considered per play; unset = exhaustive.
-- **Scores only current mechanics**: Growth banked toward the epoch target (chips×mult + laws, with a reachability penalty once the target is out of reach), Seeds gained, and lives (a lost life is heavily penalized). No drought/stability terms exist.
+- **Scores only current mechanics**: Growth banked toward the epoch target (chips×mult + laws + world + regions, then jokers/consumables), Seeds gained, and lives (a lost life is heavily penalized). No drought/stability terms exist.
 - **Discards sensibly**: when every candidate scores weak, it dumps the cards the best play did not want (≤5), refills, and keeps the discard only if the post-refill best play clearly beats the pre-discard one.
-- **Buys in a documented priority order**: canopy-choir (+3 flat on every play, cheapest Growth/Seed) → seed-vaults (+3 Seeds/epoch) → barter-routes (−2 all purchases) → open-canals (×1.2 every play) → stone-masonry (+6 flat) → fourth-counsel (9-card hands). Specialized wakes are considered when affordable and their category is in/near the current hand: Wake Pellucid activates Two Pair (+4 base) and Wake Vantage activates Flush (+6 base). Non-specialized wakes, Mycorrhiza, and Fifth Counsel remain skipped by this bounded policy.
+- **Buys in a documented priority order**: canopy-choir (+3 flat on every play, cheapest Growth/Seed) → seed-vaults (+3 Seeds/epoch) → barter-routes (−2 all purchases) → open-canals (×1.2 every play) → stone-masonry (+6 flat) → fourth-counsel (9-card hands), then jokers/planets to build a scaling engine (capped at 8 market buys per epoch). Specialized wakes are considered when affordable and their category is in/near the current hand. Non-specialized wakes, Mycorrhiza, and Fifth Counsel remain skipped by this bounded policy.
 - **Calibration and evaluation seeds are disjoint**: `--set calib` runs the `probe-0..29` set (used only for target sweeps); `--set eval` runs the `eval-0..29` set (the reported result); no flags run both. Output is labeled **bounded solver result** everywhere.
 
-The per-epoch target formula measures on the eval-* set (calibration set in parentheses):
+**Run-depth distribution (eval-* set, LOOK=30)** — the Balatro-hard target `100 + 40·(n−1) + 5·(n−1)²` is steep enough that even a scaling engine dies naturally:
 
-| Policy | Result (bounded solver) |
-|---|---|
-| LOOK=30 (bounded reference) | **16/30 (53%)** (20/30, 67% calib) — pre-v4 baseline |
-| LOOK=12 (very bounded) | 0/30 (0%) (1/30, 3% calib) |
-| Exhaustive (oracle) | 30/30 (100%) both sets |
+```
+epoch:  8  9 10 11 12 13 14 15 16 17 18
+count:  2  2  3  3  4  6  2  1  4  2  1
+```
 
-**Per-epoch re-measure (targets are per-epoch, not cumulative)**: the target formula `100 + (n−1) + 0.1·(n−1)²` is fit so a bounded policy at LOOK=30 gets a smooth depth distribution. On the eval-* set: **max 4/30 (13%) at any single epoch, no empty gap after a spike**; on the calib set: **max 6/30 (20%)**. The previous cumulative curve (fit to running totals) was far too high per-epoch and produced a bimodal cliff (11/30 died at exactly epoch 5); per-epoch targets remove that cliff. Reported as measured — not band-forced.
-
-**Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The per-epoch target formula is fit to the measured bank rate so runs end naturally via lives — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
+Runs end around **epoch 8–18**; the modal outcome is epoch 13 (6/30 = 20%), and there is **no empty gap** after the spike. This is the intended Balatro-hard shape — you must build a scaling engine to survive, but the blinds keep outrunning it. Reported as measured — not band-forced, not tuned to a win band.
 
 ## World Score & the Balatro-hard shop (the goal)
 
