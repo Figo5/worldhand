@@ -37,7 +37,8 @@ let earlyCloseSeen = false
 let earlyCloseEpoch = null
 let playsAtClose = null
 let guard = 0
-while (epoch < 9 && guard++ < 200) {
+let runOver = false
+while (epoch < 9 && !runOver && guard++ < 200) {
   // play until the phase leaves 'select'
   let plays = 0
   while (true) {
@@ -46,13 +47,16 @@ while (epoch < 9 && guard++ < 200) {
       return hud ? 'select' : 'unknown'
     })
     // check if we're in market or epoch-end
-    const inMarket = await page.locator('.controls-row button:has-text("Continue")').count()
+    const inMarket = await page.locator('[data-testid="end-market-btn"]').count()
     const inEpochEnd = await page.locator('[data-testid="epoch-end"]').count()
+    const isOver = await page.locator('.panel.verdict').count()
+    if (isOver) { runOver = true; break }
     if (inMarket || inEpochEnd) break
     if (plays >= 4) break
     await playBest()
     plays++
   }
+  if (runOver) break
   // record early close
   if (plays < 4 && !earlyCloseSeen) {
     earlyCloseSeen = true
@@ -60,26 +64,28 @@ while (epoch < 9 && guard++ < 200) {
     playsAtClose = plays
   }
   // advance through market / epoch-end
-  const marketBtn = page.locator('.controls-row button:has-text("Continue")').first()
+  const marketBtn = page.locator('[data-testid="end-market-btn"]').first()
   if (await marketBtn.count()) await marketBtn.click()
   await page.waitForTimeout(150)
   const closeBtn = page.locator('[data-testid="close-epoch-btn"]').first()
   if (await closeBtn.count()) await closeBtn.click()
   await page.waitForTimeout(150)
   // read the new epoch from the seed line
-  const seedLine = await page.locator('.seed').innerText().catch(() => '')
-  const m = seedLine.match(/epoch (\d+)/)
+  const railLine = await page.locator('.run-rail').innerText().catch(() => '')
+  const m = railLine.match(/Epoch (\d+)/)
   if (m) epoch = parseInt(m[1], 10)
   else break
 }
 
-const logTexts = await page.evaluate(() => [...document.querySelectorAll('.log li')].map((l) => l.innerText))
+const logTexts = await page.evaluate(() => [...document.querySelectorAll('.chronicle li')].map((l) => l.textContent))
 console.log('=== EARLY CLOSE ===')
 console.log(`epoch ${earlyCloseEpoch} closed after ${playsAtClose} plays (early advance fired)`)
 console.log('=== CHRONICLE (last 20) ===')
 for (const t of logTexts.slice(-20)) console.log(t)
+console.log('=== RUN END ===')
+console.log(runOver ? await page.locator('.panel.verdict').innerText().then((t) => t.replace(/\n/g, ' | ')) : `reached epoch ${epoch} without a verdict`)
 console.log('=== HUD ===')
-const hud = await page.locator('.hud').innerText().catch(() => '')
+const hud = await page.locator('.run-rail').innerText().catch(() => '')
 console.log(hud.replace(/\n/g, ' | '))
 console.log('=== page errors ===')
 console.log(errors.length ? errors.join(' | ') : 'NONE')

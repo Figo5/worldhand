@@ -27,7 +27,7 @@ for (let i = 0; i < 4; i++) {
   await page.waitForTimeout(150)
 }
 // advance through market + epoch-end to epoch 2
-const marketBtn = page.locator('.controls-row button:has-text("Continue")').first()
+const marketBtn = page.locator('[data-testid="end-market-btn"]').first()
 if (await marketBtn.count()) await marketBtn.click()
 await page.waitForTimeout(150)
 const closeBtn = page.locator('[data-testid="close-epoch-btn"]').first()
@@ -42,11 +42,11 @@ await page.waitForSelector('[data-testid="play-btn"]')
 await page.locator('[data-testid="play-btn"]').click()
 await page.waitForTimeout(200)
 
-const logTexts = await page.evaluate(() => [...document.querySelectorAll('.log li')].map((l) => l.innerText))
+const logTexts = await page.evaluate(() => [...document.querySelectorAll('.chronicle li')].map((l) => l.textContent))
 console.log('=== CHRONICLE (last 16) ===')
 for (const t of logTexts.slice(-16)) console.log(t)
 console.log('=== HUD ===')
-const hud = await page.locator('.hud').innerText().catch(() => '')
+const hud = await page.locator('.run-rail').innerText().catch(() => '')
 console.log(hud.replace(/\n/g, ' | '))
 console.log('=== page errors ===')
 console.log(errors.length ? errors.join(' | ') : 'NONE')

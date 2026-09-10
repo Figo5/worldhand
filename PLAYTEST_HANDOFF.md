@@ -79,3 +79,57 @@ The current screenshot capture records play/map and shop/menu states rather than
 
 The separate final-review worker was explicitly routed to `glm-5.3-flash` via `ollama-cloud`. It completed live wide/narrow visual and behavioral probes (including `PREVIEW==COMMIT true`, no overflow, keyboard selection, reduced-motion, hidden-tab resume, shop/menu/epoch inspection, and empty console-error arrays), but Ollama Cloud exhausted the account's monthly credits before returning its declared structured verdict. No files were modified by that reviewer; this is reported as a provider limitation, not a pass claim.
 
+## Playtest verdict — local completion of the blocked review (2026-09-10)
+
+The final review recorded above stopped without a verdict when Ollama Cloud exhausted the
+account's credits. This section closes it **locally, with no cloud provider**: every probe below
+was re-run against the same tree (`fc35b24` + the script-selector fixes in this commit), and the
+verdict is drawn only from output that is reproducible on this machine.
+
+**Result: PASS on the shipped scope.** No page errors in any probe; no product defect found.
+
+| Probe | Command | Result |
+|---|---|---|
+| Type check | `npx tsc --noEmit` | clean |
+| Unit suite | `npx vitest run` | 169/169 |
+| Build | `npm run build` | green (chunk-size warning is pre-existing, non-blocking) |
+| Wide + narrow QA | `node scripts/qa.mjs` | ALL PLAYWRIGHT CHECKS PASSED at 1280x800 and 480x800 |
+| Acceptance playtest | `node scripts/acceptance-playtest.mjs` | all 5 shop sections present; Joker + Planet bought; reload preserved World Lv 2 / World Score 15; page errors NONE |
+| Preview == commit | `node scripts/review-pvcommit.mjs` | MATCH true, category-match true |
+| Autosave / quit | `node scripts/review-autosave.mjs` | post-start, post-play, post-discard saves + quit/reload all preserved; errors [] |
+| Wide + narrow behavior | `node scripts/review-browser.mjs` | selection, discard, map detail, quit-preserves-save (4054 B both widths), market, epoch-end, verdict; overflowX false; errors [] |
+| 3D / reduced-motion | `node scripts/review-planet3d.mjs` | PLANET3D CHECKS PASSED — reduced-motion pixel-stable, keyboard + canvas raycast selection both resolve |
+| Early advance + run end | `node scripts/review-early-advance.mjs` | epoch 1 closed after 2 plays (early advance fires); run died at epoch 7, out of lives; errors NONE |
+| Per-epoch recovery | `node scripts/review-per-epoch-recover.mjs` | miss -> life lost, market income halved, next epoch recovers; errors NONE |
+
+### Two stale harness scripts fixed (not product bugs)
+
+The UI overhaul (`bd1a1a3`) moved the market's Continue button into `<footer class="shop-foot">`
+as `[data-testid="end-market-btn"]`, renamed the status bar `.hud` -> `.run-rail`, dropped `.seed`,
+and moved the log into a collapsed `<details class="chronicle">`. Two review scripts still probed
+the old selectors and had been **silently degraded since that commit**:
+
+- `scripts/review-early-advance.mjs` — its market check never matched, so it tried to play a hand
+  while the shop was open and died on a `play-btn` timeout. Its `.seed` epoch read also never
+  matched, so the "reach epoch 8+" half of the script had been dead: it broke out after one epoch.
+  Fixed the selectors, added a run-over guard (`.panel.verdict` has no play button, no market and
+  no epoch-end), and switched the collapsed-`<details>` log read to `textContent`.
+- `scripts/review-per-epoch-recover.mjs` — same market selector, plus empty `.hud`/`.log` reads.
+
+Both now report real state. Nothing under `src/engine/` or `src/ui/save.ts` was touched.
+
+### What the run-depth probe shows
+
+`review-early-advance.mjs` plays a naive policy (select the first up-to-5 cards, always play).
+It reached **epoch 7** before running out of lives, having climbed to World Lv 8 / World Score 219.
+That sits just below the bounded solver's epoch 8-18 band, which is the expected ordering: a naive
+policy should die earlier than a greedy engine-building one. No balance change is made on this
+evidence.
+
+### Still open (unchanged by this pass)
+
+- The regional-bonus mechanic still anti-scales (3.6% as-shipped / 1.9% all-awake).
+- Human balance judgement past the solver band is still unmeasured; both automated policies die
+  by epoch 18, but neither is a skilled player.
+- `scripts/review-independent-v5.mjs` remains a pre-existing direct-Node/ESM-extension harness
+  limitation, not part of the UI path.
