@@ -379,6 +379,8 @@ button.advance { border-color: var(--ocean); }
   flex-wrap: wrap;
   /* keep the 8-card hand on ONE row at desktop widths: cards flex down to
      ~46px before wrapping */
+  /* headroom for the selected-card lift so it never clips the heading */
+  padding-top: 8px;
 }
 .pcard-btn {
   background: none;
