@@ -52,7 +52,7 @@
 //   - EVALUATION seeds (`--set eval`): eval-0..19 — a DISJOINT set; the honest
 //     reported bounded-solver result is measured here only.
 //   - Default (no flags): runs BOTH sets and reports them separately.
-import { newGame, applyAction, buildPlan, EPOCH_TARGETS, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
+import { newGame, applyAction, buildPlan, epochTarget } from '../src/engine/worldhand.ts'
 import { hashSeed } from '../src/engine/rng.ts'
 import { evaluateSelection } from '../src/engine/poker.ts'
 
@@ -231,7 +231,7 @@ function candidateSubsets(hand, look, salt) {
 // Everything scored here exists in the live engine: banked Growth toward the
 // epoch target (chips×mult + laws), Seeds gained, lives state. No stability,
 // no drought, no wake terms — those mechanics do not exist anymore.
-const needOf = (epoch) => EPOCH_TARGETS[Math.min(epoch, TOTAL_EPOCHS) - 1].need
+const needOf = (epoch) => epochTarget(epoch)
 function score(before, after) {
   const df = after.flourishing - before.flourishing // Growth banked this play
   const ds = after.seeds - before.seeds             // Seeds gained this play
@@ -288,7 +288,7 @@ function playSeed(seedText) {
   PLAY_NO = 0
   let s = newGame(seedText)
   let guard = 0
-  while (s.phase !== 'game-over' && guard++ < 400) {
+  while (s.phase !== 'game-over' && guard++ < 2000) {
     if (s.phase === 'select') {
       const b = bestPlay(s)
       if (!b) break
@@ -365,18 +365,16 @@ function pickSeeds() {
 
 function runSet(seedList, label) {
   console.log(`\n=== ${label} — bounded solver result (NOT a human win-rate estimate) ===`)
-  let wins = 0
-  const finals = []
+  const depths = []
   for (const seed of seedList) {
     const s = playSeed(seed)
-    finals.push(s.flourishing)
-    if (s.outcome === 'flourishing') wins++
-    console.log(`${seed.padEnd(10)} ${String(s.outcome).padEnd(11)} F=${String(s.flourishing).padStart(3)}  lives=${s.lives}  ${s.outcomeReason}`)
+    depths.push(s.epoch)
+    console.log(`${seed.padEnd(10)} ended at epoch ${String(s.epoch).padStart(2)}  F=${String(s.flourishing).padStart(5)}  lives=${s.lives}  ${s.outcomeReason}`)
   }
-  finals.sort((a, b) => a - b)
-  const need = EPOCH_TARGETS[TOTAL_EPOCHS - 1].need
-  console.log(`${wins}/${seedList.length} wins (${(100 * wins / seedList.length).toFixed(0)}%) — bounded solver (LOOK=${LOOK ?? 'exhaustive'}, need F>=${need}). final F: min ${finals[0]}, median ${finals[finals.length >> 1]}, max ${finals[finals.length - 1]}`)
-  return wins
+  depths.sort((a, b) => a - b)
+  const min = depths[0], med = depths[depths.length >> 1], max = depths[depths.length - 1]
+  console.log(`run depth (epochs reached): min ${min}, median ${med}, max ${max} — bounded solver (LOOK=${LOOK ?? 'exhaustive'}).`)
+  return depths
 }
 
 const picked = pickSeeds()

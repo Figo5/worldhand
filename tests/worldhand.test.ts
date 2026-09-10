@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   newGame, applyAction, preview, buildPlan, cardConservation,
-  applyPlanEffects, EPOCH_TARGETS, SEEDS_PER_GROWTH, LAW_SLOTS,
-  SURVIVAL_START, MARKET_ITEMS,
-  PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, HAND_SIZE, TOTAL_EPOCHS, TOTAL_REGIONS,
+  applyPlanEffects, epochTarget, SEEDS_PER_GROWTH, LAW_SLOTS,
+  SURVIVAL_START, MARKET_ITEMS, validateState,
+  PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, HAND_SIZE, TOTAL_REGIONS,
   STABILITY_BASE, STABILITY_MAX, START_REGIONS,
 } from '../src/engine/worldhand'
 import { CATEGORY_MULT } from '../src/engine/poker'
@@ -46,21 +46,24 @@ describe('worldhand core contracts (Balatro-simple)', () => {
       }
     }
   })
-  it('ONE escalating Flourishing (Growth) target per epoch, strictly increasing', () => {
-    expect(EPOCH_TARGETS).toHaveLength(3)
-    expect(EPOCH_TARGETS.map((t) => t.need)).toEqual([45, 110, 360])
-    expect(EPOCH_TARGETS[0].need).toBeLessThan(EPOCH_TARGETS[1].need)
-    expect(EPOCH_TARGETS[1].need).toBeLessThan(EPOCH_TARGETS[2].need)
-    for (const t of EPOCH_TARGETS) expect(typeof t.need).toBe('number')
+  it('ONE escalating Flourishing (Growth) target per epoch, strictly increasing, indefinite', () => {
+    // epochs 1–3 are the exact original values; the formula escalates forever
+    expect(epochTarget(1)).toBe(45)
+    expect(epochTarget(2)).toBe(110)
+    expect(epochTarget(3)).toBe(360)
+    for (let n = 2; n < 30; n++) {
+      expect(epochTarget(n)).toBeGreaterThan(epochTarget(n - 1))
+      expect(Number.isInteger(epochTarget(n))).toBe(true)
+    }
   })
   it('targets are calibrated against measured bounded play, not the final target alone', () => {
     // scripts/solve.mjs (corrected policy: category-spanning 1-5 candidates,
-    // current-mechanics score, disjoint calibration/evaluation seeds). Targets
-    // are the authorized [45,110,360] — reported honestly, not band-forced.
-    expect(EPOCH_TARGETS[TOTAL_EPOCHS - 1].need).toBe(360)
-    for (let i = 1; i < EPOCH_TARGETS.length; i++) {
-      expect(EPOCH_TARGETS[i].need).toBeGreaterThan(EPOCH_TARGETS[i - 1].need)
-    }
+    // current-mechanics score, disjoint calibration/evaluation seeds). The
+    // formula continues from 360 at ~130/epoch growing slowly so runs go deep
+    // and end naturally via lives (measured median depth ~10 at LOOK=30).
+    expect(epochTarget(3)).toBe(360)
+    expect(epochTarget(4)).toBeGreaterThan(360)
+    expect(epochTarget(10)).toBeGreaterThan(epochTarget(9))
   })
   it('card conservation holds after every action type (52 always)', () => {
     let s = newGame('conservation')
@@ -287,21 +290,19 @@ describe('Balatro-style lives', () => {
       s = applyAction(s, { type: 'play' })
     }
     expect(s.phase).toBe('market')
-    expect(s.flourishing).toBeLessThan(EPOCH_TARGETS[0].need)
+    expect(s.flourishing).toBeLessThan(epochTarget(1))
     expect(s.lives).toBe(SURVIVAL_START - 1)
     expect(s.log.some((l) => l.text.includes(`a life is lost (now ${SURVIVAL_START - 1})`))).toBe(true)
     expect(s.log.some((l) => l.text.includes('halved'))).toBe(true)
   })
   it('meeting the epoch target costs no life', () => {
     let s = newGame('lives-met')
-    s.flourishing = 100
+    s.flourishing = 40 // 5 short of the 45 target
     s.epoch = 1
-    s = forceHand(s, [C(4, 'C'), C(4, 'C'), C(4, 'C'), C(4, 'C')])
-    for (let i = 0; i < 4; i++) {
-      s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
-      s = applyAction(s, { type: 'play' })
-    }
-    expect(s.flourishing).toBeGreaterThanOrEqual(EPOCH_TARGETS[0].need)
+    s = forceHand(s, [C(14, 'H')]) // ace high = 14 Growth → 54 ≥ 45
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    expect(s.flourishing).toBeGreaterThanOrEqual(epochTarget(1))
     expect(s.lives).toBe(SURVIVAL_START)
     expect(s.log.every((l) => !l.text.includes('a life is lost'))).toBe(true)
   })
@@ -358,9 +359,9 @@ describe('Balatro-style lives', () => {
   })
   it('the epoch-3 miss still costs its life (uniform contract, exercised through a real epoch-end)', () => {
     // lives 2 + a missed epoch-3 target reached through REAL play: the miss
-    // costs 1 (2 → 1) at endEpoch; the run then ends short of the win — the
-    // miss is terminal for the WIN, but the life is still spent, so 3 lives
-    // remain a real, exhaustible resource across all three epochs.
+    // costs 1 (2 → 1) at endEpoch. With unlimited epochs the run continues —
+    // the market opens and epoch 4 is reachable; lives are the exhaustible
+    // resource that eventually ends the run.
     let s = newGame('lives-e3')
     s.epoch = 3
     s.flourishing = 1
@@ -371,27 +372,25 @@ describe('Balatro-style lives', () => {
       s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
       s = applyAction(s, { type: 'play' })
     }
-    // endEpoch already charged the life — and (final-epoch flow) the run
-    // resolves STRAIGHT to the verdict: no market, no epoch 4.
+    // endEpoch already charged the life — and the run continues (no fixed cap)
     expect(s.lives).toBe(1)
     expect(s.log.some((l) => l.text.includes(`a life is lost (now 1)`))).toBe(true)
-    expect(s.phase).toBe('game-over')
-    expect(s.outcomeReason).toContain('fell short')
-    expect(s.lives).toBe(1) // the final miss still cost its life
+    expect(s.phase).toBe('market')
   })
   it('winning = beating the epoch-3 target (final Flourishing >= 360 with lives to spare)', () => {
     let s = newGame('win')
     s.epoch = 3
     s.phase = 'epoch-end'
-    s.flourishing = EPOCH_TARGETS[TOTAL_EPOCHS - 1].need + 10
+    s.flourishing = epochTarget(3) + 10
     const s2 = applyAction(s, { type: 'closeEpoch' })
-    expect(s2.phase).toBe('game-over')
-    expect(s2.outcome).toBe('flourishing')
-    expect(s2.outcomeReason).toContain('flourishes')
+    expect(s2.phase).toBe('select') // unlimited epochs: epoch 4 begins
+    expect(s2.epoch).toBe(4)
+    expect(s2.lives).toBe(SURVIVAL_START)
   })
-  it('REGRESSION: three misses across epochs 1–3 drain exactly 3 lives → 0 (lives are exhaustible in ordinary play)', () => {
+  it('REGRESSION: three misses drain exactly 3 lives → 0 (lives are exhaustible in ordinary play)', () => {
     // the pre-fix contract capped misses at 2 (epoch-3 miss skipped the life
-    // cost); this run proves all three epochs now drain the pool to 0.
+    // cost); this run proves every miss now drains the pool to 0, and the run
+    // ends at the next epoch boundary (unlimited epochs — lives are the end).
     let s = newGame('lives-full-drain')
     s.flourishing = 3
     const weak = [C(4, 'C'), C(4, 'C'), C(4, 'C'), C(4, 'C')]
@@ -403,12 +402,13 @@ describe('Balatro-style lives', () => {
         s = applyAction(s, { type: 'play' })
       }
       expect(s.lives).toBe(SURVIVAL_START - epoch) // 2, then 1, then 0
+      expect(s.phase).toBe('market') // every miss opens the market (no fixed cap)
+      s = applyAction(s, { type: 'endMarket' })
+      s = applyAction(s, { type: 'closeEpoch' })
       if (epoch < 3) {
-        s = applyAction(s, { type: 'endMarket' })
-        s = applyAction(s, { type: 'closeEpoch' })
         expect(s.phase).toBe('select') // still alive at 1+ lives
       } else {
-        // the FINAL miss resolves the run directly (no market, no epoch 4)
+        // 0 lives at the boundary ends the run
         expect(s.phase).toBe('game-over')
       }
     }
@@ -465,6 +465,67 @@ describe('four plays / three discards per epoch', () => {
     s.playsLeft = 0
     s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
     expect(() => applyAction(s, { type: 'play' })).toThrow()
+  })
+})
+
+describe('early advance on target + unlimited epochs', () => {
+  it('a play that reaches the epoch target closes the epoch immediately (unused plays forfeited)', () => {
+    let s = newGame('early-advance')
+    s.epoch = 1
+    s.flourishing = 40 // 5 short of the 45 target
+    s.playsLeft = 4
+    s = forceHand(s, [C(14, 'H')]) // ace high = 14 Growth → 40+14 = 54 ≥ 45
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    expect(s.flourishing).toBeGreaterThanOrEqual(epochTarget(1))
+    expect(s.phase).toBe('market') // closed immediately, not after 4 plays
+    expect(s.playsLeft).toBe(3) // 3 plays forfeited
+  })
+
+  it('a play that does NOT reach the target keeps the epoch open (no early close)', () => {
+    let s = newGame('no-early')
+    s.epoch = 1
+    s.flourishing = 40
+    s.playsLeft = 4
+    s = forceHand(s, [C(2, 'H')]) // 2 Growth → 42 < 45
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    expect(s.flourishing).toBeLessThan(epochTarget(1))
+    expect(s.phase).toBe('select') // still open
+    expect(s.playsLeft).toBe(3)
+  })
+
+  it('a run can reach at least epoch 8 (unlimited epochs, lives are the end)', () => {
+    // drive a run forward by meeting each target with a big hand, then advance
+    let s = newGame('deep-run')
+    s.lives = 3
+    for (let epoch = 1; epoch <= 8; epoch++) {
+      s.epoch = epoch
+      s.phase = 'select'
+      s.playsLeft = 4
+      s.discardsLeft = 3
+      // bank enough to clear the target in one play
+      s.flourishing = epochTarget(epoch) - 1
+      s = forceHand(s, [C(14, 'H'), C(13, 'H'), C(12, 'H'), C(11, 'H'), C(10, 'H')])
+      for (const i of [0, 1, 2, 3, 4]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
+      s = applyAction(s, { type: 'play' })
+      expect(s.flourishing).toBeGreaterThanOrEqual(epochTarget(epoch))
+      expect(s.phase).toBe('market') // early advance fired
+      s = applyAction(s, { type: 'endMarket' })
+      s = applyAction(s, { type: 'closeEpoch' })
+      expect(s.phase).toBe('select')
+      expect(s.epoch).toBe(epoch + 1)
+    }
+    expect(s.epoch).toBe(9)
+    expect(s.lives).toBe(3)
+  })
+
+  it('validateState accepts a high epoch (>= 1, no upper bound)', () => {
+    const s = newGame('high-epoch')
+    s.epoch = 12
+    s.phase = 'select'
+    const j = JSON.parse(JSON.stringify(s))
+    expect(validateState(j)).toBeNull()
   })
 })
 
@@ -829,9 +890,10 @@ describe('save versioning + structural validation (legacy preserved, never reint
 })
 
 describe('lives: every missed target costs 1, 0 ends the run, win while lives remain', () => {
-  it('missing the epoch-3 target ALSO costs 1 life (before the final verdict)', () => {
+  it('missing the epoch-3 target ALSO costs 1 life (the run continues, lives are the end)', () => {
     // exercise the miss through a REAL epoch: 4 weak plays banks nothing; the
-    // 4th play closes the epoch and endEpoch charges the life.
+    // 4th play closes the epoch and endEpoch charges the life. With unlimited
+    // epochs the run continues into the market — lives are what end it.
     let s = newGame('lives-e3-cost')
     s.epoch = 3
     s.flourishing = 1
@@ -841,21 +903,18 @@ describe('lives: every missed target costs 1, 0 ends the run, win while lives re
       s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
       s = applyAction(s, { type: 'play' })
     }
-    // the miss still cost its life — and the final epoch resolves straight to
-    // the verdict (no market, no epoch 4): fixed final-epoch flow.
-    expect(s.phase).toBe('game-over') // resolved directly at the final epoch
+    // the miss still cost its life — and the run continues (no fixed cap)
+    expect(s.phase).toBe('market')
     expect(s.lives).toBe(SURVIVAL_START - 1) // the miss still cost a life
-    expect(s.outcomeReason).toContain('fell short')
   })
-  it('winning beats the final target while lives remain (lives untouched on a met target)', () => {
+  it('a met target at a high epoch advances to the next epoch (unlimited epochs)', () => {
     let s = newGame('win-lives-remain')
-    s.epoch = 3
+    s.epoch = 8
     s.phase = 'epoch-end'
-    s.flourishing = EPOCH_TARGETS[TOTAL_EPOCHS - 1].need + 10
+    s.flourishing = epochTarget(8) + 10
     const s2 = applyAction(s, { type: 'closeEpoch' })
-    expect(s2.phase).toBe('game-over')
-    expect(s2.outcome).toBe('flourishing')
+    expect(s2.phase).toBe('select')
+    expect(s2.epoch).toBe(9)
     expect(s2.lives).toBe(SURVIVAL_START)
-    expect(s2.outcomeReason).toContain('lives remaining')
   })
 })

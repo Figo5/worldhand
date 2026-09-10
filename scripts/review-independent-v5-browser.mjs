@@ -17,7 +17,7 @@
 // Zero console/page errors required throughout.
 import { chromium } from 'playwright'
 import { mkdirSync } from 'fs'
-import { newGame, EPOCH_TARGETS } from '../src/engine/worldhand.ts'
+import { newGame, epochTarget } from '../src/engine/worldhand.ts'
 
 const BASE = 'http://127.0.0.1:5177'
 const OUT = 'shots-review'

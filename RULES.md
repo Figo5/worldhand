@@ -2,19 +2,19 @@
 
 ## Objective
 
-Play poker hands. Bank Growth. Beat the final epoch target: **cumulative Growth (Flourishing) 360+** across three escalating epochs (45 → 110 → 360). Lose if your **3 lives** run out, or Flourishing collapses to 0. There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
+Play poker hands. Bank Growth. Beat each epoch's Growth target to advance — **early advance**: the moment cumulative Growth reaches the epoch target, the epoch closes immediately (unused plays and discards are forfeited, exactly as in Balatro). Then shop, then the next epoch — **there is no fixed number of epochs**; the run ends when you can no longer keep up (lives run out or Flourishing collapses). Lose if your **3 lives** run out, or Flourishing collapses to 0. There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
 
-## Lives (Balatro-style — every miss costs 1, all three epochs)
+## Lives (Balatro-style — every miss costs 1, unlimited epochs)
 
-You start every run with **3 lives**. Each epoch has a single target (see *Epoch end*); **missing ANY epoch target — epoch 1, epoch 2, OR epoch 3 — costs 1 life** and also **halves that epoch's between-market Seed income**. At **0 lives the run ends withered**. The epoch-3 miss is also terminal for the WIN (final-target check) — but it still costs its life first. The win check is separate: **beat the final target while lives remain**. Three missed targets in ordinary play therefore drain exactly 3 lives (regression-tested).
+You start every run with **3 lives**. Each epoch has a single target (see *Epoch end*); **missing ANY epoch target costs 1 life** and also **halves that epoch's between-market Seed income**. At **0 lives the run ends withered**. With unlimited epochs, missing targets is the pressure that eventually ends the run — lives are the exhaustible resource, and "how far did I get" is the score. Three missed targets in ordinary play therefore drain exactly 3 lives (regression-tested).
 
 ## Turn structure
 
 Each epoch:
 1. A **hand of 8** (9/10 with card additions) is dealt from the 52-card deck.
 2. You have **4 plays** and **3 discards** to spend in any order.
-3. When the 4th play is made, the epoch closes (decay, civilization growth, income). **After the final (3rd) epoch's 4th play the run resolves directly** — final-target check, life deduction, income, then the verdict panel. No market opens for a finished run and no fourth epoch exists.
-4. After an epoch-1/epoch-2 market, the next epoch begins (or the world ends at a 0-lives boundary).
+3. When the 4th play is made — **or the moment cumulative Growth reaches the epoch target (early advance)** — the epoch closes (decay, civilization growth, income). Unused plays and discards are forfeited on an early close, exactly as in Balatro.
+4. After the market, the next epoch begins (or the world ends at a 0-lives boundary). **There is no fixed number of epochs** — the run ends only when lives run out or Flourishing collapses.
 
 ## Playing cards (1–5 selection) — no suit decisions
 
@@ -90,11 +90,11 @@ nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 ## Epoch end
 
-1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 45**; epoch 2 needs **110**; epoch 3 needs **360**. **Missing ANY target — including the epoch-3 one — costs 1 life and halves that epoch's Seed income.** The epoch-3 miss additionally ends the run short of the win (final-target check); a met epoch-3 target wins. **The final epoch resolves straight to the verdict after its 4th play** — no market phase for a finished run.
+1. **Target check** (logged): epoch 1 needs **Growth (Flourishing) 45**; epoch 2 needs **110**; epoch 3 needs **360**; then the formula `360 + 130·(n−3) + 6·(n−3)²` escalates indefinitely. **Missing ANY target costs 1 life and halves that epoch's Seed income.** A met target advances immediately (early advance). **Every epoch opens the market** — there is no fixed final epoch; the run ends only when lives run out or Flourishing collapses.
 2. **Decay**: every living region with stability left loses **1 stability** per epoch. **Mycorrhiza Network reduces this decay by 1 — i.e. living regions stop decaying entirely (1 → 0)**; decay is floored at 0 (never a gain, never a double loss) and regions at 0 stay at 0. Decay is **not purely cosmetic**: the income below counts only living regions with **stability > 0**, so decayed-out regions stop paying Seeds (Mycorrhiza protects that income base).
 3. **Civilization growth**: every living region gains +1 development — this drives the 3D planet's evolution icons and the globe's visible size. No gameplay read.
 4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target), banked in full (uncapped).
-5. **Market phase** — epochs 1 and 2 only; the final epoch has none.
+5. **Market phase** — every epoch (met or missed) opens the market; there is no fixed final epoch.
 
 ## Market (spend Seeds on a smarter civilization)
 
@@ -123,7 +123,7 @@ The solver was corrected in this pass (the old `score()` still carried drought/s
 - **Buys in a documented priority order**: canopy-choir (+3 flat on every play, cheapest Growth/Seed) → seed-vaults (+3 Seeds/epoch) → barter-routes (−2 all purchases) → open-canals (×1.2 every play) → stone-masonry (+6 flat) → fourth-counsel (9-card hands). Specialized wakes are considered when affordable and their category is in/near the current hand: Wake Pellucid activates Two Pair (+4 base) and Wake Vantage activates Flush (+6 base). Non-specialized wakes, Mycorrhiza, and Fifth Counsel remain skipped by this bounded policy.
 - **Calibration and evaluation seeds are disjoint**: `--set calib` runs the `probe-0..29` set (used only for target sweeps); `--set eval` runs the `eval-0..29` set (the reported result); no flags run both. Output is labeled **bounded solver result** everywhere.
 
-The shipped [45, 110, 360] measures on the eval-* set (calibration set in parentheses):
+The first-three targets [45, 110, 360] measure on the eval-* set (calibration set in parentheses):
 
 | Policy | Result (bounded solver) |
 |---|---|
@@ -131,13 +131,23 @@ The shipped [45, 110, 360] measures on the eval-* set (calibration set in parent
 | LOOK=12 (very bounded) | 0/30 (0%) (1/30, 3% calib) |
 | Exhaustive (oracle) | 30/30 (100%) both sets |
 
-**Post-v4 re-measure (regional bonus shipped; policy and targets untouched)**: LOOK=30 now measures **20/30 (67%) eval / 21/30 (70%) calib**, exhaustive still 30/30. The always-awake Auralia Pair specialization adds a small flat bonus to pair plays, which the bounded policy's pair-heavy candidates convert into wins; the formula was NOT retuned after shipping (constants stayed at the declared PAIR_BASE=3 / TWOPAIR_BASE=4 / FLUSH_BASE=6 / DEV_STEP=2 / DEV_BONUS_CAP=4), targets stayed [45,110,360], and the solver's buy policy was not touched. Reported as measured — not band-forced.
+**Unlimited-epoch re-measure (early advance + formula targets)**: the target formula continues from 360 at ~130/epoch growing slowly. On the eval-* set at LOOK=30, the bounded solver reaches **median epoch 10, max 14** before lives run out — runs go deep and end naturally. The unique quadratic through (45,110,360) was tried first but FAILED calibration (post-3 increments 435/620/805 outpace the ~150 Growth/epoch a policy banks, so runs died at epoch 5); the gentler curve was chosen instead. Reported as measured — not band-forced.
 
-**Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The **[45,110,360] targets are the authorized ladder** from the preceding cycle, restored per the goal (this cycle was for correctness fixes, not another balance redesign). The corrected policy measures a high bounded win rate against them — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
+**Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The **[45,110,360] first-three targets are the authorized ladder** from the preceding cycle, preserved exactly; the formula extends them indefinitely. The corrected policy reaches deep runs against them — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
 
 ## Determinism
 
 Same seed phrase → identical world, shuffles, deals, and chronicle. All randomness flows from the hashed seed; the engine is pure (no DOM, no clock, no Math.random).
+
+## Known ceilings past epoch ~10 (reported, not fixed)
+
+These are real limits on "make the planet as good as possible" that matter once runs go past ~epoch 10, but they are a separate decision and are NOT addressed in this pass:
+
+- **Only 8 of 12 regions can ever wake**: 4 start awake + exactly 4 wake items (Wake Laguna→4, Wake Brumal→9, Wake Pellucid→6, Wake Vantage→11). Regions 5, 7, 8, 10 have no wake item and are permanently dormant.
+- **Development caps at 10 per region** (`STABILITY_MAX`), so the planet fully maxes around epoch 10.
+- **The shop empties permanently after ~12 epochs**: `MARKET_ITEMS` has 12 entries and owned items never re-offer, so once all are owned the market is empty.
+
+At LOOK=30 the bounded solver reaches median epoch 10 / max 14, so a typical run brushes against the development cap and the shop-drain ceiling. These are recorded here for a future decision, not silently patched.
 
 ## Interface & motion (card-first, one big number, zero emojis)
 

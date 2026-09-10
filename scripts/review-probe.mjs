@@ -1,7 +1,7 @@
 // Independent review probe — Balatro-simple engine contract checks.
 // Updated for the no-suit-actions / auto-Seeds / lives contract.
 import { newGame, applyAction, preview, buildPlan, cardConservation,
-  EPOCH_TARGETS, PLAYS_PER_EPOCH, SURVIVAL_START,
+  epochTarget, PLAYS_PER_EPOCH, SURVIVAL_START,
   HAND_SIZE, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
 import { evaluateSelection, compareHands, CATEGORY_POINTS } from '../src/engine/poker.ts'
 
@@ -109,7 +109,7 @@ const log = (k, v) => out.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v
 }
 
 // 6. Three-epoch progression + escalating targets (ONE Growth target per epoch)
-log('epoch-targets-escalating', EPOCH_TARGETS.map(t => t.need).join(',') === '45,110,360')
+log('epoch-targets-escalating', [epochTarget(1), epochTarget(2), epochTarget(3)].join(',') === '45,110,360')
 log('total-epochs', TOTAL_EPOCHS)
 log('plays-per-epoch', PLAYS_PER_EPOCH)
 log('lives-start', SURVIVAL_START)

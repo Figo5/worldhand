@@ -405,7 +405,8 @@ button.advance { border-color: var(--accent2); }
 .pv-dec { color: var(--muted); font-size: 0.8rem; }
 .pv-cards { list-style: none; display: flex; gap: 6px; padding: 0; margin: 0 0 8px; }
 .pv-cards .pcard { width: 40px; height: 54px; font-size: 1rem; border-radius: 7px; }
-.pv-summary { margin: 0; font-size: 0.9rem; color: var(--accent); }
+.pv-summary { margin: 0.4rem 0 0; font-size: 0.85rem; color: var(--muted); }
+.pv-close-epoch { margin: 0.4rem 0 0; font-size: 0.82rem; color: var(--accent); font-weight: 600; }
 .tie-row { margin-top: 8px; }
 .tie-btn.sel { border-color: var(--accent2); box-shadow: 0 0 6px rgba(88, 166, 255, 0.5); }
 

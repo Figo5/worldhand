@@ -2,7 +2,7 @@
 // 1. save validation: legacy/obsolete/invalid states must be rejected
 // 2. lives-reach-zero outcome path (engine)
 // 3. growth = pokerBase + laws consistency sweep
-import { newGame, applyAction, buildPlan, EPOCH_TARGETS } from '../src/engine/worldhand.ts'
+import { newGame, applyAction, buildPlan, epochTarget } from '../src/engine/worldhand.ts'
 import { evaluateSelection } from '../src/engine/poker.ts'
 
 const results = []

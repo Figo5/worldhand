@@ -8,8 +8,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   newGame, applyAction, preview, buildPlan,
-  SEEDS_PER_GROWTH, MARKET_ITEMS, EPOCH_TARGETS,
-  STABILITY_BASE, SURVIVAL_START, TOTAL_EPOCHS, validateState,
+  SEEDS_PER_GROWTH, MARKET_ITEMS, epochTarget,
+  STABILITY_BASE, SURVIVAL_START, validateState,
   type GameState, type PlanEffect,
 } from '../src/engine/worldhand'
 import type { Card, Suit as PSuit } from '../src/engine/poker'
@@ -95,14 +95,16 @@ describe('FIX 1: Mycorrhiza decay — living-region decay is ZERO with the law, 
     // with Mycorrhiza (decay 0) all four stay healthy  → income +4
     // without it (decay 1) the two die (stability 0)   → income +2
     let s = newGame('fix1-income')
+    s.epoch = 20 // high target so early-advance fires only on the 4th play
     s.laws = [{ ...MYCO }]
-    s.flourishing = 100
+    s.flourishing = epochTarget(20) - 16 // 4 weak plays × 4 growth → met on the 4th
     s.regions[0].stability = 1
     s.regions[1].stability = 1
     s = playOut(s)
     expect(s.log.some((l) => l.text.includes('Epoch end: +4 Seeds'))).toBe(true)
     let t = newGame('fix1-income-no')
-    t.flourishing = 100
+    t.epoch = 20
+    t.flourishing = epochTarget(20) - 16
     t.regions[0].stability = 1
     t.regions[1].stability = 1
     t = playOut(t)
@@ -133,6 +135,7 @@ describe('FIX 2: Seeds accumulate without ceiling — every play banks the full 
 
   it('every play banks the full nominal earn (no credited/overflow split)', () => {
     let s = newGame('fix2-plan')
+    s.epoch = 20 // high target so early-advance never fires
     s.seeds = 24
     s = forceHand(s, TWOPAIR16)
     for (const i of [0, 1, 2, 3]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
@@ -149,6 +152,7 @@ describe('FIX 2: Seeds accumulate without ceiling — every play banks the full 
   it('uncapped accumulation: 8+16→24 · 24+16→40 · 30+16→46 (no cap, no overflow)', () => {
     const run = (seeds: number) => {
       let s = newGame('fix2-examples')
+      s.epoch = 20 // high target so early-advance never fires
       s.seeds = seeds
       s = forceHand(s, TWOPAIR16)
       for (const i of [0, 1, 2, 3]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
@@ -190,6 +194,7 @@ describe('FIX 2: Seeds accumulate without ceiling — every play banks the full 
   it('preview == commit == log agree on the amount across balances (uncapped)', () => {
     for (const bal of [0, 8, 24, 29, 30]) {
       let s = newGame('fix2-agree' + bal)
+      s.epoch = 20 // high target so early-advance never fires
       s.seeds = bal
       s = forceHand(s, TWOPAIR16)
       for (const i of [0, 1, 2, 3]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
@@ -221,8 +226,9 @@ describe('FIX 2: Seeds accumulate without ceiling — every play banks the full 
   it('epoch-end income at a met target: 24 + 4 plays + 4 income → 32 (full income, no cap)', () => {
     // 24 + 1 Seed per weak play (Growth 4 → ceil(4/4) = 1) ×4 = 28, then +4 income
     let s = newGame('fix2-epochend2')
+    s.epoch = 20 // high target so early-advance fires only on the 4th play
     s.seeds = 24
-    s.flourishing = 100 // target met → income not halved
+    s.flourishing = epochTarget(20) - 16 // 4 weak plays × 4 growth → met on the 4th
     s = playOut(s)
     expect(s.seeds).toBe(32)
     const line = s.log.find((l) => l.text.startsWith('Epoch end: +'))!
@@ -241,57 +247,61 @@ describe('FIX 2: Seeds accumulate without ceiling — every play banks the full 
 })
 
 // ---------------------------------------------------------------------------
-// FIX 3 — final-epoch flow
+// FIX 3 — unlimited epochs + early advance (replaces the fixed 3-epoch flow)
 // ---------------------------------------------------------------------------
 
-describe('FIX 3: final-epoch flow resolves the run exactly once — no market, no epoch 4', () => {
-  it('final miss with lives remaining: the 4th play at epoch 3 goes straight to game-over (no market phase)', () => {
+describe('FIX 3: unlimited epochs — the run ends on lives, not a fixed epoch', () => {
+  it('a miss with lives remaining continues into the market (no fixed final epoch)', () => {
     let s = newGame('fix3-miss')
     s.epoch = 3
     s.flourishing = 1
     s.lives = 2
     s.phase = 'select'
     s = playOut(s)
-    expect(s.phase).toBe('game-over')
+    expect(s.phase).toBe('market') // run continues
     expect(s.lives).toBe(1) // the miss still cost its life
-    expect(s.outcome).toBe('withered')
-    expect(s.outcomeReason).toContain('fell short')
-    expect(s.market).toEqual([]) // no market is pushed for a finished run
+    expect(s.market.length).toBeGreaterThan(0) // market is pushed
     // resolved EXACTLY once: one life-lost line, one income line for e3
     expect(s.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(1)
     expect(s.log.filter((l) => l.text.startsWith('Epoch end: +'))).toHaveLength(1)
   })
 
-  it('final win: verdict directly, outcome flourishing, no epoch-4 advertisement anywhere in the chronicle', () => {
+  it('a met target at epoch 3 advances to epoch 4 (no fixed cap, no verdict)', () => {
     let s = newGame('fix3-win')
     s.epoch = 3
-    s.flourishing = 500 // comfortably past the 360 final target
+    s.flourishing = epochTarget(3) - 1 // 359, one play short
     s.lives = 3
     s.phase = 'select'
-    s = playOut(s)
-    expect(s.phase).toBe('game-over')
-    expect(s.outcome).toBe('flourishing')
-    expect(s.outcomeReason).toContain('flourishes')
+    s = forceHand(s, [C(14, 'H')]) // ace high = 14 Growth → 373 ≥ 360
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    expect(s.phase).toBe('market') // early advance fired
     expect(s.lives).toBe(SURVIVAL_START)
-    expect(JSON.stringify(s.log)).not.toMatch(/[Ee]poch 4/)
+    s = applyAction(s, { type: 'endMarket' })
+    s = applyAction(s, { type: 'closeEpoch' })
+    expect(s.phase).toBe('select')
+    expect(s.epoch).toBe(4)
   })
 
-  it('zero-lives loss at the final epoch resolves once with the lives reason', () => {
+  it('zero-lives loss resolves once with the lives reason', () => {
     let s = newGame('fix3-zero')
     s.epoch = 3
     s.flourishing = 1
     s.lives = 1
     s.phase = 'select'
     s = playOut(s)
-    expect(s.phase).toBe('game-over')
-    expect(s.lives).toBe(0)
-    expect(s.outcome).toBe('withered')
-    expect(s.outcomeReason).toContain('Out of lives')
-    expect(s.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(1)
-    expect(s.log.filter((l) => l.text.startsWith('Epoch end: +'))).toHaveLength(1)
+    expect(s.phase).toBe('market') // 0 lives pending the boundary
+    s = applyAction(s, { type: 'endMarket' })
+    const s2 = applyAction(s, { type: 'closeEpoch' })
+    expect(s2.phase).toBe('game-over')
+    expect(s2.lives).toBe(0)
+    expect(s2.outcome).toBe('withered')
+    expect(s2.outcomeReason).toContain('Out of lives')
+    expect(s2.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(1)
+    expect(s2.log.filter((l) => l.text.startsWith('Epoch end: +'))).toHaveLength(1)
   })
 
-  it('epochs 1–2 keep the exact existing flow: market → endMarket → epoch-end → closeEpoch → next epoch', () => {
+  it('epochs keep the exact existing flow: market → endMarket → epoch-end → closeEpoch → next epoch', () => {
     let s = playOut(newGame('fix3-early'))
     expect(s.phase).toBe('market')
     expect(s.epoch).toBe(1)
@@ -300,7 +310,7 @@ describe('FIX 3: final-epoch flow resolves the run exactly once — no market, n
     s = applyAction(s, { type: 'closeEpoch' })
     expect(s.epoch).toBe(2)
     expect(s.phase).toBe('select')
-    // and epoch 2 still ends into a market phase (only the FINAL epoch skips it)
+    // and epoch 2 still ends into a market phase (every epoch does now)
     s = playOut(s)
     expect(s.phase).toBe('market')
   })
@@ -309,9 +319,11 @@ describe('FIX 3: final-epoch flow resolves the run exactly once — no market, n
     let s = newGame('fix3-reload')
     s.epoch = 3
     s.flourishing = 1
-    s.lives = 2
+    s.lives = 1
     s.phase = 'select'
     s = playOut(s)
+    s = applyAction(s, { type: 'endMarket' })
+    s = applyAction(s, { type: 'closeEpoch' })
     expect(s.phase).toBe('game-over')
     // the committed state is structurally valid → a reload restores exactly it
     const j = JSON.parse(JSON.stringify(s))
@@ -332,14 +344,13 @@ describe('FIX 3: final-epoch flow resolves the run exactly once — no market, n
     expect(s.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(1)
   })
 
-  it('a crafted legacy epoch-end state at the final epoch still resolves to the verdict (no epoch 4)', () => {
+  it('a crafted legacy epoch-end state at a high epoch advances to the next epoch (no verdict)', () => {
     const s = newGame('fix3-legacy')
-    s.epoch = 3
+    s.epoch = 8
     s.phase = 'epoch-end'
-    s.flourishing = EPOCH_TARGETS[TOTAL_EPOCHS - 1].need + 1
+    s.flourishing = epochTarget(8) + 1
     const s2 = applyAction(s, { type: 'closeEpoch' })
-    expect(s2.phase).toBe('game-over')
-    expect(s2.outcome).toBe('flourishing')
-    expect(JSON.stringify(s2.log)).not.toMatch(/[Ee]poch 4/)
+    expect(s2.phase).toBe('select')
+    expect(s2.epoch).toBe(9)
   })
 })

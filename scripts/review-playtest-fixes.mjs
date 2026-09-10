@@ -12,7 +12,7 @@
 // localStorage save is never touched. Screenshots land in shots-review/.
 import { chromium } from 'playwright'
 import { mkdirSync } from 'fs'
-import { newGame, TOTAL_EPOCHS, EPOCH_TARGETS } from '../src/engine/worldhand.ts'
+import { newGame, epochTarget } from '../src/engine/worldhand.ts'
 
 const BASE = 'http://127.0.0.1:5177'
 const OUT = 'shots-review'
@@ -44,9 +44,9 @@ const creditState = (() => {
 // Fix 3: a legacy `epoch-end` state parked at the FINAL epoch, comfortably winning
 const finalEpochState = (() => {
   const s = newGame('fix3-ui-proof')
-  s.epoch = TOTAL_EPOCHS
+  s.epoch = 3
   s.phase = 'epoch-end'
-  s.flourishing = EPOCH_TARGETS[TOTAL_EPOCHS - 1].need + 140
+  s.flourishing = epochTarget(3) + 140
   s.lives = 3
   return s
 })()

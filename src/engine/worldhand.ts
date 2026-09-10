@@ -66,18 +66,24 @@ export const SEEDS_START = 8
 export const MARKET_SIZE = 3
 export const LIVES_CAP = 3
 
-/** The 3 escalating epoch targets: cumulative Growth (Flourishing), one per
- *  epoch, strictly increasing. Recalibrated with the CORRECTED bounded solver
- *  (scripts/solve.mjs: category-spanning candidates, current-mechanics score):
- *  the corrected policy evaluates real poker hands, so it wins far more often
- *  than the old mis-focused one — the shipped [30, 70, 320] measures 83% at
- *  LOOK=30 on the eval-* set (see RULES.md / Balance for the full honest
- *  table). Targets are round integers, not band-forced percentages. */
-export const EPOCH_TARGETS: EpochTarget[] = [
-  { epoch: 1, desc: 'Growth 45 (cumulative Flourishing)', need: 45 },
-  { epoch: 2, desc: 'Growth 110 (cumulative Flourishing)', need: 110 },
-  { epoch: 3, desc: 'Growth 360 (cumulative Flourishing)', need: 360 },
-]
+/** The escalating epoch target: cumulative Growth (Flourishing), one per epoch,
+ *  strictly increasing, computed by a formula that escalates indefinitely.
+ *  Epochs 1–3 are the exact original values (45, 110, 360) so early play is
+ *  unchanged. The unique quadratic through those three (92.5n² − 212.5n + 165)
+ *  was tried first but FAILED calibration: its post-3 increments (435, 620,
+ *  805…) outpace the ~150 Growth/epoch a bounded policy banks, so runs died at
+ *  epoch 5. A gentler escalation continues from 360 at ~130/epoch growing
+ *  slowly, so runs go deep and end naturally via lives. Monotonic increasing. */
+export function epochTarget(epoch: number): number {
+  if (epoch <= 3) return [45, 110, 360][epoch - 1]
+  const d = epoch - 3
+  return Math.round(360 + 130 * d + 6 * d * d)
+}
+
+/** Human-readable target descriptor for the current epoch. */
+export function epochTargetDesc(epoch: number): string {
+  return `Growth ${epochTarget(epoch)} (cumulative Flourishing)`
+}
 
 export type Phase = 'select' | 'market' | 'epoch-end' | 'game-over'
 export interface EpochTarget { epoch: number; desc: string; need: number }
@@ -587,6 +593,10 @@ export function applyAction(state: GameState, action: Action): GameState {
       s.lastResolution = plan
       s.log.push({ at: `e${s.epoch}`, text: `Played ${plan.categoryLabel}: ${plan.summary}` })
       s.selected = []
+      // EARLY ADVANCE: if the play reached the epoch target, close the epoch
+      // immediately — unused plays and discards are forfeited, exactly as in
+      // Balatro. Otherwise close only when all plays are spent.
+      if (s.flourishing >= epochTarget(s.epoch)) return endEpoch(s)
       if (s.playsLeft === 0) return endEpoch(s)
       return refill(s)
     }
@@ -697,8 +707,8 @@ export function validateState(v: unknown): string | null {
   }
   if (typeof s.seed !== 'number' || !Number.isFinite(s.seed)) return bad('seed', 'must be a finite number')
   if (typeof s.seedText !== 'string') return bad('seedText', 'must be a string')
-  if (!Number.isInteger(s.epoch) || (s.epoch as number) < 1 || (s.epoch as number) > TOTAL_EPOCHS) {
-    return bad('epoch', `must be an integer 1..${TOTAL_EPOCHS}`)
+  if (!Number.isInteger(s.epoch) || (s.epoch as number) < 1) {
+    return bad('epoch', 'must be an integer >= 1')
   }
   if (!VALID_PHASES.includes(s.phase as Phase)) {
     return `phase "${String(s.phase)}" is not a valid Phase (${VALID_PHASES.join(' | ')})`
@@ -804,18 +814,17 @@ function endEpoch(state: GameState): GameState {
   s.selected = []
 
   // epoch target check: the ONE target per epoch is cumulative Growth (Flourishing)
-  const target = EPOCH_TARGETS[s.epoch - 1]
-  const metTarget = s.flourishing >= target.need
+  const targetNeed = epochTarget(s.epoch)
+  const metTarget = s.flourishing >= targetNeed
   s.log.push({
     at: `e${s.epoch}`,
-    text: `Epoch ${s.epoch} target "${target.desc}": ${metTarget ? 'met' : 'missed'} (Flourishing ${s.flourishing}).`,
+    text: `Epoch ${s.epoch} target "${epochTargetDesc(s.epoch)}": ${metTarget ? 'met' : 'missed'} (Flourishing ${s.flourishing}).`,
   })
 
-  // Balatro-style lives: EVERY missed epoch target (epochs 1, 2 AND 3) costs
-  // 1 life; the run ends only when lives reach 0. The epoch-3 miss is ALSO the
-  // loss check for the final target (the win is decided separately below), but
-  // it still costs its life like every other epoch — 3 lives is a real,
-  // exhaustible resource, not a free pass at the final rung.
+  // Balatro-style lives: EVERY missed epoch target costs 1 life; the run ends
+  // only when lives reach 0. With unlimited epochs, missing a target is the
+  // pressure that eventually ends the run — 3 lives is a real, exhaustible
+  // resource, not a free pass at a final rung.
   let missedTarget = false
   if (!metTarget) {
     s.lives -= 1
@@ -824,12 +833,10 @@ function endEpoch(state: GameState): GameState {
       at: `e${s.epoch}`,
       text: `Missed the epoch-${s.epoch} target: a life is lost (now ${s.lives}) and this epoch's market income is halved.`,
     })
-    if (s.epoch < TOTAL_EPOCHS) {
-      s.log.push({
-        at: `e${s.epoch}`,
-        text: `Flourishing ${s.flourishing} fell short of ${target.need} — the next epoch's market opens with the penalty applied.`,
-      })
-    }
+    s.log.push({
+      at: `e${s.epoch}`,
+      text: `Flourishing ${s.flourishing} fell short of ${targetNeed} — the next epoch's market opens with the penalty applied.`,
+    })
   }
 
   // decay: every living region with stability left loses exactly 1 per epoch.
@@ -864,13 +871,9 @@ function endEpoch(state: GameState): GameState {
     text: `Epoch end: +${marketIncome} Seeds.`,
   })
 
-  // FINAL-EPOCH TERMINATION: once the last hand is played the run is decided —
-  // no market can matter, so none is offered. Resolve the verdict EXACTLY ONCE
-  // here (target check + life deduction + income above already ran) instead of
-  // pushing a market phase and advertising a nonexistent epoch 4.
-  if (s.epoch >= TOTAL_EPOCHS) return advanceToNextEpoch(s)
-
-  // market phase (epochs 1–2 only — unchanged flow)
+  // UNLIMITED EPOCHS: every epoch (met or missed) opens the market — there is
+  // no fixed final epoch. The run ends only when lives run out or Flourishing
+  // collapses (handled in advanceToNextEpoch).
   const rng = rngFor(s, 77)
   const pool = MARKET_ITEMS.filter((m) => !s.laws.some((l) => l.id === m.id))
   const shuffled = rng.shuffle([...pool])
@@ -881,20 +884,14 @@ function endEpoch(state: GameState): GameState {
 
 function advanceToNextEpoch(state: GameState): GameState {
   const s = clone(state)
-  if (s.epoch >= TOTAL_EPOCHS || s.lives <= 0 || s.flourishing <= 0) {
+  if (s.lives <= 0 || s.flourishing <= 0) {
     s.phase = 'game-over'
     if (s.lives <= 0) {
       s.outcome = 'withered'
       s.outcomeReason = `Out of lives (${s.lives}): too many epoch targets missed. The world withers.`
-    } else if (s.flourishing >= EPOCH_TARGETS[TOTAL_EPOCHS - 1].need) {
-      s.outcome = 'flourishing'
-      s.outcomeReason = `The world flourishes at ${s.flourishing} after ${TOTAL_EPOCHS} epochs (lives remaining: ${s.lives}).`
-    } else if (s.flourishing <= 0) {
-      s.outcome = 'withered'
-      s.outcomeReason = 'Flourishing collapsed to 0.'
     } else {
       s.outcome = 'withered'
-      s.outcomeReason = `Final Flourishing ${s.flourishing} fell short of ${EPOCH_TARGETS[TOTAL_EPOCHS - 1].need}.`
+      s.outcomeReason = 'Flourishing collapsed to 0.'
     }
     return s
   }

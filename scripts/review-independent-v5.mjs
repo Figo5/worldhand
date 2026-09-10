@@ -10,7 +10,7 @@
 //      epochs 1–2 unchanged, legacy epoch-end state, reload inert.
 //   D. buildPlan contract (no balance param — the plan is balance-agnostic).
 import { newGame, applyAction, preview, buildPlan,
-  validateState, MARKET_ITEMS, EPOCH_TARGETS, STABILITY_BASE,
+  validateState, MARKET_ITEMS, epochTarget, STABILITY_BASE,
   SURVIVAL_START, TOTAL_EPOCHS } from '../src/engine/worldhand.ts'
 
 const results = []
@@ -162,7 +162,7 @@ const TWOPAIR = [C(9, 'S'), C(9, 'H'), C(7, 'D'), C(7, 'C')]
     `m1=${m1} adv1=${adv1} m2=${m2} adv2=${adv2}`)
 
   const lg = newGame('v5-legacy-end')
-  lg.epoch = 3; lg.phase = 'epoch-end'; lg.flourishing = EPOCH_TARGETS[2].need + 7
+  lg.epoch = 3; lg.phase = 'epoch-end'; lg.flourishing = epochTarget(3) + 7
   const lg2 = applyAction(lg, { type: 'closeEpoch' })
   ok('C5 legacy epoch-end@3 closeEpoch -> verdict, no epoch 4',
     lg2.phase === 'game-over' && lg2.outcome === 'flourishing'

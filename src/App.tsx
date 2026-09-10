@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   newGame, applyAction, preview,
-  PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_EPOCHS, TOTAL_REGIONS,
-  STABILITY_MAX, EPOCH_TARGETS, SURVIVAL_START, LAW_SLOTS,
+  PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_REGIONS,
+  STABILITY_MAX, epochTarget, SURVIVAL_START, LAW_SLOTS,
   SPECIALIZATION_LABEL, SPECIALIZATION_BASE, DEV_STEP, DEV_BONUS_CAP,
   specOfCategory, regionBonusOf,
   type Action, type GameState, type Region, type Law, type Specialization,
@@ -201,7 +201,7 @@ export default function App() {
 
   const awakened = state.regions.filter((r) => !r.dormant)
   const over = state.phase === 'game-over'
-  const target = EPOCH_TARGETS[state.epoch - 1]
+  const targetNeed = epochTarget(state.epoch)
 
   return (
     <main className="shell">
@@ -209,7 +209,7 @@ export default function App() {
         <div>
           <h1>Worldhand</h1>
           <span className="seed">
-            seed: {state.seedText} · epoch {state.epoch}/{TOTAL_EPOCHS}
+            seed: {state.seedText} · epoch {state.epoch}
           </span>
         </div>
         <div className="row">
@@ -230,7 +230,7 @@ export default function App() {
       <section className="hud" aria-label="World status">
         <div className="hud-item" title="Flourishing now — this epoch's single Growth target is the bar to clear">
           <span className="hud-label">Flourishing</span>
-          <strong>{state.flourishing}<span className="hud-of">/{target.need}</span></strong>
+          <strong>{state.flourishing}<span className="hud-of">/{targetNeed}</span></strong>
         </div>
         <div className="hud-item" title="Seeds — the market currency (uncapped)">
           <span className="hud-label">Seeds</span>
@@ -323,17 +323,9 @@ export default function App() {
             {state.log.filter((l) => l.at === `e${state.epoch}`).slice(-3).map((l) => l.text).join(' · ') || 'Epoch resolved.'}
           </p>
           <div className="row controls-row">
-            {state.epoch < TOTAL_EPOCHS ? (
-              <button className="advance" data-testid="close-epoch-btn" onClick={() => act({ type: 'closeEpoch' })}>
-                Continue → begin epoch {state.epoch + 1}
-              </button>
-            ) : (
-              // final epoch: there is no epoch 4 — the button names the actual
-              // destination (the verdict panel), never a nonexistent next epoch
-              <button className="advance" data-testid="view-results-btn" onClick={() => act({ type: 'closeEpoch' })}>
-                View Results
-              </button>
-            )}
+            <button className="advance" data-testid="close-epoch-btn" onClick={() => act({ type: 'closeEpoch' })}>
+              Continue → begin epoch {state.epoch + 1}
+            </button>
           </div>
         </section>
       ) : (
@@ -362,6 +354,11 @@ export default function App() {
                     {plan.cards.map((c, i) => <li key={i} className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>{cardName(c)}</li>)}
                   </ul>
                   <p className="pv-summary">{plan.summary}</p>
+                  {plan.valid && state.flourishing + plan.growth >= targetNeed && (
+                    <p className="pv-close-epoch" data-testid="pv-close-epoch" role="status">
+                      This play reaches the epoch target — the epoch closes immediately (unused plays and discards are forfeited).
+                    </p>
+                  )}
                 </section>
               )}
 
@@ -384,7 +381,7 @@ export default function App() {
                   <div className="growth-hero muted" data-testid="growth-hero">
                     <span className="growth-hero-label">Growth</span>
                     <span className="growth-hero-num">—</span>
-                    <span className="growth-hero-breakdown">select 1–5 cards to bank Growth toward {target.need}</span>
+                    <span className="growth-hero-breakdown">select 1–5 cards to bank Growth toward {targetNeed}</span>
                   </div>
                 )}
                 {plan?.valid && plan.growthParts.regions > 0 && (

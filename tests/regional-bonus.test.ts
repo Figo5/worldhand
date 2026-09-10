@@ -252,6 +252,7 @@ describe('shared scoring contract: parts reconcile + preview == commit', () => {
       rs[0].dormant = false; rs[0].development = 4 // Auralia (pair) — no match below
       rs[6].dormant = false; rs[6].development = 6 // Pellucid (twopair): 4 + 3 = 7
     })
+    s.epoch = 20 // high target so early-advance never fires
     s.seeds = 24
     s = forceHand(s, [C(9, 'S'), C(9, 'H'), C(7, 'D'), C(7, 'C')])
     for (const i of [0, 1, 2, 3]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
@@ -275,6 +276,7 @@ describe('shared scoring contract: parts reconcile + preview == commit', () => {
 
   it('Seed rewards stay truthful after a regional bonus (balance 30 -> 44, uncapped)', () => {
     let s = withRegions(newGame('cap-reg'), (rs) => { rs[PAIR_REGION].dormant = false })
+    s.epoch = 20 // high target so early-advance never fires
     s.seeds = 30
     s = forceHand(s, [C(13, 'S'), C(13, 'H'), C(9, 'D')])
     for (const i of [0, 1, 2]) s = applyAction(s, { type: 'toggleCard', cardIdx: i })
@@ -505,12 +507,12 @@ describe('final-epoch outcome + reload idempotency with regional bonuses', () =>
     return s
   }
 
-  it('the region bonus TIPS the final target: 100 + 4x69 = 376 wins where 356 would wither', () => {
+  it('the region bonus TIPS the epoch-3 target: 100 + 4x69 = 376 clears it where 356 falls short', () => {
     const withBonus = finalRun(true)
-    expect(withBonus.phase).toBe('game-over') // final-epoch flow: straight to verdict
+    // the bonus lets the run clear the target (early advance fires on the 4th
+    // play) — the run continues into the market, no life lost
     expect(withBonus.flourishing).toBe(100 + 4 * 69) // each play banks 64 + 5
-    expect(withBonus.outcome).toBe('flourishing')
-    expect(withBonus.outcomeReason).toContain('flourishes')
+    expect(withBonus.phase).toBe('market') // unlimited epochs: run continues
     expect(withBonus.lives).toBe(2) // target met — no life lost
     expect(withBonus.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(0)
     expect(withBonus.log.filter((l) => l.text.startsWith('Epoch end: +'))).toHaveLength(1)
@@ -518,16 +520,15 @@ describe('final-epoch outcome + reload idempotency with regional bonuses', () =>
     // counterfactual: the SAME cards/plays with the region dormant fall short
     const without = finalRun(false)
     expect(without.flourishing).toBe(100 + 4 * 64) // 356 < 360
-    expect(without.outcome).toBe('withered')
-    expect(without.outcomeReason).toContain('fell short')
     expect(without.lives).toBe(1) // the miss still cost its life
+    expect(without.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(1)
   })
 
-  it('the winning final state survives a reload with nothing double-applied', () => {
+  it('the committed state survives a reload with nothing double-applied', () => {
     const s = finalRun(true)
     const j = JSON.parse(JSON.stringify(s))
     expect(validateState(j)).toBeNull()
-    const after = applyAction(j as GameState, { type: 'closeEpoch' })
+    const after = applyAction(j as GameState, { type: 'endMarket' })
     expect(after.log.length).toBe((j as GameState).log.length)
     expect(after.flourishing).toBe((j as GameState).flourishing)
     expect(after.seeds).toBe((j as GameState).seeds)
