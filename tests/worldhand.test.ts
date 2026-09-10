@@ -590,23 +590,28 @@ describe('per-epoch targets (not cumulative)', () => {
 })
 
 describe('World Score + World Projects (the goal: make the world as good as you can)', () => {
-  it('worldScore rewards awakened regions, development, laws, and lifetime Flourishing', () => {
+  it('worldScore rewards World Level, jokers, planets, vouchers, laws, and lifetime Flourishing', () => {
     let s = newGame('score-baseline')
-    const base = worldScore(s)
-    // 4 awake regions = 40, 0 dev, 0 laws, floor(3/10)=0
-    expect(base).toBe(40)
-    // wake a region → +10
-    s.regions[4].dormant = false
-    expect(worldScore(s)).toBe(50)
-    // +development → +2 each
-    s.regions[0].development = 5
-    expect(worldScore(s)).toBe(60)
+    // worldLevel 1 = 5 score, 0 laws/jokers/planets/vouchers, floor(3/10)=0
+    expect(worldScore(s)).toBe(5)
+    // +world level → +5 each
+    s.worldLevel = 3
+    expect(worldScore(s)).toBe(15)
+    // +joker → +10
+    s.jokers = [{ id: 'joker-pair', title: 'Pair Joker', desc: '', cost: 8, condition: 'pair', mult: 0.5 }]
+    expect(worldScore(s)).toBe(25)
+    // +planet → +5 per 1.0 boost (0.5 boost = +2.5)
+    s.planetLevels = { pair: 0.5 }
+    expect(worldScore(s)).toBe(27.5)
+    // +voucher → +8
+    s.vouchers = [{ id: 'voucher-hand', title: 'Voucher: Bigger Hand', desc: '', cost: 12, handSize: 1 }]
+    expect(worldScore(s)).toBe(35.5)
     // +law → +15
     s.laws = [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade', growthFlat: 3 }]
-    expect(worldScore(s)).toBe(75)
+    expect(worldScore(s)).toBe(50.5)
     // +lifetime Flourishing → +1 per 10
     s.flourishing = 100
-    expect(worldScore(s)).toBe(85)
+    expect(worldScore(s)).toBe(60.5)
   })
 
   it('buyProject funds a project: costs Seeds, applies its effect, and is repeatable with escalating cost', () => {
@@ -648,8 +653,8 @@ describe('World Score + World Projects (the goal: make the world as good as you 
       s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
       s = applyAction(s, { type: 'play' })
     }
-    // income = 2 (project) + 4 (living regions) = 6, not halved (target met)
-    expect(s.log.some((l) => l.text.includes('Epoch end: +6 Seeds'))).toBe(true)
+    // income = 2 (project) + 4 (living regions) + 1 (worldLevel 1→2) = 7, not halved (target met)
+    expect(s.log.some((l) => l.text.includes('Epoch end: +7 Seeds'))).toBe(true)
   })
 
   it('all 12 regions are wakeable (4 new wake items for regions 5, 7, 8, 10)', () => {
@@ -665,6 +670,63 @@ describe('World Score + World Projects (the goal: make the world as good as you 
     s.seeds = 1000
     for (let i = 0; i < 15; i++) s = applyAction(s, { type: 'buyProject', projectId: 'proj-dev-auralia' })
     expect(s.regions[0].development).toBe(15) // > 10, uncapped
+  })
+})
+
+describe('Balatro-hard: Jokers, Planet cards, Consumables, Vouchers, World Level', () => {
+  it('a Pair Joker multiplies Growth when a Pair is played, and not otherwise', () => {
+    const jokers = [{ id: 'joker-pair', title: 'Pair Joker', desc: '', cost: 8, condition: 'pair', mult: 0.5 }]
+    const pair = buildPlan([C(9, 'S'), C(9, 'H')], [0, 1], [], [], [], { jokers })
+    expect(pair.growth).toBe(Math.round(18 * 1.5 * 1.5)) // 18 chips × 1.5 mult × 1.5 joker
+    const high = buildPlan([C(9, 'S'), C(5, 'H')], [0, 1], [], [], [], { jokers })
+    expect(high.growth).toBe(14) // no joker fires on high card
+  })
+
+  it('a Planet card raises a hand type base mult', () => {
+    const planetLevels = { pair: 0.5 }
+    const pair = buildPlan([C(9, 'S'), C(9, 'H')], [0, 1], [], [], [], { planetLevels })
+    expect(pair.growth).toBe(Math.round(18 * 2.0)) // 18 × (1.5 + 0.5)
+  })
+
+  it('a Consumable multiplies the next hand and is consumed on play', () => {
+    let s = newGame('consume')
+    s.phase = 'market'
+    s.seeds = 100
+    s.consumableMarket = [{ id: 'cons-x2', title: 'Double Down', desc: 'Next hand ×2 Growth.', cost: 8, xNext: 2 }]
+    s = applyAction(s, { type: 'buyConsumable', consumableId: 'cons-x2' })
+    expect(s.consumables).toHaveLength(1)
+    s.phase = 'select'
+    s = forceHand(s, [C(10, 'H')])
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    expect(s.consumables).toHaveLength(0) // consumed
+    expect(s.epochGrowth).toBe(20) // 10 × 2
+  })
+
+  it('a Voucher adds to all joker mult', () => {
+    const jokers = [{ id: 'joker-any', title: 'All-In Joker', desc: '', cost: 10, condition: 'any', mult: 0.25 }]
+    const vouchers = [{ id: 'voucher-joker', title: 'Voucher: Joker Power', desc: '', cost: 14, jokerMult: 0.5 }]
+    const plan = buildPlan([C(10, 'H')], [0], [], [], [], { jokers, vouchers })
+    expect(plan.growth).toBe(Math.round(10 * 1.75)) // 10 × (1 + 0.25 + 0.5)
+  })
+
+  it('World Level boosts Growth per play and grows each epoch', () => {
+    let s = newGame('worldlevel')
+    s.phase = 'market'
+    s.seeds = 100
+    s = applyAction(s, { type: 'boostWorld' })
+    expect(s.worldLevel).toBe(2)
+    s.phase = 'select'
+    s = forceHand(s, [C(10, 'H')])
+    s = applyAction(s, { type: 'toggleCard', cardIdx: 0 })
+    s = applyAction(s, { type: 'play' })
+    expect(s.epochGrowth).toBe(12) // 10 + 2 (world level 2)
+  })
+
+  it('the steeper target forces a scaling engine (raw hands alone fall short by epoch ~6)', () => {
+    // epoch 6 target is 100 + 30*5 + 3*25 = 325; a raw 4-play epoch banks ~100
+    expect(epochTarget(6)).toBeGreaterThan(300)
+    expect(epochTarget(1)).toBe(100)
   })
 })
 
@@ -857,10 +919,10 @@ describe('capped world stats', () => {
 })
 
 describe('versioned save envelope + structural validation', () => {
-  it('v6 state round-trips through JSON (v6 = World Score + World Projects rules generation)', () => {
+  it('v7 state round-trips through JSON (v7 = Balatro-hard rules generation)', () => {
     const s = newGame('roundtrip')
     const j = JSON.parse(JSON.stringify(s))
-    expect(j.version).toBe(6)
+    expect(j.version).toBe(7)
     expect(j.hand).toHaveLength(8)
     expect(j.regions).toHaveLength(12)
     const back = JSON.parse(JSON.stringify(j)) as GameState
@@ -870,7 +932,7 @@ describe('versioned save envelope + structural validation', () => {
     const mod = await import('../src/ui/save')
     expect(typeof mod.saveGame).toBe('function')
     expect(typeof mod.loadGame).toBe('function')
-    expect(mod.CURRENT_VERSION).toBe(6) // v6 = World Score + World Projects rules generation
+    expect(mod.CURRENT_VERSION).toBe(7) // v7 = Balatro-hard rules generation
     expect(mod.SCHEMA_VERSION_CURRENT).toBe(3)
   })
 })
@@ -880,9 +942,9 @@ describe('save versioning + structural validation (legacy preserved, never reint
   // through the exported validateState + the envelope's version fields.
   const fresh = () => JSON.parse(JSON.stringify(newGame('validator'))) as any
 
-  it('CURRENT_VERSION is 6 (World Score + World Projects rules generation) and SCHEMA_VERSION is 3', async () => {
+  it('CURRENT_VERSION is 7 (Balatro-hard rules generation) and SCHEMA_VERSION is 3', async () => {
     const w = await import('../src/engine/worldhand')
-    expect(w.SAVE_VERSION).toBe(6)
+    expect(w.SAVE_VERSION).toBe(7)
     expect(w.SCHEMA_VERSION).toBe(3)
   })
 
@@ -1005,9 +1067,9 @@ describe('save versioning + structural validation (legacy preserved, never reint
       expect(store.get('worldhand.save')).toBe(legacyV2)
       expect(mod.listLegacySaves().some((l) => l.key === res.legacyKey)).toBe(true)
 
-      // structurally corrupt v6 state (missing lives): same preserve+reject path
+      // structurally corrupt v7 state (missing lives): same preserve+reject path
       const corruptState = fresh(); delete corruptState.lives
-      const env3 = JSON.stringify({ schema: 3, version: 6, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
+      const env3 = JSON.stringify({ schema: 3, version: 7, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
       store.set('worldhand.save', env3)
       const res2 = mod.loadGameDetailed()
       expect(res2.state).toBeNull()
@@ -1015,8 +1077,8 @@ describe('save versioning + structural validation (legacy preserved, never reint
       expect(store.get(res2.legacyKey!)).toBe(env3)
       expect(store.get('worldhand.save')).toBe(env3)
 
-      // a valid v6 save still loads
-      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 6, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
+      // a valid v7 save still loads
+      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 7, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
       const res3 = mod.loadGameDetailed()
       expect(res3.state).not.toBeNull()
       expect(res3.rejectedReason).toBeNull()

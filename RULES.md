@@ -2,7 +2,7 @@
 
 ## Objective
 
-Play poker hands. Bank Growth. Beat each epoch's **per-epoch** Growth target to advance — **early advance**: the moment Growth banked THIS epoch reaches the target, the epoch closes immediately (unused plays and discards are forfeited, exactly as in Balatro). Growth banked resets at each epoch boundary; a separate **lifetime Flourishing** total keeps growing for score/display. Then shop, then the next epoch — **there is no fixed number of epochs**; the run ends when you can no longer keep up (lives run out or Flourishing collapses). **The goal is the World Score** — make the world as good as you can before your 3 lives run out. There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
+Play poker hands. Bank Growth. Beat each epoch's **per-epoch** Growth target to advance — **early advance**: the moment Growth banked THIS epoch reaches the target, the epoch closes immediately (unused plays and discards are forfeited, exactly as in Balatro). Growth banked resets at each epoch boundary; a separate **lifetime Flourishing** total keeps growing for score/display. Then shop, then the next epoch — **there is no fixed number of epochs**; the run ends when you can no longer keep up (lives run out or Flourishing collapses). **The goal is the World Score** — make the world as good as you can before your 3 lives run out. **The blinds escalate fast, so you must build a scaling engine (Jokers, Planet cards, World Level) to survive.** There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
 
 ## Lives (Balatro-style — every miss costs 1, unlimited epochs)
 
@@ -109,7 +109,7 @@ nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 **Auto-save**: the game persists the state to localStorage after every committed state-changing action (play, discard, buy, remove, end-market, epoch close — and selection changes), so quitting or reloading never loses progress. Rewards are applied exactly once inside the engine's commit; saving the resulting state cannot double-apply them.
 
-**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 6`, the World Score + World Projects engine; separate `SCHEMA_VERSION = 3` for envelope layout). On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation, an invalid region `specialization` (must be `null | 'pair' | 'twopair' | 'flush'`) — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
+**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 7`, the Balatro-hard engine; separate `SCHEMA_VERSION = 3` for envelope layout). On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation, an invalid region `specialization` (must be `null | 'pair' | 'twopair' | 'flush'`) — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
 
 ## Balance (bounded solver result — NOT a human win-rate estimate)
 
@@ -135,26 +135,30 @@ The per-epoch target formula measures on the eval-* set (calibration set in pare
 
 **Honest note, not tuned to a band**: the corrected policy is substantially stronger than the old mis-focused one (the old LOOK=30 measured 53% because the bounded list never saw a 3+ card hand). The per-epoch target formula is fit to the measured bank rate so runs end naturally via lives — reported honestly, with balance judgement left to human playtest rather than forcing a 40–60% band.
 
-## World Score & World Projects (the goal)
+## World Score & the Balatro-hard shop (the goal)
 
 **World Score** is the run's goal — how good you made the world. It's shown in the HUD and is what you maximize before your 3 lives run out:
 
 ```
-World Score = 10 × awakened regions
-            + 2 × total development (uncapped)
+World Score = 5 × World Level
             + 15 × owned laws/upgrades
+            + 10 × owned Jokers
+            + 5 × total Planet-card boosts
+            + 8 × owned Vouchers
             + floor(lifetime Flourishing / 10)
-            + project score bonuses
 ```
 
-**World Projects** are an infinite Seed-sink that permanently improve the world. They are NOT laws (they don't occupy a LAW_SLOT); each is repeatable and its effect stacks, with the cost rising each purchase. Three are offered each market phase (rotating, deterministic per epoch), so the shop never drains:
+**World Level** is the simplified worldbuilding number — one clear value instead of the old region map. It auto-grows +1 each epoch and can be boosted with Seeds. Each level above 1 adds **+2 Growth/play, +1 Seed/epoch, +5 World Score**.
 
-- **Cultivate <region>** (8 Seeds, +4 each) — +1 development to that region (uncapped).
-- **World Monument** (20, +10) — +5 World Score.
-- **Fertile Soil** (15, +8) — +2 Growth on every play.
-- **Seed Granary** (12, +6) — +2 Seeds at each epoch end.
+**The shop is Balatro-style** — four rotating card types plus the World Level boost:
 
-**All three old ceilings are lifted**: all 12 regions are wakeable (4 new wake items for regions 5, 7, 8, 10), development is uncapped, and the shop never drains. The world keeps growing as long as the run survives.
+- **Jokers** (max 5) — conditional multipliers that define your build: "×1.5 Growth when you play a Pair," "×2 on a Flush," "×1.5 if no face cards," "×1.25 on every hand." They stack multiplicatively.
+- **Planet cards** — permanently raise a hand type's base mult (build toward one hand).
+- **Consumables** — one-shot boosts queued before a hand ("next hand ×2").
+- **Vouchers** — permanent globals (+1 hand size, all jokers +0.5 mult, +2 Seeds/epoch).
+- **World Level boost** — spend Seeds to raise the world level.
+
+**The blinds escalate fast** (`100 + 40·(n−1) + 5·(n−1)²`), so raw hands alone can't keep up past ~epoch 5 — you must build a scaling engine to survive, but the blinds keep outrunning it. Measured at LOOK=30: runs end around **epoch 8–18** (max 6/30 = 20% at any single epoch, no gaps).
 
 ## Determinism
 

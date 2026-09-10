@@ -39,12 +39,14 @@ export type { Suit } from './poker'
  *  4 = regional-bonus rules — regions carry a fixed `specialization`
  *  (pair / twopair / flush) that adds a flat Growth bonus to plays of the
  *  EXACT matching category, 5 = per-epoch targets — Growth banked resets each
- *  epoch, 6 = World Score + World Projects — a maximization goal, all 12
+ *  6 = World Score + World Projects — a maximization goal, all 12
  *  regions wakeable, uncapped development, and an infinite Seed-sink project
- *  shop. A save whose version or structure does not match the CURRENT engine
- *  is rejected (never reinterpreted) and preserved as recoverable legacy data
- *  — see `validateState` + src/ui/save.ts. */
-export const SAVE_VERSION = 6
+ *  shop, 7 = Balatro-hard — a single World Level replaces the region map,
+ *  escalating blinds outpace raw hands, and the shop adds Jokers, Planet
+ *  cards, Consumables, and Vouchers. A save whose version or structure does
+ *  not match the CURRENT engine is rejected (never reinterpreted) and
+ *  preserved as recoverable legacy data — see `validateState` + src/ui/save.ts. */
+export const SAVE_VERSION = 7
 /** SCHEMA_VERSION: envelope/layout generation, tracked separately from the
  *  rules so a pure layout change does not imply a rules change. */
 export const SCHEMA_VERSION = 3
@@ -72,12 +74,13 @@ export const LIVES_CAP = 3
 /** The escalating epoch target: Growth to bank DURING this epoch (per-epoch,
  *  not cumulative). Each epoch you must bank `need(n)` Growth within that
  *  epoch; Growth banked resets at each epoch boundary for the target. A
- *  separate lifetime Flourishing total is kept for score/display. Epochs 1–3
- *  are the original values (45, 110, 360) so early play is unchanged; the
- *  formula escalates indefinitely. Monotonic increasing. */
+ *  separate lifetime Flourishing total is kept for score/display. The curve is
+ *  deliberately STEEP so even a good scaling engine (5 jokers + world level)
+ *  dies around epoch 10-15 — you must build a scaling engine to survive, but
+ *  the blinds keep outrunning it. Monotonic increasing. */
 export function epochTarget(epoch: number): number {
   const d = epoch - 1
-  return Math.round(100 + d + 0.1 * d * d)
+  return Math.round(100 + 40 * d + 5 * d * d)
 }
 
 /** Human-readable target descriptor for the current epoch. */
@@ -196,6 +199,110 @@ export interface Law {
   wakeRegionId?: number
 }
 
+/** A Joker — the strategy core. A conditional multiplier that defines your
+ *  build. When the played hand meets its condition, it multiplies Growth by
+ *  (1 + mult). Jokers stack multiplicatively. */
+export interface Joker {
+  id: string
+  title: string
+  desc: string
+  cost: number
+  /** the hand condition that triggers this joker */
+  condition: 'pair' | 'twopair' | 'flush' | 'no-face' | 'high-card' | 'any'
+  /** additive mult when the condition is met (0.5 = ×1.5, 1 = ×2) */
+  mult: number
+}
+
+/** A Planet card — permanently raises a hand type's base mult. */
+export interface PlanetCard {
+  id: string
+  title: string
+  desc: string
+  cost: number
+  /** the hand category this planet boosts */
+  category: HandCategory
+  /** +mult to that category's base multiplier */
+  boost: number
+}
+
+/** A Consumable — a one-shot boost you queue before playing a hand. */
+export interface Consumable {
+  id: string
+  title: string
+  desc: string
+  cost: number
+  /** ×N Growth on the next hand */
+  xNext: number
+}
+
+/** A Voucher — a permanent global upgrade. */
+export interface Voucher {
+  id: string
+  title: string
+  desc: string
+  cost: number
+  /** +1 hand size */
+  handSize?: number
+  /** +mult to ALL jokers */
+  jokerMult?: number
+  /** +Seeds per epoch */
+  seedsPerEpoch?: number
+}
+
+/** The Joker pool. */
+export const JOKERS: Joker[] = [
+  { id: 'joker-pair', title: 'Pair Joker', desc: '×1.5 Growth when you play a Pair.', cost: 8, condition: 'pair', mult: 0.5 },
+  { id: 'joker-twopair', title: 'Two Pair Joker', desc: '×2 Growth when you play Two Pair.', cost: 10, condition: 'twopair', mult: 1 },
+  { id: 'joker-flush', title: 'Flush Joker', desc: '×2 Growth when you play a Flush.', cost: 12, condition: 'flush', mult: 1 },
+  { id: 'joker-noface', title: 'No-Face Joker', desc: '×1.5 Growth when you play no face cards.', cost: 8, condition: 'no-face', mult: 0.5 },
+  { id: 'joker-high', title: 'High Card Joker', desc: '×1.5 Growth on a High Card.', cost: 6, condition: 'high-card', mult: 0.5 },
+  { id: 'joker-any', title: 'All-In Joker', desc: '×1.25 Growth on every hand.', cost: 10, condition: 'any', mult: 0.25 },
+]
+
+/** The Planet card pool. */
+export const PLANET_CARDS: PlanetCard[] = [
+  { id: 'planet-pair', title: 'Planet: Pair', desc: 'Pair base mult +0.5.', cost: 6, category: 'pair', boost: 0.5 },
+  { id: 'planet-twopair', title: 'Planet: Two Pair', desc: 'Two Pair base mult +0.5.', cost: 7, category: 'two-pair', boost: 0.5 },
+  { id: 'planet-trips', title: 'Planet: Trips', desc: 'Trips base mult +0.5.', cost: 8, category: 'trips', boost: 0.5 },
+  { id: 'planet-straight', title: 'Planet: Straight', desc: 'Straight base mult +0.5.', cost: 9, category: 'straight', boost: 0.5 },
+  { id: 'planet-flush', title: 'Planet: Flush', desc: 'Flush base mult +0.5.', cost: 10, category: 'flush', boost: 0.5 },
+  { id: 'planet-fullhouse', title: 'Planet: Full House', desc: 'Full House base mult +0.5.', cost: 11, category: 'full-house', boost: 0.5 },
+  { id: 'planet-quads', title: 'Planet: Quads', desc: 'Quads base mult +0.5.', cost: 12, category: 'quads', boost: 0.5 },
+]
+
+/** The Consumable pool. */
+export const CONSUMABLES: Consumable[] = [
+  { id: 'cons-x2', title: 'Double Down', desc: 'Next hand ×2 Growth.', cost: 8, xNext: 2 },
+  { id: 'cons-x3', title: 'Triple Threat', desc: 'Next hand ×3 Growth.', cost: 14, xNext: 3 },
+]
+
+/** The Voucher pool. */
+export const VOUCHERS: Voucher[] = [
+  { id: 'voucher-hand', title: 'Voucher: Bigger Hand', desc: '+1 hand size (9 cards).', cost: 12, handSize: 1 },
+  { id: 'voucher-joker', title: 'Voucher: Joker Power', desc: 'All jokers +0.5 mult.', cost: 14, jokerMult: 0.5 },
+  { id: 'voucher-seeds', title: 'Voucher: Seed Income', desc: '+2 Seeds each epoch end.', cost: 10, seedsPerEpoch: 2 },
+]
+
+/** The World Level — the simplified worldbuilding number. Auto-grows +1 each
+ *  epoch; boostable with Seeds. Level 1 = +0 (early play unchanged); each level
+ *  above 1 adds +2 Growth/play, +1 Seed/epoch, +5 World Score. */
+export function worldLevelBonus(level: number): { growthPerPlay: number; seedsPerEpoch: number; score: number } {
+  const above = Math.max(0, level - 1)
+  return { growthPerPlay: above * 2, seedsPerEpoch: above, score: level * 5 }
+}
+
+/** The World Score — the run's goal: how good you made the world.
+ *  World Level is the backbone; jokers/planets/vouchers add to it. */
+export function worldScore(s: GameState): number {
+  const lvl = worldLevelBonus(s.worldLevel)
+  const laws = s.laws.length
+  const jokers = s.jokers.length
+  const planets = Object.values(s.planetLevels).reduce((n, x) => n + x, 0)
+  const vouchers = s.vouchers.length
+  const flourish = Math.floor(s.flourishing / 10)
+  return lvl.score + laws * 15 + jokers * 10 + planets * 5 + vouchers * 8 + flourish
+}
+
 /** A World Project — an infinite Seed-sink that permanently improves the world.
  *  Projects are NOT laws (they don't occupy a LAW_SLOT); each is repeatable and
  *  its effect stacks. They give Seeds a purpose forever and are the "make the
@@ -235,18 +342,6 @@ export const WORLD_PROJECTS: WorldProject[] = [
   { id: 'proj-growth', title: 'Fertile Soil', desc: '+2 Growth on every play.', baseCost: 15, costGrowth: 8, growthFlat: 2 },
   { id: 'proj-seeds', title: 'Seed Granary', desc: '+2 Seeds at each epoch end.', baseCost: 12, costGrowth: 6, seedsPerEpoch: 2 },
 ]
-
-/** The World Score — the run's goal: how good you made the world.
- *  +10 per awakened region, +2 per development point (uncapped), +15 per owned
- *  law/upgrade, +1 per 10 lifetime Flourishing, + project scoreFlat. */
-export function worldScore(s: GameState): number {
-  const awake = s.regions.filter((r) => !r.dormant).length
-  const dev = s.regions.reduce((n, r) => n + r.development, 0)
-  const laws = s.laws.length
-  const flourish = Math.floor(s.flourishing / 10)
-  const projects = s.projects.reduce((n, p) => n + (p.scoreFlat ?? 0), 0)
-  return awake * 10 + dev * 2 + laws * 15 + flourish + projects
-}
 
 export const MARKET_ITEMS: Law[] = [
   { id: 'mycorrhiza', title: 'Mycorrhiza Network', desc: 'Regions decay 1 less each epoch (1 → 0: living regions stop decaying).', cost: 6, kind: 'law', decayDelta: -1 },
@@ -293,9 +388,27 @@ export interface GameState {
   market: Law[]
   /** World Projects offered this market phase (infinite Seed-sink) */
   projectMarket: WorldProject[]
+  /** Jokers offered this market phase */
+  jokerMarket: Joker[]
+  /** Planet cards offered this market phase */
+  planetMarket: PlanetCard[]
+  /** Consumables offered this market phase */
+  consumableMarket: Consumable[]
+  /** Vouchers offered this market phase */
+  voucherMarket: Voucher[]
   laws: Law[]
   /** owned World Projects (repeatable, cost-escalating Seed-sink) */
   projects: WorldProject[]
+  /** the simplified worldbuilding number — auto-grows +1/epoch, boostable */
+  worldLevel: number
+  /** owned Jokers (the strategy core — conditional multipliers) */
+  jokers: Joker[]
+  /** owned Planet cards: category → total +mult boost */
+  planetLevels: Partial<Record<HandCategory, number>>
+  /** queued Consumables (one-shot ×N on the next hand) */
+  consumables: Consumable[]
+  /** owned Vouchers (permanent globals) */
+  vouchers: Voucher[]
   lastResolution: ResolutionPlan | null
   log: LogEntry[]
   outcome: 'flourishing' | 'withered' | null
@@ -309,6 +422,11 @@ export type Action =
   | { type: 'discard'; cardIdxs: number[] }
   | { type: 'buy'; itemId: string }
   | { type: 'buyProject'; projectId: string }
+  | { type: 'buyJoker'; jokerId: string }
+  | { type: 'buyPlanet'; planetId: string }
+  | { type: 'buyConsumable'; consumableId: string }
+  | { type: 'buyVoucher'; voucherId: string }
+  | { type: 'boostWorld' }
   | { type: 'removeLaw'; lawId: string }
   | { type: 'endMarket' }
   | { type: 'closeEpoch' }
@@ -348,6 +466,8 @@ export interface ResolutionPlan {
   /** which specializations actually contributed, for the UI breakdown
    *  (e.g. [{ spec: 'twopair', count: 1, bonus: 7 }]; empty when none) */
   regionContribs: { spec: Specialization; count: number; bonus: number }[]
+  /** which jokers fired on this hand (for the UI breakdown) */
+  jokerContribs: { id: string; title: string; mult: number }[]
   effects: PlanEffect[]
   summary: string
   valid: boolean
@@ -403,12 +523,19 @@ export function buildPlan(
   laws: Law[],
   regions: Region[] = [],
   projects: WorldProject[] = [],
+  ctx: {
+    jokers?: Joker[]
+    planetLevels?: Partial<Record<HandCategory, number>>
+    consumables?: Consumable[]
+    worldLevel?: number
+    vouchers?: Voucher[]
+  } = {},
 ): ResolutionPlan {
   const base: ResolutionPlan = {
     cards: [], category: 'high', categoryLabel: '—', categoryPoints: 0,
     suitCounts: { S: 0, H: 0, D: 0, C: 0 },
     rankSum: 0, chips: 0, pokerBase: 0, mult: 1, growth: 0,
-    growthParts: { poker: 0, laws: 0, regions: 0 }, regionContribs: [],
+    growthParts: { poker: 0, laws: 0, regions: 0 }, regionContribs: [], jokerContribs: [],
     effects: [], summary: '', valid: false, invalidReason: '',
   }
   if (selected.length < 1 || selected.length > 5) {
@@ -428,16 +555,18 @@ export function buildPlan(
   for (const c of cards) suitCounts[c.s]++
   const sum = cards.reduce((n, c) => n + c.r, 0)
 
-  // ---- HERO SCORE: Growth, in the fixed order poker → laws (mult → flat) → regions
+  // ---- HERO SCORE: Growth, in the fixed order poker → laws → world → jokers
   // 1. poker base: rankSum ("chips", ALL selected ranks incl. kickers)
-  //    × CATEGORY_MULT[category] (the hand mult)
-  const mult = CATEGORY_MULT[res.category]
+  //    × CATEGORY_MULT[category] (the hand mult) + Planet-card boosts
+  const mult = CATEGORY_MULT[res.category] + (ctx.planetLevels?.[res.category] ?? 0)
   const pokerBase = Math.round(sum * mult)
   // 2. World Laws: × owned growthMult (floored at 1), then + owned growthFlat
   const lawMult = lawGrowthMult(laws)
   const lawFlat = lawGrowthFlat(laws) + projects.reduce((n, p) => n + (p.growthFlat ?? 0), 0)
   const lawBonus = Math.round(pokerBase * lawMult) + lawFlat - pokerBase
-  // 3. REGIONS: sum the bonus of every AWAKE region whose fixed specialization
+  // 3. World Level: +2 Growth/play per level above 1 (the simplified worldbuilding)
+  const worldBonus = worldLevelBonus(ctx.worldLevel ?? 1).growthPerPlay
+  // 4. REGIONS: sum the bonus of every AWAKE region whose fixed specialization
   //    equals the hand's EXACT evaluated category (dormant → 0; additive
   //    stacking across multiple matching regions; applied ONCE, AFTER the law
   //    arithmetic — the law multiplier never re-multiplies this part).
@@ -453,8 +582,28 @@ export function buildPlan(
     if (existing) { existing.count += 1; existing.bonus += bonus }
     else regionContribs.push({ spec: r.specialization, count: 1, bonus })
   }
+  // 5. JOKERS: conditional multipliers, stacked multiplicatively. A joker fires
+  //    when the played hand meets its condition. Vouchers add to all joker mult.
+  const jokerMultBonus = (ctx.vouchers ?? []).reduce((n, v) => n + (v.jokerMult ?? 0), 0)
+  let jokerMult = 1
+  const jokerContribs: { id: string; title: string; mult: number }[] = []
+  for (const j of ctx.jokers ?? []) {
+    const fires = j.condition === 'any'
+      || (j.condition === 'pair' && res.category === 'pair')
+      || (j.condition === 'twopair' && res.category === 'two-pair')
+      || (j.condition === 'flush' && res.category === 'flush')
+      || (j.condition === 'high-card' && res.category === 'high')
+      || (j.condition === 'no-face' && cards.every((c) => c.r < 11))
+    if (!fires) continue
+    const m = j.mult + jokerMultBonus
+    jokerMult *= (1 + m)
+    jokerContribs.push({ id: j.id, title: j.title, mult: m })
+  }
+  // 6. CONSUMABLES: the queued ×N applies to the next hand (consumed on play).
+  const consumableMult = (ctx.consumables ?? []).reduce((n, c) => n * c.xNext, 1)
+
   const growthParts = { poker: pokerBase, laws: lawBonus, regions: regionsBonus }
-  const growth = Math.max(0, Math.round(pokerBase * lawMult) + lawFlat + regionsBonus)
+  const growth = Math.max(0, Math.round((pokerBase * lawMult + lawFlat + worldBonus + regionsBonus) * jokerMult * consumableMult))
 
   // AUTO-EARN SEEDS: hand quality pays instantly. 1 Seed per 4 Growth
   // (SEEDS_PER_GROWTH = 1/4). Seeds accumulate without ceiling — the nominal
@@ -474,7 +623,10 @@ export function buildPlan(
   const regionClause = regionsBonus > 0
     ? ` +${regionsBonus} region${regionContribs.length > 1 ? 's' : ''}`
     : ''
-  const summary = `Banks ${growth} Growth (chips ${sum} x ${mult} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}${regionClause}). Gains ${seedsGain} Seeds.`
+  const jokerClause = jokerContribs.length > 0
+    ? ` ×${jokerMult.toFixed(2)} joker${jokerContribs.length > 1 ? 's' : ''}`
+    : ''
+  const summary = `Banks ${growth} Growth (chips ${sum} x ${mult.toFixed(2)} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}${worldBonus !== 0 ? ` +${worldBonus} world` : ''}${regionClause}${jokerClause}). Gains ${seedsGain} Seeds.`
 
   return {
     cards,
@@ -489,6 +641,7 @@ export function buildPlan(
     growth,
     growthParts,
     regionContribs,
+    jokerContribs,
     effects,
     summary,
     valid: true,
@@ -511,7 +664,10 @@ export function applyPlanEffects(s: GameState, plan: ResolutionPlan): void {
 }
 
 export function preview(s: GameState): ResolutionPlan {
-  return buildPlan(s.hand, s.selected, s.laws, s.regions, s.projects)
+  return buildPlan(s.hand, s.selected, s.laws, s.regions, s.projects, {
+    jokers: s.jokers, planetLevels: s.planetLevels, consumables: s.consumables,
+    worldLevel: s.worldLevel, vouchers: s.vouchers,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -575,8 +731,17 @@ function setupWorld(seed: Seed, seedText: string): GameState {
     selected: [],
     market: [],
     projectMarket: [],
+    jokerMarket: [],
+    planetMarket: [],
+    consumableMarket: [],
+    voucherMarket: [],
     laws: [],
     projects: [],
+    worldLevel: 1,
+    jokers: [],
+    planetLevels: {},
+    consumables: [],
+    vouchers: [],
     lastResolution: null,
     log: [{ at: 'world', text: `The world of ${seedText} takes root. Four regions wake.` }],
     outcome: null,
@@ -594,8 +759,16 @@ function clone(s: GameState): GameState {
     selected: [...s.selected],
     market: s.market.map((m) => ({ ...m })),
     projectMarket: s.projectMarket.map((p) => ({ ...p })),
+    jokerMarket: s.jokerMarket.map((j) => ({ ...j })),
+    planetMarket: s.planetMarket.map((p) => ({ ...p })),
+    consumableMarket: s.consumableMarket.map((c) => ({ ...c })),
+    voucherMarket: s.voucherMarket.map((v) => ({ ...v })),
     laws: s.laws.map((l) => ({ ...l })),
     projects: s.projects.map((p) => ({ ...p })),
+    jokers: s.jokers.map((j) => ({ ...j })),
+    planetLevels: { ...s.planetLevels },
+    consumables: s.consumables.map((c) => ({ ...c })),
+    vouchers: s.vouchers.map((v) => ({ ...v })),
     lastResolution: s.lastResolution ? { ...s.lastResolution, cards: [...s.lastResolution.cards], effects: [...s.lastResolution.effects], suitCounts: { ...s.lastResolution.suitCounts } } : null,
     log: [...s.log],
   }
@@ -651,10 +824,15 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'play': {
       if (s.phase !== 'select') throw new Error('not in select phase')
       if (s.playsLeft <= 0) throw new Error('no plays left this epoch')
-      const plan = buildPlan(s.hand, s.selected, s.laws, s.regions, s.projects)
+      const plan = buildPlan(s.hand, s.selected, s.laws, s.regions, s.projects, {
+        jokers: s.jokers, planetLevels: s.planetLevels, consumables: s.consumables,
+        worldLevel: s.worldLevel, vouchers: s.vouchers,
+      })
       if (!plan.valid) throw new Error(plan.invalidReason || 'invalid selection')
       // apply plan effects (shared pipeline — preview and commit agree by construction)
       applyPlanEffects(s, plan)
+      // consumables are one-shot: consumed on the hand they boosted
+      s.consumables = []
       s.playsLeft -= 1
       const played = s.selected.map((i) => s.hand[i])
       // remove played cards from hand → discard pile
@@ -722,6 +900,60 @@ export function applyAction(state: GameState, action: Action): GameState {
       s.log.push({ at: `e${s.epoch}`, text: `Funded ${proj.title} (-${cost} Seeds).` })
       return s
     }
+    case 'buyJoker': {
+      if (s.phase !== 'market') throw new Error('not in market phase')
+      const j = s.jokerMarket.find((x) => x.id === action.jokerId)
+      if (!j) throw new Error('no such joker')
+      if (s.jokers.length >= JOKER_SLOTS) throw new Error(`all ${JOKER_SLOTS} joker slots are full`)
+      if (s.seeds < j.cost) throw new Error(`need ${j.cost} Seeds`)
+      s.seeds -= j.cost
+      s.jokers.push({ ...j })
+      s.jokerMarket = s.jokerMarket.filter((x) => x.id !== j.id)
+      s.log.push({ at: `e${s.epoch}`, text: `Bought ${j.title} (-${j.cost} Seeds).` })
+      return s
+    }
+    case 'buyPlanet': {
+      if (s.phase !== 'market') throw new Error('not in market phase')
+      const p = s.planetMarket.find((x) => x.id === action.planetId)
+      if (!p) throw new Error('no such planet card')
+      if (s.seeds < p.cost) throw new Error(`need ${p.cost} Seeds`)
+      s.seeds -= p.cost
+      s.planetLevels[p.category] = (s.planetLevels[p.category] ?? 0) + p.boost
+      s.planetMarket = s.planetMarket.filter((x) => x.id !== p.id)
+      s.log.push({ at: `e${s.epoch}`, text: `Bought ${p.title} (-${p.cost} Seeds).` })
+      return s
+    }
+    case 'buyConsumable': {
+      if (s.phase !== 'market') throw new Error('not in market phase')
+      const c = s.consumableMarket.find((x) => x.id === action.consumableId)
+      if (!c) throw new Error('no such consumable')
+      if (s.seeds < c.cost) throw new Error(`need ${c.cost} Seeds`)
+      s.seeds -= c.cost
+      s.consumables.push({ ...c })
+      s.consumableMarket = s.consumableMarket.filter((x) => x.id !== c.id)
+      s.log.push({ at: `e${s.epoch}`, text: `Bought ${c.title} (-${c.cost} Seeds).` })
+      return s
+    }
+    case 'buyVoucher': {
+      if (s.phase !== 'market') throw new Error('not in market phase')
+      const v = s.voucherMarket.find((x) => x.id === action.voucherId)
+      if (!v) throw new Error('no such voucher')
+      if (s.seeds < v.cost) throw new Error(`need ${v.cost} Seeds`)
+      s.seeds -= v.cost
+      s.vouchers.push({ ...v })
+      s.voucherMarket = s.voucherMarket.filter((x) => x.id !== v.id)
+      s.log.push({ at: `e${s.epoch}`, text: `Bought ${v.title} (-${v.cost} Seeds).` })
+      return s
+    }
+    case 'boostWorld': {
+      if (s.phase !== 'market') throw new Error('not in market phase')
+      const cost = 10 + (s.worldLevel - 1) * 5
+      if (s.seeds < cost) throw new Error(`need ${cost} Seeds`)
+      s.seeds -= cost
+      s.worldLevel += 1
+      s.log.push({ at: `e${s.epoch}`, text: `World Level up to ${s.worldLevel} (-${cost} Seeds).` })
+      return s
+    }
     case 'removeLaw': {
       if (s.phase !== 'market') throw new Error('not in market phase')
       const at = s.laws.findIndex((l) => l.id === action.lawId)
@@ -756,6 +988,9 @@ function marketCost(s: GameState, item: Law): number {
 
 /** Max owned law/upgrade/card/expansion items — the Balatro 5-slot shelf. */
 export const LAW_SLOTS = 5
+
+/** Max owned Jokers — the Balatro 5-slot joker shelf. */
+export const JOKER_SLOTS = 5
 
 /** Card conservation invariant: hand + deck + discard == 52 + added cards.
  *  Market card-additions are laws, not cards — but 'cards' kind items grow the
@@ -829,6 +1064,19 @@ export function validateState(v: unknown): string | null {
   if (!Array.isArray(s.market) || !Array.isArray(s.laws)) return 'market and laws must be arrays'
   if (!Array.isArray(s.projectMarket)) return bad('projectMarket', 'must be an array')
   if (!Array.isArray(s.projects)) return bad('projects', 'must be an array')
+  if (!Array.isArray(s.jokerMarket)) return bad('jokerMarket', 'must be an array')
+  if (!Array.isArray(s.planetMarket)) return bad('planetMarket', 'must be an array')
+  if (!Array.isArray(s.consumableMarket)) return bad('consumableMarket', 'must be an array')
+  if (!Array.isArray(s.voucherMarket)) return bad('voucherMarket', 'must be an array')
+  if (!Array.isArray(s.jokers)) return bad('jokers', 'must be an array')
+  if (!Array.isArray(s.consumables)) return bad('consumables', 'must be an array')
+  if (!Array.isArray(s.vouchers)) return bad('vouchers', 'must be an array')
+  if (typeof s.worldLevel !== 'number' || !Number.isFinite(s.worldLevel) || s.worldLevel < 1) {
+    return bad('worldLevel', 'must be a number >= 1')
+  }
+  if (typeof s.planetLevels !== 'object' || s.planetLevels === null || Array.isArray(s.planetLevels)) {
+    return bad('planetLevels', 'must be an object')
+  }
   if (!Array.isArray(s.log)) return bad('log', 'must be an array')
   if (s.lastResolution !== null && typeof s.lastResolution !== 'object') {
     return bad('lastResolution', 'must be null or an object')
@@ -953,12 +1201,17 @@ function endEpoch(state: GameState): GameState {
     if (!r.dormant) r.development += 1
   }
 
+  // World Level auto-grows +1 each epoch (the simplified worldbuilding).
+  s.worldLevel += 1
+
   // income: +1 per living healthy region (stability > 0 — decay above really
-  // feeds this) plus law income plus World-Project Seed income, halved on a
-  // missed target. Seeds accumulate without ceiling, so the full income is
-  // banked.
+  // feeds this) plus law income plus World-Project Seed income plus World
+  // Level + Voucher Seed income, halved on a missed target. Seeds accumulate
+  // without ceiling, so the full income is banked.
   const seedIncome = s.laws.reduce((n, l) => n + (l.extraSeedsPerEpoch ?? 0), 0)
     + s.projects.reduce((n, p) => n + (p.seedsPerEpoch ?? 0), 0)
+    + s.vouchers.reduce((n, v) => n + (v.seedsPerEpoch ?? 0), 0)
+    + worldLevelBonus(s.worldLevel).seedsPerEpoch
     + s.regions.filter((r) => !r.dormant && r.stability > 0).length
   const marketIncome = missedTarget ? Math.floor(seedIncome / 2) : seedIncome
   s.seeds += marketIncome
@@ -978,6 +1231,12 @@ function endEpoch(state: GameState): GameState {
   // the shop never drains). Deterministic per epoch.
   const projShuffled = rng.shuffle([...WORLD_PROJECTS])
   s.projectMarket = projShuffled.slice(0, 3)
+  // Jokers / Planet cards / Consumables / Vouchers: offer a rotating set each
+  // market (Balatro-style shop).
+  s.jokerMarket = rng.shuffle([...JOKERS]).slice(0, 3)
+  s.planetMarket = rng.shuffle([...PLANET_CARDS]).slice(0, 3)
+  s.consumableMarket = rng.shuffle([...CONSUMABLES]).slice(0, 2)
+  s.voucherMarket = rng.shuffle([...VOUCHERS]).slice(0, 2)
   s.phase = 'market'
   return s
 }

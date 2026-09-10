@@ -252,7 +252,11 @@ export default function App() {
           <span className="hud-label">Discards</span>
           <strong>{state.discardsLeft}/{DISCARDS_PER_EPOCH}</strong>
         </div>
-        <div className="hud-item" title="World Score — the run's goal: how good you made the world (+10/awake region, +2/development, +15/law, +1 per 10 Flourishing, +project bonuses)">
+        <div className="hud-item" title="World Level — the simplified worldbuilding number. Auto-grows +1/epoch; boost with Seeds. Each level above 1 = +2 Growth/play, +1 Seed/epoch, +5 World Score.">
+          <span className="hud-label">World Level</span>
+          <strong>{state.worldLevel}</strong>
+        </div>
+        <div className="hud-item" title="World Score — the run's goal: how good you made the world (World Level + jokers + planets + vouchers + laws + Flourishing)">
           <span className="hud-label">World Score</span>
           <strong>{worldScore(state)}</strong>
         </div>
@@ -331,6 +335,54 @@ export default function App() {
                 </button>
               )
             })}
+          </div>
+          <h3 className="market-subhead">Jokers — build your engine (conditional multipliers)</h3>
+          <div className="row">
+            {state.jokerMarket.map((j) => (
+              <button key={j.id} className="market-btn" disabled={state.seeds < j.cost} onClick={() => act({ type: 'buyJoker', jokerId: j.id })}>
+                <strong>{j.title} — {j.cost} Seeds</strong>
+                <span>{j.desc}</span>
+                <span className="market-kind">joker</span>
+              </button>
+            ))}
+          </div>
+          <h3 className="market-subhead">Planet cards — raise a hand type's base mult</h3>
+          <div className="row">
+            {state.planetMarket.map((p) => (
+              <button key={p.id} className="market-btn" disabled={state.seeds < p.cost} onClick={() => act({ type: 'buyPlanet', planetId: p.id })}>
+                <strong>{p.title} — {p.cost} Seeds</strong>
+                <span>{p.desc}</span>
+                <span className="market-kind">planet</span>
+              </button>
+            ))}
+          </div>
+          <h3 className="market-subhead">Consumables — one-shot boosts</h3>
+          <div className="row">
+            {state.consumableMarket.map((c) => (
+              <button key={c.id} className="market-btn" disabled={state.seeds < c.cost} onClick={() => act({ type: 'buyConsumable', consumableId: c.id })}>
+                <strong>{c.title} — {c.cost} Seeds</strong>
+                <span>{c.desc}</span>
+                <span className="market-kind">consumable</span>
+              </button>
+            ))}
+          </div>
+          <h3 className="market-subhead">Vouchers — permanent globals</h3>
+          <div className="row">
+            {state.voucherMarket.map((v) => (
+              <button key={v.id} className="market-btn" disabled={state.seeds < v.cost} onClick={() => act({ type: 'buyVoucher', voucherId: v.id })}>
+                <strong>{v.title} — {v.cost} Seeds</strong>
+                <span>{v.desc}</span>
+                <span className="market-kind">voucher</span>
+              </button>
+            ))}
+          </div>
+          <h3 className="market-subhead">World Level — boost the world (cost {10 + (state.worldLevel - 1) * 5} Seeds)</h3>
+          <div className="row">
+            <button className="market-btn" disabled={state.seeds < 10 + (state.worldLevel - 1) * 5} onClick={() => act({ type: 'boostWorld' })}>
+              <strong>Boost World Level — {10 + (state.worldLevel - 1) * 5} Seeds</strong>
+              <span>+1 World Level (level {state.worldLevel} → {state.worldLevel + 1}): +2 Growth/play, +1 Seed/epoch, +5 World Score.</span>
+              <span className="market-kind">world</span>
+            </button>
           </div>
           <div className="row controls-row">
             <button className="advance" onClick={() => act({ type: 'endMarket' })}>

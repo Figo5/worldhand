@@ -255,7 +255,10 @@ function score(before, after) {
 function bestPlay(state) {
   let best = null
   for (const sel of candidateSubsets(state.hand, LOOK, sampleSalt())) {
-    const plan = buildPlan(state.hand, sel, state.laws)
+    const plan = buildPlan(state.hand, sel, state.laws, [], [], {
+      jokers: state.jokers, planetLevels: state.planetLevels, consumables: state.consumables,
+      worldLevel: state.worldLevel, vouchers: state.vouchers,
+    })
     if (!plan.valid) continue
     let next
     try {
@@ -305,8 +308,10 @@ function playSeed(seedText) {
       // STALE — only the non-specialized wakes (wake-laguna/brumal) stay
       // skipped, and mycorrhiza/fifth-counsel stay skipped as before.
       let bought = true
-      while (bought) {
+      let marketBuys = 0
+      while (bought && marketBuys < 8) {
         bought = false
+        marketBuys++
         const order = ['canopy-choir', 'seed-vaults', 'barter-routes', 'open-canals', 'stone-masonry', 'fourth-counsel']
         for (const id of order) {
           const item = s.market.find((m) => m.id === id)
@@ -343,6 +348,24 @@ function playSeed(seedText) {
           }
           if (!near) continue
           try { s = applyAction(s, { type: 'buy', itemId: id }); bought = true; break } catch {}
+        }
+        if (bought) continue
+        // Jokers: buy the cheapest affordable joker (build a scaling engine).
+        let bestJoker = null
+        for (const j of s.jokerMarket) {
+          if (s.seeds >= j.cost && (!bestJoker || j.cost < bestJoker.cost)) bestJoker = j
+        }
+        if (bestJoker) {
+          try { s = applyAction(s, { type: 'buyJoker', jokerId: bestJoker.id }); bought = true } catch {}
+        }
+        if (bought) continue
+        // Planet cards: buy the cheapest affordable planet (raise a hand mult).
+        let bestPlanet = null
+        for (const p of s.planetMarket) {
+          if (s.seeds >= p.cost && (!bestPlanet || p.cost < bestPlanet.cost)) bestPlanet = p
+        }
+        if (bestPlanet) {
+          try { s = applyAction(s, { type: 'buyPlanet', planetId: bestPlanet.id }); bought = true } catch {}
         }
         if (bought) continue
         // World Projects: buy the cheapest affordable project (repeatable

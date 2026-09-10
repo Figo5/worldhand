@@ -101,14 +101,16 @@ describe('FIX 1: Mycorrhiza decay — living-region decay is ZERO with the law, 
     s.regions[0].stability = 1
     s.regions[1].stability = 1
     s = playOut(s)
-    expect(s.log.some((l) => l.text.includes('Epoch end: +4 Seeds'))).toBe(true)
+    // income = 4 (regions) + 1 (worldLevel 1→2 at epoch end) = 5
+    expect(s.log.some((l) => l.text.includes('Epoch end: +5 Seeds'))).toBe(true)
     let t = newGame('fix1-income-no')
     t.epoch = 20
     t.epochGrowth = epochTarget(20) - 16
     t.regions[0].stability = 1
     t.regions[1].stability = 1
     t = playOut(t)
-    expect(t.log.some((l) => l.text.includes('Epoch end: +2 Seeds'))).toBe(true)
+    // income = 2 (regions) + 1 (worldLevel) = 3
+    expect(t.log.some((l) => l.text.includes('Epoch end: +3 Seeds'))).toBe(true)
   })
 
   it('Mycorrhiza applies exactly once per epoch (stability 10 stays exactly 10 — no gain, no double-softening)', () => {
@@ -223,16 +225,17 @@ describe('FIX 2: Seeds accumulate without ceiling — every play banks the full 
     expect(line.text).not.toContain('overflow')
   })
 
-  it('epoch-end income at a met target: 24 + 4 plays + 4 income → 32 (full income, no cap)', () => {
-    // 24 + 1 Seed per weak play (Growth 4 → ceil(4/4) = 1) ×4 = 28, then +4 income
+  it('epoch-end income at a met target: 24 + 4 plays + 5 income → 33 (full income, no cap)', () => {
+    // 24 + 1 Seed per weak play (Growth 4 → ceil(4/4) = 1) ×4 = 28, then +5 income
+    // (4 regions + 1 worldLevel 1→2 at epoch end)
     let s = newGame('fix2-epochend2')
     s.epoch = 20 // high target so early-advance fires only on the 4th play
     s.seeds = 24
     s.epochGrowth = epochTarget(20) - 16 // 4 weak plays × 4 growth → met on the 4th
     s = playOut(s)
-    expect(s.seeds).toBe(32)
+    expect(s.seeds).toBe(33)
     const line = s.log.find((l) => l.text.startsWith('Epoch end: +'))!
-    expect(line.text).toContain('Epoch end: +4 Seeds')
+    expect(line.text).toContain('Epoch end: +5 Seeds')
     expect(line.text).not.toContain('overflow')
   })
 
