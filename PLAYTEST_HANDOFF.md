@@ -77,3 +77,5 @@ The presentation-only UI pass is committed in `bd1a1a3`, with the selected-card 
 
 The current screenshot capture records play/map and shop/menu states rather than a standalone video file. The browser walkthrough is reproducible with `scripts/acceptance-playtest.mjs` and `scripts/shop-shots.mjs`; audio remains intentionally absent. The regional-bonus scaling limitation documented above is unchanged.
 
+The separate final-review worker was explicitly routed to `glm-5.3-flash` via `ollama-cloud`. It completed live wide/narrow visual and behavioral probes (including `PREVIEW==COMMIT true`, no overflow, keyboard selection, reduced-motion, hidden-tab resume, shop/menu/epoch inspection, and empty console-error arrays), but Ollama Cloud exhausted the account's monthly credits before returning its declared structured verdict. No files were modified by that reviewer; this is reported as a provider limitation, not a pass claim.
+
