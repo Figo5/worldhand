@@ -61,3 +61,19 @@ Runs end around **epoch 8–18**; modal outcome epoch 13 (6/30 = 20%), no empty 
 - No betting, no backend, no AI opponents, no deployment — local browser only.
 - The regional-bonus mechanic (v4) still anti-scales (flip rate 3.6% as-shipped / 1.9% all-awake) — it reads as decoration with a number attached, not a strategic driver. This is a known, recorded limitation, not fixed in this pass.
 - The bounded solver reaches epoch 8–18; a skilled human building a strong joker/planet engine may go further. Balance judgement is left to human playtest, not force-fixed.
+
+## UI overhaul verification — Celestial Card Table (2026-09-10)
+
+The presentation-only UI pass is committed in `bd1a1a3`, with the selected-card clearance fix in `475a99c` and current shop/menu evidence in `3df8e95`. No changes were made under `src/engine/` or `src/ui/save.ts`; scoring, targets, economy, randomness, progression, and save compatibility remain on the v7 rules path.
+
+- **Play screen:** compact run rail; owned-Joker shelf; hand-first card table; one prominent Resolution preview; Play/Discard/Clear controls beside the hand; Three.js planet as a secondary contextual panel; World Chronicle collapsed by default.
+- **Shop:** dedicated tabbed board for Laws & World, Jokers, Planets, Consumables, and Vouchers; World Projects and World Level remain available; prices, Seeds, Joker slots, queued consumables, disabled affordability/cap states, and Continue are visible in context.
+- **Visual evidence:** `shots/before-1280.png` vs `shots/after-1280-selected.png`, `shots/before-narrow.png` vs `shots/after-narrow-selected.png`; shop/menu captures in `shots-review/shop-1280.png`, `shop-narrow.png`, `menu-1280.png`, and `menu-narrow.png`.
+- **Browser verification:** isolated Playwright run exercised selection → play → score feedback → epoch transition → shop purchases → reload. `scripts/qa.mjs` passed at 1280×800 and 480×800 with no horizontal overflow and no console/page errors. `scripts/acceptance-playtest.mjs` passed with Joker + Planet purchase and reload persistence; preview-equals-commit and autosave/quit checks passed.
+- **Accessibility/feel:** keyboard card navigation/toggle remains available; selected cards have a visible lift/check state; focus states and reduced-motion rules are retained; animation is bounded and hidden-tab animation is paused.
+- **Gates:** `npx tsc --noEmit`, `npx vitest run` (169/169), and `npm run build` pass. The Vite chunk-size warning remains non-blocking. `scripts/review-independent-v5.mjs` is a pre-existing direct-Node/ESM-extension harness limitation and is not part of the UI path.
+
+### UI limitations
+
+The current screenshot capture records play/map and shop/menu states rather than a standalone video file. The browser walkthrough is reproducible with `scripts/acceptance-playtest.mjs` and `scripts/shop-shots.mjs`; audio remains intentionally absent. The regional-bonus scaling limitation documented above is unchanged.
+
