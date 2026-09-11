@@ -293,15 +293,13 @@ describe('FIX 3: unlimited epochs — the run ends on lives, not a fixed epoch',
     s.lives = 1
     s.phase = 'select'
     s = playOut(s)
-    expect(s.phase).toBe('market') // 0 lives pending the boundary
-    s = applyAction(s, { type: 'endMarket' })
-    const s2 = applyAction(s, { type: 'closeEpoch' })
-    expect(s2.phase).toBe('game-over')
-    expect(s2.lives).toBe(0)
-    expect(s2.outcome).toBe('withered')
-    expect(s2.outcomeReason).toContain('Out of lives')
-    expect(s2.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(1)
-    expect(s2.log.filter((l) => l.text.startsWith('Epoch end: +'))).toHaveLength(1)
+    expect(s.phase).toBe('game-over')
+    expect(s.lives).toBe(0)
+    expect(s.outcome).toBe('withered')
+    expect(s.outcomeReason).toContain('Out of lives')
+    expect(s.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(1)
+    expect(s.log.filter((l) => l.text.startsWith('Epoch end: +'))).toHaveLength(0)
+    expect(s.log.map((l) => l.text).join('\n')).not.toMatch(/next epoch's market opens/i)
   })
 
   it('epochs keep the exact existing flow: market → endMarket → epoch-end → closeEpoch → next epoch', () => {
@@ -325,8 +323,6 @@ describe('FIX 3: unlimited epochs — the run ends on lives, not a fixed epoch',
     s.lives = 1
     s.phase = 'select'
     s = playOut(s)
-    s = applyAction(s, { type: 'endMarket' })
-    s = applyAction(s, { type: 'closeEpoch' })
     expect(s.phase).toBe('game-over')
     // the committed state is structurally valid → a reload restores exactly it
     const j = JSON.parse(JSON.stringify(s))
@@ -343,7 +339,7 @@ describe('FIX 3: unlimited epochs — the run ends on lives, not a fixed epoch',
     expect(after.flourishing).toBe(reloaded.flourishing)
     expect(after.outcome).toBe(reloaded.outcome)
     // exactly-once bookkeeping in the chronicle
-    expect(s.log.filter((l) => l.text.startsWith('Epoch end: +'))).toHaveLength(1)
+    expect(s.log.filter((l) => l.text.startsWith('Epoch end: +'))).toHaveLength(0)
     expect(s.log.filter((l) => l.text.includes('a life is lost'))).toHaveLength(1)
   })
 

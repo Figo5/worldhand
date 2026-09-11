@@ -325,9 +325,9 @@ describe('Balatro-style lives', () => {
     expect(s.phase).toBe('market') // still alive at 1
     expect(s.log.some((l) => l.text.includes('a life is lost (now 1)'))).toBe(true)
   })
-  it('a third miss (0 lives) ends the run withered at the next epoch boundary', () => {
-    // lives 1 + a missed epoch-2 target → 0 lives; the market still opens, but
-    // the very next epoch boundary is terminal.
+  it('a third miss (0 lives) ends the run withered immediately', () => {
+    // lives 1 + a missed epoch-2 target → 0 lives; death is immediate, with
+    // no spendable market in between.
     let s = newGame('lives-third-miss')
     s.lives = 1
     s.epoch = 2
@@ -338,12 +338,9 @@ describe('Balatro-style lives', () => {
       s = applyAction(s, { type: 'play' })
     }
     expect(s.lives).toBe(0)
-    expect(s.phase).toBe('market') // not dead yet — the boundary decides
-    s = applyAction(s, { type: 'endMarket' })
-    const s2 = applyAction(s, { type: 'closeEpoch' })
-    expect(s2.phase).toBe('game-over')
-    expect(s2.outcome).toBe('withered')
-    expect(s2.outcomeReason).toContain('lives')
+    expect(s.phase).toBe('game-over')
+    expect(s.outcome).toBe('withered')
+    expect(s.outcomeReason).toContain('lives')
   })
   it('a drained life pool (0) at an epoch boundary ends the run withered', () => {
     let s = newGame('lives-zero-2')
@@ -400,13 +397,13 @@ describe('Balatro-style lives', () => {
         s = applyAction(s, { type: 'play' })
       }
       expect(s.lives).toBe(SURVIVAL_START - epoch) // 2, then 1, then 0
-      expect(s.phase).toBe('market') // every miss opens the market (no fixed cap)
-      s = applyAction(s, { type: 'endMarket' })
-      s = applyAction(s, { type: 'closeEpoch' })
       if (epoch < 3) {
+        expect(s.phase).toBe('market') // still alive misses open the market
+        s = applyAction(s, { type: 'endMarket' })
+        s = applyAction(s, { type: 'closeEpoch' })
         expect(s.phase).toBe('select') // still alive at 1+ lives
       } else {
-        // 0 lives at the boundary ends the run
+        // 0 lives ends immediately, with no final market
         expect(s.phase).toBe('game-over')
       }
     }
@@ -614,7 +611,7 @@ describe('World Score + World Projects (the goal: make the world as good as you 
     expect(worldScore(s)).toBe(60.5)
   })
 
-  it('buyProject funds a project: costs Seeds, applies its effect, and is repeatable with escalating cost', () => {
+  it('buyProject funds a project: costs Seeds, applies its effect, and is repeatable ACROSS visits with escalating cost', () => {
     let s = newGame('proj-buy')
     s.phase = 'market'
     s.seeds = 100
@@ -623,9 +620,13 @@ describe('World Score + World Projects (the goal: make the world as good as you 
     expect(s.seeds).toBe(92) // 100 - 8
     expect(s.regions[0].development).toBe(1)
     expect(s.projects).toHaveLength(1)
-    // repeatable: cost escalates by costGrowth (8 + 4 = 12)
+    // v8: ONE copy per market VISIT — a second buy in the same visit is refused
+    expect(() => applyAction(s, { type: 'buyProject', projectId: 'proj-dev-auralia' }))
+      .toThrow(/already funded this market visit/)
+    // ...but it is still repeatable at the NEXT visit, at the escalated cost
+    s = { ...s, marketVisitBuys: [] }
     s = applyAction(s, { type: 'buyProject', projectId: 'proj-dev-auralia' })
-    expect(s.seeds).toBe(80) // 92 - 12
+    expect(s.seeds).toBe(80) // 92 - 12 (8 + 1 x costGrowth 4)
     expect(s.regions[0].development).toBe(2)
     expect(s.projects).toHaveLength(2)
   })
@@ -655,6 +656,8 @@ describe('World Score + World Projects (the goal: make the world as good as you 
     }
     // income = 2 (project) + 4 (living regions) + 1 (worldLevel 1→2) = 7, not halved (target met)
     expect(s.log.some((l) => l.text.includes('Epoch end: +7 Seeds'))).toBe(true)
+    // ...and v8 pays nothing extra here: all four plays were used
+    expect(s.log.some((l) => /unused play/.test(l.text))).toBe(false)
   })
 
   it('all 12 regions are wakeable (4 new wake items for regions 5, 7, 8, 10)', () => {
@@ -668,7 +671,11 @@ describe('World Score + World Projects (the goal: make the world as good as you 
     let s = newGame('dev-uncapped')
     s.phase = 'market'
     s.seeds = 1000
-    for (let i = 0; i < 15; i++) s = applyAction(s, { type: 'buyProject', projectId: 'proj-dev-auralia' })
+    // one copy per market visit (v8), so this walks 15 visits
+    for (let i = 0; i < 15; i++) {
+      s = { ...s, marketVisitBuys: [] }
+      s = applyAction(s, { type: 'buyProject', projectId: 'proj-dev-auralia' })
+    }
     expect(s.regions[0].development).toBe(15) // > 10, uncapped
   })
 })
@@ -958,10 +965,10 @@ describe('capped world stats', () => {
 })
 
 describe('versioned save envelope + structural validation', () => {
-  it('v7 state round-trips through JSON (v7 = Balatro-hard rules generation)', () => {
+  it('v8 state round-trips through JSON (v8 = bounded-economy rules generation)', () => {
     const s = newGame('roundtrip')
     const j = JSON.parse(JSON.stringify(s))
-    expect(j.version).toBe(7)
+    expect(j.version).toBe(8)
     expect(j.hand).toHaveLength(8)
     expect(j.regions).toHaveLength(12)
     const back = JSON.parse(JSON.stringify(j)) as GameState
@@ -971,8 +978,8 @@ describe('versioned save envelope + structural validation', () => {
     const mod = await import('../src/ui/save')
     expect(typeof mod.saveGame).toBe('function')
     expect(typeof mod.loadGame).toBe('function')
-    expect(mod.CURRENT_VERSION).toBe(7) // v7 = Balatro-hard rules generation
-    expect(mod.SCHEMA_VERSION_CURRENT).toBe(3)
+    expect(mod.CURRENT_VERSION).toBe(8) // v8 = bounded-economy rules generation
+    expect(mod.SCHEMA_VERSION_CURRENT).toBe(4)
   })
 })
 
@@ -981,10 +988,10 @@ describe('save versioning + structural validation (legacy preserved, never reint
   // through the exported validateState + the envelope's version fields.
   const fresh = () => JSON.parse(JSON.stringify(newGame('validator'))) as any
 
-  it('CURRENT_VERSION is 7 (Balatro-hard rules generation) and SCHEMA_VERSION is 3', async () => {
+  it('CURRENT_VERSION is 8 (bounded-economy rules generation) and SCHEMA_VERSION is 4', async () => {
     const w = await import('../src/engine/worldhand')
-    expect(w.SAVE_VERSION).toBe(7)
-    expect(w.SCHEMA_VERSION).toBe(3)
+    expect(w.SAVE_VERSION).toBe(8)
+    expect(w.SCHEMA_VERSION).toBe(4)
   })
 
   it('a fresh v3 state passes validateState (null = acceptable)', async () => {
@@ -1108,7 +1115,7 @@ describe('save versioning + structural validation (legacy preserved, never reint
 
       // structurally corrupt v7 state (missing lives): same preserve+reject path
       const corruptState = fresh(); delete corruptState.lives
-      const env3 = JSON.stringify({ schema: 3, version: 7, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
+      const env3 = JSON.stringify({ schema: 4, version: 8, savedAt: '2026-01-02T00:00:00.000Z', state: corruptState })
       store.set('worldhand.save', env3)
       const res2 = mod.loadGameDetailed()
       expect(res2.state).toBeNull()
@@ -1117,7 +1124,7 @@ describe('save versioning + structural validation (legacy preserved, never reint
       expect(store.get('worldhand.save')).toBe(env3)
 
       // a valid v7 save still loads
-      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 7, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
+      store.set('worldhand.save', JSON.stringify({ schema: 4, version: 8, savedAt: '2026-01-03T00:00:00.000Z', state: fresh() }))
       const res3 = mod.loadGameDetailed()
       expect(res3.state).not.toBeNull()
       expect(res3.rejectedReason).toBeNull()

@@ -5,16 +5,17 @@
 // - A play is JUST "play a poker hand": select 1–5 cards from the 8-card hand →
 //   exact poker scoring → the hand resolves to ONE hero number, Growth.
 //   No suit decision, no region choice, no per-suit world actions.
-// - AUTO-EARN Seeds on every play: seeds += SEEDS_PER_GROWTH × Growth,
-//   uncapped — hand quality IS the economy. There is no separate Mine action.
+// - AUTO-EARN Seeds on every play: seeds += min(ceil(Growth / 4),
+//   playSeedCap(epoch)). There is no separate Mine action.
 // - HERO SCORE — every play resolves to ONE number, **Growth**:
 //       1. poker base = rankSum ("chips") × CATEGORY_MULT[category]
 //       2. World Laws = owned flat bonus laws (growBonus)
 //     Growth = max(0, pokerBase + lawBonus). No region/drought modifiers.
-//   Flourishing (the single epoch target) is the cumulative sum of Growth.
+//   epochGrowth is checked against the current epoch target; lifetime
+//   Flourishing is retained for score/display.
 // - Survival is exactly Balatro-style lives: start 3; EVERY missed epoch
-//   target (all three epochs) costs 1 life; 0 → game over (withered).
-//   Winning = beat the epoch-3 target while lives remain.
+//   target costs 1 life; 0 → immediate game over (withered). Epochs are
+//   unlimited; the goal is maximizing World Score before death.
 // - Market (Balatro shop): spend Seeds on poker-hand upgrades, card additions
 //   (deck conservation still holds — added cards are real 52+ cards), region
 //   expansion (wake a dormant region → planet visibly grows), and World Laws.
@@ -43,13 +44,23 @@ export type { Suit } from './poker'
  *  regions wakeable, uncapped development, and an infinite Seed-sink project
  *  shop, 7 = Balatro-hard — a single World Level replaces the region map,
  *  escalating blinds outpace raw hands, and the shop adds Jokers, Planet
- *  cards, Consumables, and Vouchers. A save whose version or structure does
+ *  cards, Consumables, and Vouchers, 8 = BOUNDED ECONOMY — v7's market was a
+ *  runaway: Seeds were paid out in proportion to Growth with no ceiling while
+ *  prices stayed fixed, vouchers could be re-bought without limit (+0.5 to
+ *  EVERY joker per copy), and a single market visit allowed unlimited
+ *  World-Level boosts and project purchases. v8 closes the loop — per-play
+ *  Seed income is capped at that play's share of the epoch target, vouchers
+ *  are one-time, a market visit allows ONE World-Level boost and ONE copy of
+ *  each offered project, repeat power (World Level, Planet cards) costs
+ *  superlinearly, the Bigger Hand voucher finally deals a card, unused plays
+ *  pay out on a met target, and the blind curve is geometric, not quadratic.
+ *  A save whose version or structure does
  *  not match the CURRENT engine is rejected (never reinterpreted) and
  *  preserved as recoverable legacy data — see `validateState` + src/ui/save.ts. */
-export const SAVE_VERSION = 7
+export const SAVE_VERSION = 8
 /** SCHEMA_VERSION: envelope/layout generation, tracked separately from the
  *  rules so a pure layout change does not imply a rules change. */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 /** Obsolete market ids from pre-Balatro-simple eras (suit-action era). A save
  *  containing any of these is structurally incompatible with the current
  *  engine and must be rejected, not migrated. */
@@ -70,17 +81,66 @@ export const FLOURISH_START = 3
 export const SEEDS_START = 8
 export const MARKET_SIZE = 3
 export const LIVES_CAP = 3
+/** Max QUEUED consumables — the one-shot multipliers are a finite queue, not a
+ *  stockpile that can be chained indefinitely. */
+export const CONSUMABLE_SLOTS = 2
 
-/** The escalating epoch target: Growth to bank DURING this epoch (per-epoch,
- *  not cumulative). Each epoch you must bank `need(n)` Growth within that
- *  epoch; Growth banked resets at each epoch boundary for the target. A
- *  separate lifetime Flourishing total is kept for score/display. The curve is
- *  deliberately STEEP so even a good scaling engine (5 jokers + world level)
- *  dies around epoch 10-15 — you must build a scaling engine to survive, but
- *  the blinds keep outrunning it. Monotonic increasing. */
+/** The blind curve — Growth to bank DURING this epoch (per-epoch, not
+ *  cumulative). Growth banked resets at each epoch boundary; a separate
+ *  lifetime Flourishing total is kept for score/display.
+ *
+ *  GEOMETRIC, not quadratic (v7 used `100 + 40d + 5d^2`). This is the whole
+ *  difficulty contract: a player's engine grows POLYNOMIALLY — the joker shelf
+ *  is 5 slots, every voucher is one-time, and Planet cards and World Levels
+ *  cost superlinearly — so a geometric curve always wins eventually. The skill
+ *  is HOW LONG you hold the lead: a coherent multiplicative core assembled
+ *  early buys epochs, while a scattered build runs out of Seeds as the blinds
+ *  compound. Monotonic increasing. */
+export const TARGET_BASE = 100
+/** Calibrated on the DEVELOPMENT seed set only (scripts/target-sweep.mjs), then
+ *  confirmed on the disjoint held-out set. At 1.40 the frozen bounded-play
+ *  policies reach a median epoch 17 with a real spread (10..21) and the banked
+ *  /target margin first drops under 1.5x around epoch 10 — i.e. the back half
+ *  of a run is genuinely in doubt. Raising it shortens runs and starts the
+ *  pressure sooner; lowering it pushes the whole curve out. */
+export const TARGET_GROWTH = 1.40
 export function epochTarget(epoch: number): number {
-  const d = epoch - 1
-  return Math.round(100 + 40 * d + 5 * d * d)
+  return Math.round(TARGET_BASE * Math.pow(TARGET_GROWTH, Math.max(0, epoch - 1)))
+}
+
+/** The per-play Seed ceiling — the fix for v7's runaway (see SAVE_VERSION 8).
+ *  A play can never earn more than `PLAY_SEED_CAP_BASE + epoch` Seeds, however
+ *  enormous its Growth. Two properties matter, and they are the whole economy:
+ *
+ *   1. Income is decoupled from SCORE. Beating the blind by 900x pays exactly
+ *      what beating it by 2x pays, so the v7 loop
+ *      `Growth -> Seeds -> multipliers -> Growth` no longer closes. (Balatro
+ *      works the same way: a blind's payout does not scale with your chips.)
+ *   2. Income grows LINEARLY while the blind curve grows GEOMETRICALLY. Seeds
+ *      therefore get scarcer relative to the difficulty every single epoch —
+ *      which is what keeps the market a real choice in the late game instead
+ *      of a formality. Tying this cap to `epochTarget` was tried and rejected:
+ *      it made income compound alongside the blinds, and a careless
+ *      buy-everything build then measured the same as a focused one. */
+export const PLAY_SEED_CAP_BASE = 4
+export function playSeedCap(epoch: number): number {
+  return PLAY_SEED_CAP_BASE + Math.max(1, Math.floor(epoch))
+}
+
+/** Raising the World Level costs more the higher it already is: the benefit is
+ *  linear (+2 Growth/play per level) so the price must be too, making TOTAL
+ *  spend quadratic. v7 charged `10 + 5(L-1)` with no per-visit limit — that is
+ *  how the supplied save reached World Level 4009. */
+export function boostWorldCost(worldLevel: number): number {
+  return 10 * Math.max(1, worldLevel)
+}
+
+/** A Planet card's price, escalated by the copies already owned in that
+ *  category: the n-th copy costs `base x n`. Repeat power must cost
+ *  superlinearly, or the shop is just a fixed Seeds-to-multiplier exchange. */
+export function planetCost(p: PlanetCard, planetLevels: Partial<Record<HandCategory, number>>): number {
+  const owned = Math.round((planetLevels[p.category] ?? 0) / p.boost)
+  return p.cost * (1 + owned)
 }
 
 /** Human-readable target descriptor for the current epoch. */
@@ -208,7 +268,7 @@ export interface Joker {
   desc: string
   cost: number
   /** the hand condition that triggers this joker */
-  condition: 'pair' | 'twopair' | 'flush' | 'no-face' | 'high-card' | 'any'
+  condition: 'pair' | 'twopair' | 'trips' | 'straight' | 'flush' | 'fullhouse' | 'no-face' | 'high-card' | 'any'
   /** additive mult when the condition is met (0.5 = ×1.5, 1 = ×2) */
   mult: number
 }
@@ -249,14 +309,29 @@ export interface Voucher {
   seedsPerEpoch?: number
 }
 
-/** The Joker pool. */
+/** The Joker pool — the BUILD CHOICE. Five slots against a pool this size
+ *  means the shelf is genuinely selective: you cannot own one of everything.
+ *
+ *  The mult tiers are priced by how hard the condition is to hit from an
+ *  8-card hand, so committing to a rare shape pays far more than hedging:
+ *  a Full House joker is x5 but fires seldom, the All-In joker fires always
+ *  and is deliberately the weakest Growth per Seed. That trade is the strategy
+ *  — stacking three Flush jokers is enormous IF you can keep making flushes,
+ *  and dead weight if you cannot. (v7 had six jokers for five slots, all in a
+ *  x1.25-x2 band; the bounded-play measurement showed a careless build and a
+ *  focused one reached the SAME depth, because there was nothing to choose.)
+ *  Duplicates are allowed and stack multiplicatively — that is how a committed
+ *  build gets its ceiling. */
 export const JOKERS: Joker[] = [
-  { id: 'joker-pair', title: 'Pair Joker', desc: '×1.5 Growth when you play a Pair.', cost: 8, condition: 'pair', mult: 0.5 },
-  { id: 'joker-twopair', title: 'Two Pair Joker', desc: '×2 Growth when you play Two Pair.', cost: 10, condition: 'twopair', mult: 1 },
-  { id: 'joker-flush', title: 'Flush Joker', desc: '×2 Growth when you play a Flush.', cost: 12, condition: 'flush', mult: 1 },
-  { id: 'joker-noface', title: 'No-Face Joker', desc: '×1.5 Growth when you play no face cards.', cost: 8, condition: 'no-face', mult: 0.5 },
-  { id: 'joker-high', title: 'High Card Joker', desc: '×1.5 Growth on a High Card.', cost: 6, condition: 'high-card', mult: 0.5 },
-  { id: 'joker-any', title: 'All-In Joker', desc: '×1.25 Growth on every hand.', cost: 10, condition: 'any', mult: 0.25 },
+  { id: 'joker-high', title: 'High Card Joker', desc: '×1.5 Growth on a High Card.', cost: 5, condition: 'high-card', mult: 0.5 },
+  { id: 'joker-pair', title: 'Pair Joker', desc: '×2 Growth when you play a Pair.', cost: 7, condition: 'pair', mult: 1 },
+  { id: 'joker-noface', title: 'No-Face Joker', desc: '×1.75 Growth when you play no face cards.', cost: 8, condition: 'no-face', mult: 0.75 },
+  { id: 'joker-twopair', title: 'Two Pair Joker', desc: '×2.5 Growth when you play Two Pair.', cost: 9, condition: 'twopair', mult: 1.5 },
+  { id: 'joker-trips', title: 'Trips Joker', desc: '×3 Growth when you play Three of a Kind.', cost: 11, condition: 'trips', mult: 2 },
+  { id: 'joker-any', title: 'All-In Joker', desc: '×1.4 Growth on every hand — safe, and the weakest per Seed.', cost: 12, condition: 'any', mult: 0.4 },
+  { id: 'joker-straight', title: 'Straight Joker', desc: '×3.5 Growth when you play a Straight.', cost: 13, condition: 'straight', mult: 2.5 },
+  { id: 'joker-flush', title: 'Flush Joker', desc: '×3.5 Growth when you play a Flush.', cost: 13, condition: 'flush', mult: 2.5 },
+  { id: 'joker-fullhouse', title: 'Full House Joker', desc: '×5 Growth when you play a Full House.', cost: 18, condition: 'fullhouse', mult: 4 },
 ]
 
 /** The Planet card pool. */
@@ -407,8 +482,13 @@ export interface GameState {
   planetLevels: Partial<Record<HandCategory, number>>
   /** queued Consumables (one-shot ×N on the next hand) */
   consumables: Consumable[]
-  /** owned Vouchers (permanent globals) */
+  /** owned Vouchers (permanent globals — exactly one copy of each, ever) */
   vouchers: Voucher[]
+  /** ids purchased during the CURRENT market visit, cleared when a market is
+   *  dealt. A visit allows one World-Level boost (`WORLD_BOOST_ID`) and one
+   *  copy of each offered project — v7 allowed unlimited repeats inside a
+   *  single visit, which is how one epoch-14 market saw 6,077 purchases. */
+  marketVisitBuys: string[]
   lastResolution: ResolutionPlan | null
   log: LogEntry[]
   outcome: 'flourishing' | 'withered' | null
@@ -474,6 +554,12 @@ export interface ResolutionPlan {
   jokerMult: number
   /** the combined consumable multiplier (product of xNext over queued) */
   consumableMult: number
+  /** the Seeds this play actually banks — `min(ceil(growth/4), playSeedCap(epoch))`.
+   *  The CAPPED number is the one preview, commit and the chronicle all read. */
+  seedsGain: number
+  /** what the uncapped v7 formula would have paid; equals `seedsGain` unless
+   *  the cap bit. Exposed so the UI can say "capped" honestly. */
+  seedsNominal: number
   effects: PlanEffect[]
   summary: string
   valid: boolean
@@ -487,7 +573,8 @@ export type PlanEffect =
 /** The auto-Seeds economy (documented formula): every play earns Seeds
  *  directly from its hand quality — no separate Mine action.
  *      nominal = ceil(Growth × SEEDS_PER_GROWTH)   (1 Seed per 4 Growth)
- *  Seeds accumulate without ceiling; the nominal earn IS the banked earn. */
+ *      banked = min(nominal, playSeedCap(epoch))
+ *  Seeds accumulate without a wallet ceiling, but per-play overkill is capped. */
 export const SEEDS_PER_GROWTH = 1 / 4
 
 /** Owned-law Growth multiplier: the sum of every owned growthMult, floored at
@@ -502,9 +589,13 @@ export function lawGrowthFlat(laws: Law[]): number {
 }
 
 /** The card-addition slot: owned handSize laws extend the dealt hand
- *  (Fourth Counsel → 9, Fifth Counsel → 10). Max 5 owned items total. */
-export function handSizeOf(laws: Law[]): number {
-  return HAND_SIZE + laws.reduce((n, l) => n + (l.handSize ?? 0), 0)
+ *  (Fourth Counsel → 9, Fifth Counsel → 10). Max 5 owned items total.
+ *  Vouchers count too — v7 read laws ONLY, so "Voucher: Bigger Hand" was a
+ *  dead purchase (the supplied save had bought ten of them, for no effect). */
+export function handSizeOf(laws: Law[], vouchers: Voucher[] = []): number {
+  return HAND_SIZE
+    + laws.reduce((n, l) => n + (l.handSize ?? 0), 0)
+    + vouchers.reduce((n, v) => n + (v.handSize ?? 0), 0)
 }
 
 /** Build the deterministic ResolutionPlan for a selection (pure; no state mutation).
@@ -535,12 +626,14 @@ export function buildPlan(
     consumables?: Consumable[]
     worldLevel?: number
     vouchers?: Voucher[]
+    /** the epoch this play happens in — sets the per-play Seed ceiling */
+    epoch?: number
   } = {},
 ): ResolutionPlan {
   const base: ResolutionPlan = {
     cards: [], category: 'high', categoryLabel: '—', categoryPoints: 0,
     suitCounts: { S: 0, H: 0, D: 0, C: 0 },
-    rankSum: 0, chips: 0, pokerBase: 0, mult: 1, growth: 0,
+    rankSum: 0, chips: 0, pokerBase: 0, mult: 1, growth: 0, seedsGain: 0, seedsNominal: 0,
     growthParts: { poker: 0, laws: 0, regions: 0, world: 0 }, regionContribs: [], jokerContribs: [],
     worldBonus: 0, jokerMult: 1, consumableMult: 1,
     effects: [], summary: '', valid: false, invalidReason: '',
@@ -598,7 +691,10 @@ export function buildPlan(
     const fires = j.condition === 'any'
       || (j.condition === 'pair' && res.category === 'pair')
       || (j.condition === 'twopair' && res.category === 'two-pair')
+      || (j.condition === 'trips' && res.category === 'trips')
+      || (j.condition === 'straight' && res.category === 'straight')
       || (j.condition === 'flush' && res.category === 'flush')
+      || (j.condition === 'fullhouse' && res.category === 'full-house')
       || (j.condition === 'high-card' && res.category === 'high')
       || (j.condition === 'no-face' && cards.every((c) => c.r < 11))
     if (!fires) continue
@@ -612,11 +708,13 @@ export function buildPlan(
   const growthParts = { poker: pokerBase, laws: lawBonus, regions: regionsBonus, world: worldBonus }
   const growth = Math.max(0, Math.round((pokerBase * lawMult + lawFlat + worldBonus + regionsBonus) * jokerMult * consumableMult))
 
-  // AUTO-EARN SEEDS: hand quality pays instantly. 1 Seed per 4 Growth
-  // (SEEDS_PER_GROWTH = 1/4). Seeds accumulate without ceiling — the nominal
-  // earn IS the banked earn, so the plan carries just `amount` and preview,
-  // commit and the chronicle all read the same field.
-  const seedsGain = Math.max(0, Math.ceil(growth * SEEDS_PER_GROWTH))
+  // AUTO-EARN SEEDS: hand quality pays, at 1 Seed per 4 Growth — but BOUNDED.
+  // A play can never earn more than its own share of this epoch's target
+  // (`playSeedCap`), so overkill buys nothing. This is the single change that
+  // turns the v7 `Growth -> Seeds -> multipliers -> Growth` loop from
+  // divergent into bounded: income now tracks the blind curve, not the score.
+  const seedsNominal = Math.max(0, Math.ceil(growth * SEEDS_PER_GROWTH))
+  const seedsGain = Math.min(seedsNominal, playSeedCap(ctx.epoch ?? 1))
 
   // EVERY play banks its Growth toward the single epoch target.
   const effects: PlanEffect[] = [
@@ -627,13 +725,14 @@ export function buildPlan(
   // already-multiplied base, then the regional bonus when one applies, then the
   // Seed earn. e.g.
   // "chips 32 x 2 mult = base 64 +7 regions. Gains 18 Seeds."
+  const cappedClause = seedsGain < seedsNominal ? ' (capped)' : ''
   const regionClause = regionsBonus > 0
     ? ` +${regionsBonus} region${regionContribs.length > 1 ? 's' : ''}`
     : ''
   const jokerClause = jokerContribs.length > 0
     ? ` ×${jokerMult.toFixed(2)} joker${jokerContribs.length > 1 ? 's' : ''}`
     : ''
-  const summary = `Banks ${growth} Growth (chips ${sum} x ${mult.toFixed(2)} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}${worldBonus !== 0 ? ` +${worldBonus} world` : ''}${regionClause}${jokerClause}). Gains ${seedsGain} Seeds.`
+  const summary = `Banks ${growth} Growth (chips ${sum} x ${mult.toFixed(2)} mult = base ${pokerBase}${lawBonus !== 0 ? ` ${lawBonus >= 0 ? '+' : ''}${lawBonus} laws` : ''}${worldBonus !== 0 ? ` +${worldBonus} world` : ''}${regionClause}${jokerClause}). Gains ${seedsGain} Seeds${cappedClause}.`
 
   return {
     cards,
@@ -652,6 +751,8 @@ export function buildPlan(
     worldBonus,
     jokerMult,
     consumableMult,
+    seedsGain,
+    seedsNominal,
     effects,
     summary,
     valid: true,
@@ -676,7 +777,7 @@ export function applyPlanEffects(s: GameState, plan: ResolutionPlan): void {
 export function preview(s: GameState): ResolutionPlan {
   return buildPlan(s.hand, s.selected, s.laws, s.regions, s.projects, {
     jokers: s.jokers, planetLevels: s.planetLevels, consumables: s.consumables,
-    worldLevel: s.worldLevel, vouchers: s.vouchers,
+    worldLevel: s.worldLevel, vouchers: s.vouchers, epoch: s.epoch,
   })
 }
 
@@ -752,6 +853,7 @@ function setupWorld(seed: Seed, seedText: string): GameState {
     planetLevels: {},
     consumables: [],
     vouchers: [],
+    marketVisitBuys: [],
     lastResolution: null,
     log: [{ at: 'world', text: `The world of ${seedText} takes root. Four regions wake.` }],
     outcome: null,
@@ -779,6 +881,7 @@ function clone(s: GameState): GameState {
     planetLevels: { ...s.planetLevels },
     consumables: s.consumables.map((c) => ({ ...c })),
     vouchers: s.vouchers.map((v) => ({ ...v })),
+    marketVisitBuys: [...s.marketVisitBuys],
     lastResolution: s.lastResolution ? { ...s.lastResolution, cards: [...s.lastResolution.cards], effects: [...s.lastResolution.effects], suitCounts: { ...s.lastResolution.suitCounts } } : null,
     log: [...s.log],
   }
@@ -801,7 +904,7 @@ function drawUp(s: GameState, n: number) {
 
 function startEpoch(state: GameState): GameState {
   const s = clone(state)
-  drawUp(s, handSizeOf(s.laws) - s.hand.length)
+  drawUp(s, handSizeOf(s.laws, s.vouchers) - s.hand.length)
   s.selected = []
   s.phase = 'select'
   return s
@@ -814,6 +917,14 @@ function startEpoch(state: GameState): GameState {
 export function applyAction(state: GameState, action: Action): GameState {
   let s = clone(state)
   if (s.phase === 'game-over') return s
+  if (s.lives <= 0 || s.flourishing <= 0) {
+    s.phase = 'game-over'
+    s.outcome = 'withered'
+    s.outcomeReason = s.lives <= 0
+      ? `Out of lives (${s.lives}): too many epoch targets missed. The world withers.`
+      : 'Flourishing collapsed to 0.'
+    return s
+  }
 
   switch (action.type) {
     case 'toggleCard': {
@@ -834,10 +945,7 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'play': {
       if (s.phase !== 'select') throw new Error('not in select phase')
       if (s.playsLeft <= 0) throw new Error('no plays left this epoch')
-      const plan = buildPlan(s.hand, s.selected, s.laws, s.regions, s.projects, {
-        jokers: s.jokers, planetLevels: s.planetLevels, consumables: s.consumables,
-        worldLevel: s.worldLevel, vouchers: s.vouchers,
-      })
+      const plan = preview(s)
       if (!plan.valid) throw new Error(plan.invalidReason || 'invalid selection')
       // apply plan effects (shared pipeline — preview and commit agree by construction)
       applyPlanEffects(s, plan)
@@ -898,10 +1006,14 @@ export function applyAction(state: GameState, action: Action): GameState {
       if (s.phase !== 'market') throw new Error('not in market phase')
       const proj = WORLD_PROJECTS.find((p) => p.id === action.projectId)
       if (!proj) throw new Error('no such world project')
+      if (s.marketVisitBuys.includes(proj.id)) {
+        throw new Error(`${proj.title} was already funded this market visit — one copy per visit`)
+      }
       const owned = s.projects.filter((p) => p.id === proj.id).length
       const cost = proj.baseCost + owned * proj.costGrowth
       if (s.seeds < cost) throw new Error(`need ${cost} Seeds`)
       s.seeds -= cost
+      s.marketVisitBuys.push(proj.id)
       s.projects.push({ ...proj })
       if (proj.devRegionId !== undefined) {
         const r = s.regions.find((x) => x.id === proj.devRegionId)
@@ -926,17 +1038,21 @@ export function applyAction(state: GameState, action: Action): GameState {
       if (s.phase !== 'market') throw new Error('not in market phase')
       const p = s.planetMarket.find((x) => x.id === action.planetId)
       if (!p) throw new Error('no such planet card')
-      if (s.seeds < p.cost) throw new Error(`need ${p.cost} Seeds`)
-      s.seeds -= p.cost
+      const pcost = planetCost(p, s.planetLevels)
+      if (s.seeds < pcost) throw new Error(`need ${pcost} Seeds`)
+      s.seeds -= pcost
       s.planetLevels[p.category] = (s.planetLevels[p.category] ?? 0) + p.boost
       s.planetMarket = s.planetMarket.filter((x) => x.id !== p.id)
-      s.log.push({ at: `e${s.epoch}`, text: `Bought ${p.title} (-${p.cost} Seeds).` })
+      s.log.push({ at: `e${s.epoch}`, text: `Bought ${p.title} (-${pcost} Seeds).` })
       return s
     }
     case 'buyConsumable': {
       if (s.phase !== 'market') throw new Error('not in market phase')
       const c = s.consumableMarket.find((x) => x.id === action.consumableId)
       if (!c) throw new Error('no such consumable')
+      if (s.consumables.length >= CONSUMABLE_SLOTS) {
+        throw new Error(`all ${CONSUMABLE_SLOTS} consumable slots are queued — play a hand to spend them`)
+      }
       if (s.seeds < c.cost) throw new Error(`need ${c.cost} Seeds`)
       s.seeds -= c.cost
       s.consumables.push({ ...c })
@@ -948,6 +1064,11 @@ export function applyAction(state: GameState, action: Action): GameState {
       if (s.phase !== 'market') throw new Error('not in market phase')
       const v = s.voucherMarket.find((x) => x.id === action.voucherId)
       if (!v) throw new Error('no such voucher')
+      // a voucher is a PERMANENT global: one copy, ever. v7 let the same
+      // voucher be bought every shop, stacking +0.5 onto every joker each
+      // time — the supplied save had nine copies, turning five jokers into a
+      // x9,080 multiplier.
+      if (s.vouchers.some((x) => x.id === v.id)) throw new Error(`you already own ${v.title}`)
       if (s.seeds < v.cost) throw new Error(`need ${v.cost} Seeds`)
       s.seeds -= v.cost
       s.vouchers.push({ ...v })
@@ -957,9 +1078,13 @@ export function applyAction(state: GameState, action: Action): GameState {
     }
     case 'boostWorld': {
       if (s.phase !== 'market') throw new Error('not in market phase')
-      const cost = 10 + (s.worldLevel - 1) * 5
+      if (s.marketVisitBuys.includes(WORLD_BOOST_ID)) {
+        throw new Error('the World Level was already boosted this market visit — once per visit')
+      }
+      const cost = boostWorldCost(s.worldLevel)
       if (s.seeds < cost) throw new Error(`need ${cost} Seeds`)
       s.seeds -= cost
+      s.marketVisitBuys.push(WORLD_BOOST_ID)
       s.worldLevel += 1
       s.log.push({ at: `e${s.epoch}`, text: `World Level up to ${s.worldLevel} (-${cost} Seeds).` })
       return s
@@ -986,7 +1111,7 @@ export function applyAction(state: GameState, action: Action): GameState {
 }
 
 function refill(s: GameState): GameState {
-  drawUp(s, handSizeOf(s.laws) - s.hand.length)
+  drawUp(s, handSizeOf(s.laws, s.vouchers) - s.hand.length)
   s.selected = []
   return s
 }
@@ -1001,6 +1126,9 @@ export const LAW_SLOTS = 5
 
 /** Max owned Jokers — the Balatro 5-slot joker shelf. */
 export const JOKER_SLOTS = 5
+
+/** The `marketVisitBuys` sentinel for the once-per-visit World-Level boost. */
+export const WORLD_BOOST_ID = 'world-level-boost'
 
 /** Card conservation invariant: hand + deck + discard == 52 + added cards.
  *  Market card-additions are laws, not cards — but 'cards' kind items grow the
@@ -1081,6 +1209,15 @@ export function validateState(v: unknown): string | null {
   if (!Array.isArray(s.jokers)) return bad('jokers', 'must be an array')
   if (!Array.isArray(s.consumables)) return bad('consumables', 'must be an array')
   if (!Array.isArray(s.vouchers)) return bad('vouchers', 'must be an array')
+  if (!Array.isArray(s.marketVisitBuys) || !s.marketVisitBuys.every((x: unknown) => typeof x === 'string')) {
+    return bad('marketVisitBuys', 'must be an array of purchase ids (the once-per-visit ledger)')
+  }
+  {
+    const ids = (s.vouchers as { id?: unknown }[]).map((v) => v?.id)
+    if (new Set(ids).size !== ids.length) {
+      return bad('vouchers', 'contains duplicates — vouchers are one-time permanent globals')
+    }
+  }
   if (typeof s.worldLevel !== 'number' || !Number.isFinite(s.worldLevel) || s.worldLevel < 1) {
     return bad('worldLevel', 'must be a number >= 1')
   }
@@ -1184,6 +1321,23 @@ function endEpoch(state: GameState): GameState {
       at: `e${s.epoch}`,
       text: `Missed the epoch-${s.epoch} target: a life is lost (now ${s.lives}) and this epoch's market income is halved.`,
     })
+    if (s.lives <= 0) {
+      s.market = []
+      s.projectMarket = []
+      s.jokerMarket = []
+      s.planetMarket = []
+      s.consumableMarket = []
+      s.voucherMarket = []
+      s.marketVisitBuys = []
+      s.phase = 'game-over'
+      s.outcome = 'withered'
+      s.outcomeReason = `Out of lives (${s.lives}): too many epoch targets missed. The world withers.`
+      s.log.push({
+        at: `e${s.epoch}`,
+        text: `Banked ${s.epochGrowth} this epoch, short of ${targetNeed}; out of lives — game over. The world withers.`,
+      })
+      return s
+    }
     s.log.push({
       at: `e${s.epoch}`,
       text: `Banked ${s.epochGrowth} this epoch, short of ${targetNeed} — the next epoch's market opens with the penalty applied.`,
@@ -1230,6 +1384,18 @@ function endEpoch(state: GameState): GameState {
     text: `Epoch end: +${marketIncome} Seeds.`,
   })
 
+  // UNUSED PLAYS PAY OUT (Balatro's $1 per unused hand). Per-play Seed income
+  // is capped (see `playSeedCap`), so without this clause clearing a blind
+  // early would COST income and the optimal line would be to deliberately
+  // underperform until the last play. This makes cashing out early a reward.
+  if (metTarget && s.playsLeft > 0) {
+    s.seeds += s.playsLeft
+    s.log.push({
+      at: `e${s.epoch}`,
+      text: `Target met with ${s.playsLeft} unused play${s.playsLeft > 1 ? 's' : ''}: +${s.playsLeft} Seeds.`,
+    })
+  }
+
   // UNLIMITED EPOCHS: every epoch (met or missed) opens the market — there is
   // no fixed final epoch. The run ends only when lives run out or Flourishing
   // collapses (handled in advanceToNextEpoch).
@@ -1246,7 +1412,12 @@ function endEpoch(state: GameState): GameState {
   s.jokerMarket = rng.shuffle([...JOKERS]).slice(0, 3)
   s.planetMarket = rng.shuffle([...PLANET_CARDS]).slice(0, 3)
   s.consumableMarket = rng.shuffle([...CONSUMABLES]).slice(0, 2)
-  s.voucherMarket = rng.shuffle([...VOUCHERS]).slice(0, 2)
+  // Vouchers are ONE-TIME permanent globals: an owned voucher never comes back
+  // to the shelf (v7 re-offered them every shop — see SAVE_VERSION 8).
+  s.voucherMarket = rng.shuffle(VOUCHERS.filter((v) => !s.vouchers.some((o) => o.id === v.id)))
+    .slice(0, 2)
+  // a new visit is a new opportunity: clear the once-per-visit ledger
+  s.marketVisitBuys = []
   s.phase = 'market'
   return s
 }

@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   newGame, applyAction, preview,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_REGIONS,
   STABILITY_MAX, epochTarget, SURVIVAL_START, LAW_SLOTS, JOKER_SLOTS, worldScore,
   SPECIALIZATION_LABEL, SPECIALIZATION_BASE, DEV_STEP, DEV_BONUS_CAP,
   specOfCategory, regionBonusOf,
+  boostWorldCost, planetCost, playSeedCap, WORLD_BOOST_ID, CONSUMABLE_SLOTS,
   type Action, type GameState, type Region, type Law, type Specialization,
 } from './engine/worldhand'
 import { cardName, SUIT_NAMES } from './engine/poker'
 import type { Suit } from './engine/poker'
-import { saveGame, loadGame, loadGameDetailed, clearSave, listLegacySaves } from './ui/save'
+import { saveGame, loadGame, loadGameDetailed, clearSave, listLegacySaves, exportSave, importSave } from './ui/save'
 import Planet3D from './components/Planet3D'
 
 const SUIT_GLYPH: Record<Suit, string> = { S: '♠', H: '♥', D: '♦', C: '♣' }
@@ -112,6 +113,9 @@ export default function App() {
   const [rejected, setRejected] = useState<{ reason: string; legacyKey: string | null } | null>(null)
   // Confirmation gate for destructive actions (Clear Save / Back to Menu).
   const [confirmClear, setConfirmClear] = useState<null | 'clear' | 'back'>(null)
+  // Portable save transfer (offline build: no backend, no account) — the file
+  // picker is driven by a real button so it stays keyboard-reachable.
+  const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const res = loadGameDetailed()
@@ -135,6 +139,29 @@ export default function App() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
+  }, [])
+
+  /** Download the current save as a file the player can carry to another
+   *  machine. Nothing leaves the device — it is a local blob URL. */
+  const doExport = useCallback(() => {
+    const blob = exportSave()
+    if (!blob) { setError('No saved world to export yet — start a world first.'); return }
+    const url = URL.createObjectURL(new Blob([blob], { type: 'application/json' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `worldhand-save-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    setError('Save exported.')
+  }, [])
+
+  /** Install an exported save from a file. A rejected file never overwrites
+   *  the save already on this device. */
+  const doImport = useCallback(async (file: File | undefined) => {
+    if (!file) return
+    const res = importSave(await file.text())
+    if (res.state) { setState(res.state); setRejected(null); setError('') }
+    else setError(res.rejectedReason ?? 'That file is not a Worldhand save.')
   }, [])
 
   const start = useCallback(() => {
@@ -229,6 +256,19 @@ export default function App() {
               </span>
             )}
           </div>
+          <div className="row">
+            <button data-testid="export-save-btn" onClick={doExport}>Export Save to File</button>
+            <button data-testid="import-save-btn" onClick={() => importRef.current?.click()}>Import Save from File</button>
+            <input
+              ref={importRef}
+              data-testid="import-save-input"
+              type="file"
+              hidden
+              accept="application/json,.json"
+              onChange={(e) => { void doImport(e.target.files?.[0]); e.target.value = '' }}
+            />
+            <span className="muted">Carry a run between machines — the file stays on your device.</span>
+          </div>
           {error && <p className="error">{error}</p>}
         </div>
       </main>
@@ -238,7 +278,7 @@ export default function App() {
   const awakened = state.regions.filter((r) => !r.dormant)
   const over = state.phase === 'game-over'
   const targetNeed = epochTarget(state.epoch)
-  const worldBoostCost = 10 + (state.worldLevel - 1) * 5
+  const worldBoostCost = boostWorldCost(state.worldLevel)
   const discount = state.laws.reduce((n, l) => n + (l.marketDiscount ?? 0), 0)
   const ownedJokers = state.jokers
   // planet ownership summary for the strip: category → total +mult
@@ -330,7 +370,7 @@ export default function App() {
       </div>
 
       {over ? (
-        <section className={`panel verdict ${state.outcome === 'flourishing' ? 'win' : 'lose'}`}>
+        <section className={`panel verdict ${state.outcome === 'flourishing' ? 'win' : 'lose'}`} data-testid="game-over">
           <h2>{state.outcome === 'flourishing' ? 'A Flourishing World' : 'The World Withers'}</h2>
           <p>{state.outcomeReason}</p>
           <div className="row">
@@ -433,9 +473,14 @@ export default function App() {
                       {plan.cards.map((c, i) => <li key={i} className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>{cardName(c)}</li>)}
                     </ul>
                     <p className="pv-summary">{plan.summary}</p>
+                    {plan.seedsGain < plan.seedsNominal && (
+                      <p className="pv-capped muted" data-testid="pv-seed-cap">
+                        Seed earn is capped at {playSeedCap(state.epoch)} this epoch — overkill Growth beats the target, it does not pay more.
+                      </p>
+                    )}
                     {state.epochGrowth + plan.growth >= targetNeed && (
                       <p className="pv-close-epoch" data-testid="pv-close-epoch" role="status">
-                        This play reaches this epoch's target — the epoch closes immediately (unused plays and discards are forfeited).
+                        This play reaches this epoch's target — the epoch closes immediately. Unused discards are forfeited; each unused play pays +1 Seed.
                       </p>
                     )}
                   </section>
@@ -517,6 +562,8 @@ function Shop({
 }) {
   const slots = `${state.laws.length}/${LAW_SLOTS}`
   const jokers = `${state.jokers.length}/${JOKER_SLOTS}`
+  // v8 per-visit shop limits, surfaced so a disabled button always says WHY
+  const worldBoosted = state.marketVisitBuys.includes(WORLD_BOOST_ID)
   const tabs: { key: ShopTab; label: string; count: number }[] =
     SHOP_TABS.map((t) => ({ ...t, count: countUpcoming(t.key, state) }))
 
@@ -525,9 +572,10 @@ function Shop({
       <header className="shop-head">
         <h2>Shop — spend Seeds on the world</h2>
         <div className="shop-meta">
-          <span className="shop-seeds" title="Seeds — the market currency (uncapped)">Seeds <strong>{state.seeds}</strong></span>
+          <span className="shop-seeds" title={`Seeds — the market currency. A play earns at most ${playSeedCap(state.epoch)} Seeds this epoch, however big its Growth.`}>Seeds <strong>{state.seeds}</strong></span>
           <span className="shop-slots" title="Slots used — buying is blocked at the cap until you remove an item.">Slots <strong>{slots}</strong></span>
           <span className="shop-slots" title="Joker slots — buying is blocked at the cap.">Jokers <strong>{jokers}</strong></span>
+          <span className="shop-slots" title={`Queued consumables — at most ${CONSUMABLE_SLOTS} at a time.`}>Queued <strong>{state.consumables.length}/{CONSUMABLE_SLOTS}</strong></span>
         </div>
       </header>
 
@@ -571,31 +619,43 @@ function Shop({
                 )
               })}
             </div>
-            <h3 className="shop-subhead">World Projects — fund the world (repeatable, cost rises each time)</h3>
+            <h3 className="shop-subhead">World Projects — one copy per visit; the cost rises every time you fund it</h3>
             <div className="offer-row">
               {state.projectMarket.map((p) => {
                 const owned = state.projects.filter((x) => x.id === p.id).length
                 const cost = p.baseCost + owned * p.costGrowth
+                const fundedThisVisit = state.marketVisitBuys.includes(p.id)
                 return (
-                  <button key={p.id} className="offer-card" disabled={state.seeds < cost} onClick={() => act({ type: 'buyProject', projectId: p.id })}>
+                  <button
+                    key={p.id}
+                    className="offer-card"
+                    disabled={fundedThisVisit || state.seeds < cost}
+                    title={fundedThisVisit ? 'Already funded this visit — it comes back next epoch, at the higher price' : undefined}
+                    onClick={() => act({ type: 'buyProject', projectId: p.id })}
+                  >
                     <span className="offer-top">
                       <strong className="offer-title">{p.title}</strong>
                       <span className="offer-cost">{cost} Seeds</span>
                     </span>
                     <span className="offer-desc">{p.desc}</span>
-                    <span className="offer-kind">project ×{owned}</span>
+                    <span className="offer-kind">project ×{owned}{fundedThisVisit ? ' · funded this visit' : ''}</span>
                   </button>
                 )
               })}
             </div>
             <div className="offer-row">
-              <button className="offer-card" disabled={state.seeds < worldBoostCost} onClick={() => act({ type: 'boostWorld' })}>
+              <button
+                className="offer-card"
+                disabled={worldBoosted || state.seeds < worldBoostCost}
+                title={worldBoosted ? 'Already boosted this visit — one boost per market' : undefined}
+                onClick={() => act({ type: 'boostWorld' })}
+              >
                 <span className="offer-top">
                   <strong className="offer-title">Boost World Level</strong>
                   <span className="offer-cost">{worldBoostCost} Seeds</span>
                 </span>
-                <span className="offer-desc">+1 World Level (level {state.worldLevel} → {state.worldLevel + 1}): +2 Growth/play, +1 Seed/epoch, +5 World Score.</span>
-                <span className="offer-kind">world</span>
+                <span className="offer-desc">+1 World Level (level {state.worldLevel} → {state.worldLevel + 1}): +2 Growth/play, +1 Seed/epoch, +5 World Score. One boost per market visit; the next costs {boostWorldCost(state.worldLevel + 1)}.</span>
+                <span className="offer-kind">world{worldBoosted ? ' · boosted this visit' : ''}</span>
               </button>
             </div>
             {state.laws.length > 0 && (
@@ -633,16 +693,20 @@ function Shop({
           <>
             {state.planetMarket.length === 0 && <p className="muted shop-empty">No Planet cards on offer this epoch.</p>}
             <div className="offer-row">
-              {state.planetMarket.map((p) => (
-                <button key={p.id} className="offer-card" disabled={state.seeds < p.cost} onClick={() => act({ type: 'buyPlanet', planetId: p.id })}>
-                  <span className="offer-top">
-                    <strong className="offer-title">{p.title}</strong>
-                    <span className="offer-cost">{p.cost} Seeds</span>
-                  </span>
-                  <span className="offer-desc">{p.desc}</span>
-                  <span className="offer-kind">planet</span>
-                </button>
-              ))}
+              {state.planetMarket.map((p) => {
+                const cost = planetCost(p, state.planetLevels)
+                const owned = Math.round((state.planetLevels[p.category] ?? 0) / p.boost)
+                return (
+                  <button key={p.id} className="offer-card" disabled={state.seeds < cost} onClick={() => act({ type: 'buyPlanet', planetId: p.id })}>
+                    <span className="offer-top">
+                      <strong className="offer-title">{p.title}</strong>
+                      <span className="offer-cost">{cost} Seeds</span>
+                    </span>
+                    <span className="offer-desc">{p.desc}</span>
+                    <span className="offer-kind">planet{owned > 0 ? ` ×${owned} owned · next costs ${p.cost * (owned + 2)}` : ''}</span>
+                  </button>
+                )
+              })}
             </div>
           </>
         )}
@@ -652,7 +716,13 @@ function Shop({
             {state.consumableMarket.length === 0 && <p className="muted shop-empty">No Consumables on offer this epoch.</p>}
             <div className="offer-row">
               {state.consumableMarket.map((c) => (
-                <button key={c.id} className="offer-card" disabled={state.seeds < c.cost} onClick={() => act({ type: 'buyConsumable', consumableId: c.id })}>
+                <button
+                  key={c.id}
+                  className="offer-card"
+                  disabled={state.consumables.length >= CONSUMABLE_SLOTS || state.seeds < c.cost}
+                  title={state.consumables.length >= CONSUMABLE_SLOTS ? `All ${CONSUMABLE_SLOTS} consumable slots are queued — play a hand to spend them` : undefined}
+                  onClick={() => act({ type: 'buyConsumable', consumableId: c.id })}
+                >
                   <span className="offer-top">
                     <strong className="offer-title">{c.title}</strong>
                     <span className="offer-cost">{c.cost} Seeds</span>

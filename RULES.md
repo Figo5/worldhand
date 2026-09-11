@@ -1,4 +1,4 @@
-# Worldhand — Rules (Balatro-hard edition)
+# Worldhand — Rules (v8, bounded economy)
 
 ## Objective
 
@@ -75,15 +75,35 @@ The base is shown as the RESULT of the multiplication, never as a second "chips"
 
 **`rankSum` sums ALL selected cards — including cards that are not part of the scoring combination.** A pair K♠K♥ played with a Q♦ kicker scores `(13+13+12) = 38 chips × 1.5 = 57`, not `26 × 1.5 = 39`: the kicker's full rank value adds to the chips exactly like a scoring card. This is deliberate and simple — the chips number is always just "add up what you played". It is NOT standard poker scoring-card-only semantics, and the UI never implies otherwise (the chips pill says "rank sum of ALL selected cards").
 
-## The auto-Seeds formula (money from hand quality)
+## The auto-Seeds formula (money from hand quality, BOUNDED)
 
 Every play earns Seeds instantly — there is no gather action:
 
 ```
-nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
+nominal = ceil(Growth × SEEDS_PER_GROWTH)           SEEDS_PER_GROWTH = 1/4
+earned  = min(nominal, playSeedCap(epoch))          playSeedCap = 4 + epoch
 ```
 
-**1 Seed per 4 Growth** (a 15-Growth hand nominally pays 4 Seeds). Seeds **accumulate without ceiling** — every play banks the full nominal earn, so the preview, the committed summary, and the chronicle all read the same single `amount` (no credited/overflow split). Epoch end pays +1 Seed per living **healthy** region (stability > 0) plus law income, halved on a missed epoch target, and is banked in full. Seeds can never go negative.
+**1 Seed per 4 Growth, up to `4 + epoch` Seeds on any single play.** This cap is
+the load-bearing rule of the whole economy, and it does two things:
+
+1. **Income is decoupled from score.** Beating a blind by 900× pays exactly what
+   beating it by 2× pays. (Balatro works the same way: a blind's payout does not
+   scale with your chips.) Without this, `Growth → Seeds → multipliers → Growth`
+   is a loop whose gain exceeds 1 and never comes back — which is precisely what
+   v7 did, reaching World Level 4009 and 107 million Seeds.
+2. **Income grows linearly while the blinds grow geometrically.** Seeds get
+   scarcer relative to the difficulty every epoch, so the market stays a real
+   decision in the late game instead of a formality.
+
+A capped play is marked `(capped)` in the preview, the committed summary and the
+chronicle — the number the UI shows is always the number that is banked.
+
+Epoch end pays +1 Seed per living **healthy** region (stability > 0) plus law,
+project, voucher and World-Level income, halved on a missed target. A **met**
+target additionally pays **+1 Seed per unused play** (Balatro's $1-per-unused-hand),
+so clearing a blind early is a reward rather than a loss of income. Seeds can
+never go negative.
 
 ## Discards
 
@@ -93,15 +113,29 @@ nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 ## Epoch end
 
-1. **Target check** (logged): each epoch you must bank **`need(n)` Growth DURING that epoch** — `need(n) = 100 + 40·(n−1) + 5·(n−1)²`, escalating indefinitely (epoch 1 = 100). **Missing ANY target costs 1 life and halves that epoch's Seed income.** A met target advances immediately (early advance). **Every epoch opens the market** — there is no fixed final epoch; the run ends only when lives run out or Flourishing collapses. Growth banked resets at each boundary, so a miss costs a life but leaves the run recoverable — the deficit is NOT carried forward.
+1. **Target check** (logged): each epoch you must bank **`need(n)` Growth DURING that epoch** — `need(n) = round(100 × 1.40^(n−1))`, a **geometric** blind curve (epoch 1 = 100, epoch 10 ≈ 2,072, epoch 20 ≈ 60,000). It is geometric on purpose: a player's engine grows *polynomially* (5 joker slots, one-time vouchers, superlinear Planet/World-Level prices), so a geometric curve always wins eventually. The skill is how long you hold the lead. **Missing ANY target costs 1 life and halves that epoch's Seed income.** A met target advances immediately (early advance). **Every epoch opens the market** — there is no fixed final epoch; the run ends only when lives run out or Flourishing collapses. Growth banked resets at each boundary, so a miss costs a life but leaves the run recoverable — the deficit is NOT carried forward.
 2. **Decay**: every living region with stability left loses **1 stability** per epoch. **Mycorrhiza Network reduces this decay by 1 — i.e. living regions stop decaying entirely (1 → 0)**; decay is floored at 0 (never a gain, never a double loss) and regions at 0 stay at 0. Decay is **not purely cosmetic**: the income below counts only living regions with **stability > 0**, so decayed-out regions stop paying Seeds (Mycorrhiza protects that income base).
 3. **Civilization growth**: every living region gains +1 development — this drives the 3D planet's evolution icons and the globe's visible size. No gameplay read.
-4. **Income**: +1 Seed per living healthy region, plus law income (halved on a missed target), banked in full (uncapped).
+4. **Income**: +1 Seed per living healthy region, plus law/project/voucher/World-Level income (halved on a missed target), plus **+1 per unused play when the target was met**.
 5. **Market phase** — every epoch (met or missed) opens the market; there is no fixed final epoch.
 
 ## Market (spend Seeds on a smarter civilization)
 
-- Up to 3 offers per epoch from the item pool, bought with Seeds. **Max 5 owned items**; buying is blocked at the cap until you explicitly remove an item (no refund, frees the slot). Owned items never reappear. Seeds accumulate without ceiling.
+**One market visit is one opportunity, not an unbounded loop.** v7 allowed
+unlimited repeat purchases inside a single visit — one epoch-14 market in the
+reference save saw 6,077 purchases. v8 limits per visit:
+
+| Shelf | Per visit | Price behaviour |
+|---|---|---|
+| Laws / upgrades / expansions | 3 offered, one each | flat, −2 with Barter Routes; **5 owned slots** |
+| Jokers | 3 offered, one each | flat; **5 owned slots**, duplicates stack |
+| Planet cards | 3 offered, one each | the **n-th copy of a category costs `base × n`** |
+| Consumables | 2 offered, one each | flat; **2 queued slots** |
+| Vouchers | 2 offered, one each | flat; **ONE COPY EVER** — an owned voucher never returns to the shelf |
+| World Projects | 3 offered, **one copy per visit** | `base + owned × costGrowth`, rises every time |
+| World Level boost | **once per visit** | `10 × current level` (quadratic total spend for linear power) |
+
+- Up to 3 offers per epoch from the item pool, bought with Seeds. **Max 5 owned items**; buying is blocked at the cap until you explicitly remove an item (no refund, frees the slot). Owned items never reappear.
 - **Hand upgrades**: Canopy Choir (+3 Growth every play), Stone Masonry (+6 Growth every play), Open Canals (Growth ×1.2 every play). Bonuses apply exactly once per play.
 - **Card additions**: Fourth Counsel (hand 9), Fifth Counsel (hand 10) — new unique ids; deck conservation still holds at 52.
 - **Expansions**: Wake Laguna / Wake Brumal — awaken a specific dormant region; the planet visibly grows. **Wake Pellucid / Wake Vantage (12 Seeds each, same convention)** — awaken the Two-Pair / Flush-specialized region and activate its regional Growth bonus (see *Regional bonus* above).
@@ -112,28 +146,99 @@ nominal earned = ceil(Growth × SEEDS_PER_GROWTH)    SEEDS_PER_GROWTH = 1/4
 
 **Auto-save**: the game persists the state to localStorage after every committed state-changing action (play, discard, buy, remove, end-market, epoch close — and selection changes), so quitting or reloading never loses progress. Rewards are applied exactly once inside the engine's commit; saving the resulting state cannot double-apply them.
 
-**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 7`, the Balatro-hard engine; separate `SCHEMA_VERSION = 3` for envelope layout). On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation, an invalid region `specialization` (must be `null | 'pair' | 'twopair' | 'flush'`) — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
+**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 8`, the bounded-economy engine; separate `SCHEMA_VERSION = 4` for envelope layout). **v7 saves — including runs made on the currently deployed build — are rejected, preserved verbatim as legacy data, and exportable to a file; they are never re-scored under v8 rules and never erased.** See `RELEASE_MIGRATION_v8.md`. On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation, an invalid region `specialization` (must be `null | 'pair' | 'twopair' | 'flush'`) — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
 
-## Balance (bounded solver result — NOT a human win-rate estimate)
+## Balance (bounded solver measurement — NOT a human win-rate estimate)
 
-`scripts/solve.mjs` plays a greedy automated policy. **This is a bounded solver result, not an estimate of human performance** — the policy is a machine heuristic over a bounded candidate set, and the numbers below describe that policy only. Calibration uses the reference method directly: `LOOK=30 npx vite-node scripts/solve.mjs`.
+`scripts/difficulty-measure.mjs` runs **five frozen policies** over two
+**disjoint** seed sets. These are automated heuristics; they say how far a
+written-down strategy gets, not how a person will do.
 
-The corrected policy:
+| Policy | What it is |
+|---|---|
+| **P0 no-shop** | greedy best play, buys nothing — the floor |
+| **P4 weak play** | the cheapest-first shop, but always plays the single highest card — isolates poker skill |
+| **P1 scattered** | greedy play + a uniformly random affordable purchase each step (careless, but spends everything) |
+| **P2 cheapest** | greedy play + cheapest-affordable-of-each-kind in a fixed order |
+| **P3 focused** | greedy play biased to one category + a shop that prioritises pieces matching it, then spends the remainder |
 
-- **Candidates span 1–5 cards across poker categories**: all 1–2-card selections PLUS deliberate category candidates — pairs/trips/quads groups, two-pairs, full houses, flushes (best + lowest 5-card same-suit subsets), straights (incl. ace-low wheels, suit-preferred for straight-flush attempts), and generic best-rank 3/4/5-card fillers. `LOOK` caps how many are considered per play; unset = exhaustive.
-- **Scores only current mechanics**: Growth banked toward the epoch target (chips×mult + laws + world + regions, then jokers/consumables), Seeds gained, and lives (a lost life is heavily penalized). No drought/stability terms exist.
-- **Discards sensibly**: when every candidate scores weak, it dumps the cards the best play did not want (≤5), refills, and keeps the discard only if the post-refill best play clearly beats the pre-discard one.
-- **Buys in a documented priority order**: canopy-choir (+3 flat on every play, cheapest Growth/Seed) → seed-vaults (+3 Seeds/epoch) → barter-routes (−2 all purchases) → open-canals (×1.2 every play) → stone-masonry (+6 flat) → fourth-counsel (9-card hands), then jokers/planets to build a scaling engine (capped at 8 market buys per epoch). Specialized wakes are considered when affordable and their category is in/near the current hand. Non-specialized wakes, Mycorrhiza, and Fifth Counsel remain skipped by this bounded policy.
-- **Calibration and evaluation seeds are disjoint**: `--set calib` runs the `probe-0..29` set (used only for target sweeps); `--set eval` runs the `eval-0..29` set (the reported result); no flags run both. Output is labeled **bounded solver result** everywhere.
+`TARGET_GROWTH` was chosen on the **development** set (`probe-*`) via
+`scripts/target-sweep.mjs`; the **held-out** set (`eval-*`) was never used to
+pick a constant. Both are reported.
 
-**Run-depth distribution (eval-* set, LOOK=30)** — the Balatro-hard target `100 + 40·(n−1) + 5·(n−1)²` is steep enough that even a scaling engine dies naturally:
+**Run depth, 40 seeds each, epoch cap 60:**
 
-```
-epoch:  8  9 10 11 12 13 14 15 16 17 18
-count:  2  2  3  3  4  6  2  1  4  2  1
-```
+| Policy | dev median (mean) | held-out median (mean) | held-out range |
+|---|---|---|---|
+| P4 weak play | 3 (3.0) | 3 (3.0) | 3–3 |
+| P0 no-shop | 9 (8.8) | 9 (8.8) | 7–10 |
+| P1 scattered | 16 (16.1) | 15 (15.1) | 12–19 |
+| P2 cheapest | 17 (16.6) | 15 (15.4) | 12–19 |
+| P3 focused | 17 (17.1) | 17 (16.4) | 12–20 |
 
-Runs end around **epoch 8–18**; the modal outcome is epoch 13 (6/30 = 20%), and there is **no empty gap** after the spike. This is the intended Balatro-hard shape — you must build a scaling engine to survive, but the blinds keep outrunning it. Reported as measured — not band-forced, not tuned to a win band.
+**0 of 400 runs reached the epoch cap.** Every policy, on every seed, on both
+sets, eventually dies. Under v7 the same harness could not kill a run at all.
+
+What the numbers say about skill:
+
+- **Poker play is the dominant lever: ~12–13 epochs.** Same shop policy, weak
+  play dies at epoch 3, competent play at 15.
+- **Shopping at all is worth ~6–8 epochs** (no-shop 8.8 → shopping ~15–17).
+- **Build coherence is worth ~1 epoch** on held-out seeds (scattered 15.1 →
+  focused 16.4), i.e. several builds are viable and the committed one is
+  modestly ahead. Reported as measured, not band-forced.
+
+The banked/target margin for a shopping policy sits at 1.4–2.6× through the
+early epochs, crosses 1.5× around **epoch 10**, and goes under 1.0× in the
+high teens — the back half of a run is genuinely in doubt.
+
+`scripts/solve.mjs` remains as the older single-policy probe; its two stale
+scoring terms (a 30-Seed balance cap and a 40-Growth/play ceiling, neither of
+which exists) were corrected, and it now shares
+`scripts/lib/candidates.mjs` with the measurement so both evaluate the same
+move space.
+
+## What a player actually has to choose (and how careless builds lose)
+
+The strategy is entirely in the market and the hand, exactly as the brief asks.
+
+**1. Your five joker slots are the run.** The pool is nine jokers for five
+slots, and slots cannot be freed — so what you buy early locks out what you buy
+late. The mults are tiered by how hard the condition is to hit: All-In (fires on
+every hand) is ×1.4 and the *worst* Growth per Seed; Full House is ×5 and fires
+seldom. **Committing to a rare shape is worth many times more than hedging — if
+you can actually make that shape.** Three Flush jokers is ×42 on a flush and
+×1 on everything else.
+
+**2. Seeds are scarce, permanently.** A play earns at most `4 + epoch` Seeds,
+so income grows linearly while the blinds grow at 1.40× per epoch. You cannot
+buy your way out of a bad build; by epoch 12 you are choosing between a joker,
+a Planet card and a World Level, not buying all three.
+
+**3. Repeat power gets expensive on purpose.** The n-th Planet card in a
+category costs `base × n`; the World Level costs `10 × level` and can be raised
+**once per market visit**. Stacking one axis forever is not a strategy any more —
+it is a way to run out of Seeds.
+
+**4. Vouchers are a one-shot decision.** Three exist, each buyable once. Joker
+Power (+0.5 to every joker) is worth most to a build with expensive conditional
+jokers; Bigger Hand (+1 card, and in v8 it actually works) is worth most to a
+build chasing flushes and straights; Seed Income is worth most early.
+
+**How careless builds lose, concretely:**
+
+- **Play badly and you die at epoch 3.** No shop compensates for not making
+  poker hands — the measurement is unambiguous.
+- **Fill your joker slots with cheap conditionals you never play** and they sit
+  dead while the blinds compound; you cannot sell them.
+- **Spread Planet cards across six categories** and each one is on its
+  expensive third copy while nothing is on its cheap first — the same Seeds buy
+  roughly half the multiplier a focused buyer gets.
+- **Clear the blind on play 1 every epoch** and you cap your income four times
+  over; conversely, **deliberately stalling** does not help either, because a
+  met target pays +1 Seed per unused play.
+- **Bank a 400-million Growth hand** and you get `4 + epoch` Seeds for it, the
+  same as a hand that just cleared the bar. Overkill is not currency.
 
 ## World Score & the Balatro-hard shop (the goal)
 
@@ -164,15 +269,24 @@ World Score = 5 × World Level
 
 Same seed phrase → identical world, shuffles, deals, and chronicle. All randomness flows from the hashed seed; the engine is pure (no DOM, no clock, no Math.random).
 
-## Known ceilings past epoch ~10 (reported, not fixed)
+## Known limits (reported, not fixed)
 
-These were the real limits on "make the planet as good as possible" that mattered once runs went past ~epoch 10. **All three are now lifted** by the World Score + World Projects pass:
-
-- ~~Only 8 of 12 regions can ever wake~~ — **all 12 are wakeable** (4 new wake items for regions 5, 7, 8, 10).
-- ~~Development caps at 10 per region~~ — **development is uncapped**; the planet keeps evolving every epoch.
-- ~~The shop empties permanently after ~12 epochs~~ — **World Projects are an infinite Seed-sink**; the shop never drains.
-
-The world now keeps growing as long as the run survives, and the World Score rewards that growth.
+- **The first ~8 epochs are rarely in doubt** for a player who both makes poker
+  hands and shops. With 3 lives and 4 plays per epoch, the early curve is a
+  ramp, not a threat; tension measurably begins around epoch 10.
+- **Build coherence is worth only ~1 epoch** in the bounded measurement
+  (scattered 15.1 → focused 16.4 on held-out seeds). Several builds are viable,
+  which is healthy, but the *shape* of your build matters much less than
+  whether you shop at all and far less than how well you play the cards.
+- **Seeds can still pool late in a long run**: once the shop's per-visit shelf
+  is exhausted there is nothing left to spend on that epoch. This is now a
+  small, bounded surplus rather than v7's 107 million.
+- **World Level income (`level − 1` Seeds/epoch) is still the largest passive
+  source.** It is bounded — at most one bought boost per visit plus one free
+  per epoch, so `worldLevel ≤ 2·epoch + 1` — but it is the piece most likely to
+  need attention if the curve is retuned again.
+- These are a bounded-solver measurement, not human playtesting. A person who
+  discards better than the frozen rule will go deeper than the table says.
 
 ## Interface & motion (card-first, one big number, zero emojis)
 

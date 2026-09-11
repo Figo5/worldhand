@@ -335,9 +335,9 @@ describe('expansion shop surfaces two specializations (existing mechanism + pric
   })
 })
 
-describe('SAVE_VERSION 7 + validation + legacy preservation', () => {
-  it('SAVE_VERSION is 7 (Balatro-hard: World Level + Jokers/Planets/Consumables/Vouchers); the schema layout stays 3', () => {
-    expect(SAVE_VERSION).toBe(7)
+describe('SAVE_VERSION 8 + validation + legacy preservation', () => {
+  it('SAVE_VERSION is 8 (bounded economy: capped play income, one-time vouchers, per-visit shop limits); the schema layout is 4', () => {
+    expect(SAVE_VERSION).toBe(8)
   })
 
   it('a fresh v7 state passes validateState (specializations legal)', () => {
@@ -388,7 +388,7 @@ describe('SAVE_VERSION 7 + validation + legacy preservation', () => {
       expect(store.get('worldhand.save')).toBe(legacyV3)
       expect(mod.listLegacySaves().some((l) => l.key === res.legacyKey)).toBe(true)
       // and a valid v7 save still loads
-      store.set('worldhand.save', JSON.stringify({ schema: 3, version: 7, savedAt: '2026-01-05T00:00:00.000Z', state: JSON.parse(JSON.stringify(newGame('v7-fresh'))) }))
+      store.set('worldhand.save', JSON.stringify({ schema: 4, version: 8, savedAt: '2026-01-05T00:00:00.000Z', state: JSON.parse(JSON.stringify(newGame('v8-fresh'))) }))
       const res4 = mod.loadGameDetailed()
       expect(res4.state).not.toBeNull()
       expect(res4.rejectedReason).toBeNull()

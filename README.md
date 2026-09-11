@@ -77,6 +77,28 @@ three.js globe (untouched mechanics): terrain patches, evolution icons that appe
 
 Versioned localStorage envelope (`schema: 3` + state `version: 7` — v7 is the Balatro-hard rules generation) with **auto-save** after every committed action. On load, a save whose version or structure is incompatible with the current engine (old version, missing/non-numeric `lives`, obsolete era market items, invalid phase, malformed cards, broken 52-card conservation, invalid region specialization) is **rejected — never migrated, never reinterpreted, never erased**: the raw blob is preserved verbatim under a `worldhand.save.legacy.<ts>` key and the menu explains that a fresh run is needed because the engine rules changed. Quit never clears the save; "Clear Save" (and the game-over "Back to Menu") are destructive and both require an explicit confirmation. Rewards are applied once inside the engine commit, so auto-saving cannot double-apply them.
 
+## Portable / offline release (play anywhere, no server)
+
+```bash
+npm run build:portable
+```
+
+Produces **one file**: `dist-portable/worldhand.html` (~0.8 MB) with the JS, CSS and
+three.js all inlined — no assets directory, no network requests, no backend, no accounts,
+no tracking. Copy it to a USB stick or any machine and **double-click it**; it runs from
+`file://` in any modern browser. (The normal `npm run build` output is an ES-module bundle
+that a browser refuses to load over `file://`, which is why the portable build emits a
+single classic script instead.)
+
+Saves work exactly as below — `localStorage` on the `file://` origin — so a run persists
+across reloads on the same machine and browser.
+
+**Moving a run between machines**: on the title screen, **Export Save to File** downloads
+`worldhand-save-<date>.json`; **Import Save from File** loads it on the other machine and
+resumes the run. The file never leaves the device on its own. An imported file goes through
+the *same* version + structure gate as a normal load, and a file that fails the gate is
+refused **without touching the save already on that device**.
+
 ## Development
 
 ```bash
@@ -90,6 +112,8 @@ npx vite-node scripts/solve.mjs --set=eval --look=30  # bounded solver result ov
 npx vite-node scripts/solve.mjs --set=calib --look=30 # calibration set (target sweeps only)
 python3 scripts/check-no-emoji.py # emoji audit of rendered-UI sources
 npm run build
+npm run build:portable          # one self-contained offline HTML file (dist-portable/worldhand.html)
+node scripts/qa-portable.mjs    # Playwright QA of that artifact over file://
 ```
 
 Determinism: the same seed phrase produces the identical world, deal, and chronicle (tested).
