@@ -1,5 +1,9 @@
 # Worldhand — Rules (v8, bounded economy)
 
+[Back to the project](../README.md). Commands and code paths below are relative
+to the repository root. Balance measurements and rejected-experiment results
+are historical evidence, not fresh results from the portfolio cleanup.
+
 ## Objective
 
 Play poker hands. Bank Growth. Beat each epoch's **per-epoch** Growth target to advance — **early advance**: the moment Growth banked THIS epoch reaches the target, the epoch closes immediately (unused plays and discards are forfeited, exactly as in Balatro). Growth banked resets at each epoch boundary; a separate **lifetime Flourishing** total keeps growing for score/display. Then shop, then the next epoch — **there is no fixed number of epochs**; the run ends when you can no longer keep up (lives run out or Flourishing collapses). **The goal is the World Score** — make the world as good as you can before your 3 lives run out. **The blinds escalate fast, so you must build a scaling engine (Jokers, Planet cards, World Level) to survive.** There is no drought, no per-suit actions, no region choices — just cards, money, and the shop.
@@ -57,7 +61,7 @@ PAIR_BASE = 3 · TWOPAIR_BASE = 4 · FLUSH_BASE = 6 · DEV_STEP = 2 · DEV_BONUS
 
 A **Pair** region with development 4 therefore grants 3 + 2 = **5**. The development share caps at **+4** (floor(10/2) = 5 → min(4, 5) = 4), so a maxed Pair region pays 7, a maxed Two-Pair region 8, a maxed Flush region 10. **Dormant specialized regions contribute exactly 0.**
 
-**Stacking & order**: bonuses stack **additively** across all awake regions whose specialization matches the played category (two awake Pair regions add; never a multiplicative chain). The regional total is applied **once**, AFTER the existing law-adjusted Growth — the law multiplier never re-multiplies the regional bonus: `Growth = max(0, round(pokerBase × lawMult) + lawFlat + totalRegionBonus)`. A hand earning a regional bonus also earns its Seeds off the full number (`ceil(Growth / 4)`).
+**Stacking & order**: bonuses stack **additively** across all awake regions whose specialization matches the played category (two awake Pair regions add; never a multiplicative chain). The regional total is applied **once**, AFTER the existing law-adjusted Growth — the law multiplier never re-multiplies the regional bonus: The complete formula is given in *The Growth formula* above: World Level, regional bonuses, Jokers and consumables all participate in the shared pipeline. Seed income is calculated from the result and then capped per play as described below.
 
 **How the two dormant specializations become obtainable**: the existing wake-* expansions — **Wake Pellucid (12 Seeds)** and **Wake Vantage (12 Seeds)**, matching the existing Wake Laguna / Wake Brumal 12-Seed convention — awaken their advertised region and activate its bonus; the market offers state which poker category benefits, the current bonus, and how development scales it. No new interface, no new economy.
 
@@ -146,7 +150,7 @@ reference save saw 6,077 purchases. v8 limits per visit:
 
 **Auto-save**: the game persists the state to localStorage after every committed state-changing action (play, discard, buy, remove, end-market, epoch close — and selection changes), so quitting or reloading never loses progress. Rewards are applied exactly once inside the engine's commit; saving the resulting state cannot double-apply them.
 
-**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 8`, the bounded-economy engine; separate `SCHEMA_VERSION = 4` for envelope layout). **v7 saves — including runs made on the currently deployed build — are rejected, preserved verbatim as legacy data, and exportable to a file; they are never re-scored under v8 rules and never erased.** See `RELEASE_MIGRATION_v8.md`. On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation, an invalid region `specialization` (must be `null | 'pair' | 'twopair' | 'flush'`) — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
+**Versioning**: the envelope carries a schema version and the state carries the engine **rules** version (`SAVE_VERSION = 8`, the bounded-economy engine; separate `SCHEMA_VERSION = 4` for envelope layout). **v7 saves are rejected, preserved verbatim as legacy data, and exportable to a file; they are never re-scored under v8 rules and never erased.** The current save contract is implemented in `src/ui/save.ts` and `src/engine/worldhand.ts`. On load, a save whose version or structure does not match the current engine — wrong version, missing/non-numeric `lives`, obsolete era market items (Deep Taproots-era ids), invalid phase, malformed cards (rank/suit out of range), broken 52-card conservation, an invalid region `specialization` (must be `null | 'pair' | 'twopair' | 'flush'`) — is **rejected, never migrated and never reinterpreted**. The raw blob is preserved **verbatim** under a timestamped legacy key (`worldhand.save.legacy.<ts>`) so the old run stays recoverable, and the menu explains that **a fresh run is needed because the engine rules changed** (with a "Show preserved legacy blob" button). Quitting never destroys the save; only **Clear Save** is destructive, and it now requires an explicit confirmation (as does the game-over "Back to Menu" clear).
 
 ## Balance (bounded solver measurement — NOT a human win-rate estimate)
 
@@ -163,7 +167,7 @@ written-down strategy gets, not how a person will do.
 | **P3 focused** | greedy play biased to one category + a shop that prioritises pieces matching it, then spends the remainder |
 
 `TARGET_GROWTH` was chosen on the **development** set (`probe-*`) via
-`scripts/target-sweep.mjs`; the **held-out** set (`eval-*`) was never used to
+a historical `scripts/target-sweep.mjs` harness (not included in this checkout); the **held-out** set (`eval-*`) was never used to
 pick a constant. Both are reported.
 
 **Run depth, 40 seeds each, epoch cap 60:**
@@ -253,7 +257,7 @@ World Score = 5 × World Level
             + floor(lifetime Flourishing / 10)
 ```
 
-**World Level** is the simplified worldbuilding number — one clear value instead of the old region map. It auto-grows +1 each epoch and can be boosted with Seeds. Each level above 1 adds **+2 Growth/play, +1 Seed/epoch, +5 World Score**.
+**World Level** is the simplified worldbuilding number — one clear value alongside the regional specialization system. It auto-grows +1 each epoch and can be boosted with Seeds. Each level above 1 adds **+2 Growth/play, +1 Seed/epoch, +5 World Score**.
 
 **The shop is Balatro-style** — four rotating card types plus the World Level boost:
 
@@ -263,7 +267,7 @@ World Score = 5 × World Level
 - **Vouchers** — permanent globals (+1 hand size, all jokers +0.5 mult, +2 Seeds/epoch).
 - **World Level boost** — spend Seeds to raise the world level.
 
-**The blinds escalate fast** (`100 + 40·(n−1) + 5·(n−1)²`), so raw hands alone can't keep up past ~epoch 5 — you must build a scaling engine to survive, but the blinds keep outrunning it. Measured at LOOK=30: runs end around **epoch 8–18** (max 6/30 = 20% at any single epoch, no gaps).
+**The current blinds grow geometrically:** `round(100 × 1.40^(n−1))`. Earlier quadratic-target measurements describe the v7 ruleset and do not characterize the current bounded economy. See the dated balance evidence above for its scope and limitations.
 
 ## Determinism
 
@@ -307,4 +311,4 @@ See *Saving & versioning* above. Short version: auto-save after every action; qu
 
 ## Rejected non-match-penalty experiment (2026-09-10)
 
-The proposed contrastive rule (`NON_MATCH_PENALTY=3`) was tested without formula iteration and rejected. Its hypothesis was that penalizing hands matching no awake specialization would make regional influence monotonic as regions awaken. On the same 30-seed/360-play metric, the experiment measured **25/360 = 6.9%** with the starting build and **7/360 = 1.9%** with all three awake; therefore the monotonicity prediction failed. The exact diff and artifacts are preserved under `.hermes/experiments/non-match-penalty-d02b14c/`. The default game remains the additive v4 behavior above. The retained `scripts/flip-rate.mjs` measures a changed selection, not necessarily a changed poker category or strict preference reversal; identical frozen hands/states are required for causal comparisons, since same seed alone does not ensure identical trajectories. The restored default re-measured **14/360 = 3.9%** as-shipped and **5/360 = 1.4%** all-awake. These figures are evidence that the current bonus is usually low-impact, not a balance claim.
+The proposed contrastive rule (`NON_MATCH_PENALTY=3`) was tested without formula iteration and rejected. Its hypothesis was that penalizing hands matching no awake specialization would make regional influence monotonic as regions awaken. On the same 30-seed/360-play metric, the experiment measured **25/360 = 6.9%** with the starting build and **7/360 = 1.9%** with all three awake; therefore the monotonicity prediction failed. The exact diff and artifacts are preserved under [the experiment archive](development/experiments/non-match-penalty-d02b14c/). The default game remains the additive v4 behavior above. The retained `scripts/flip-rate.mjs` measures a changed selection, not necessarily a changed poker category or strict preference reversal; identical frozen hands/states are required for causal comparisons, since same seed alone does not ensure identical trajectories. The restored default re-measured **14/360 = 3.9%** as-shipped and **5/360 = 1.4%** all-awake. These figures are evidence that the current bonus is usually low-impact, not a balance claim.

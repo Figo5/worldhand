@@ -3,3 +3,11 @@ dist
 *.local
 .DS_Store
 dist-portable/
+
+# Generated browser QA, local configuration and logs
+shots/
+shots-review/
+qa-*.png
+*.log
+.env
+.env.*

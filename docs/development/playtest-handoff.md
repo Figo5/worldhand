@@ -1,3 +1,5 @@
+> Historical review: this records several earlier rulesets. Use the [current rules](../rules.md) and [README](../../README.md) for the shipped game. Original screenshots remain in Git history; see [the evidence index](README.md).
+
 # Worldhand — Playtest Handoff (Balatro-hard edition)
 
 ## Status: BALATRO-HARD PASS (World Level + Jokers/Planets/Consumables/Vouchers, steeper blinds)

@@ -1,7 +1,9 @@
+> Historical review: this records several earlier rulesets. Use the [current rules](../rules.md) and [README](../../README.md) for the shipped game. Original screenshots remain in Git history; see [the evidence index](README.md).
+
 # Worldhand — Independent Review (v3, post-playtest-fix round)
 
 **Reviewer:** Independent subagent (Hermes), delegated-child session. Routing metadata per required delegation override: **provider `ollama-cloud`, model `glm-5.3-flash`** (session-configured route; not the coordinator model `deepseek-v4-flash:0731`, no recursive delegation). All claims below cite tool outputs produced in this session.
-**Date:** 2026-09-09 (13:00–13:40 EDT) · **Repo:** `/Users/giofiore/Documents/Codex/worldhand` · **HEAD at review start and end: `43c803f`** ("qa: refresh screenshots after target calibration"). Working tree had no source changes at review start (only screenshot PNG churn); the implementation worker's edits are already committed in the tree at `6f49ca8`, `8c1d73e`, `43c803f`. File mtimes show the last source edits landed ~34–49 min before my review began — the implementation worker had stabilized.
+**Date:** 2026-09-09 (13:00–13:40 EDT) · **Repo:** `<local-checkout>/worldhand` · **HEAD at review start and end: `43c803f`** ("qa: refresh screenshots after target calibration"). Working tree had no source changes at review start (only screenshot PNG churn); the implementation worker's edits are already committed in the tree at `6f49ca8`, `8c1d73e`, `43c803f`. File mtimes show the last source edits landed ~34–49 min before my review began — the implementation worker had stabilized.
 **Scope:** full test/build/QA battery, engine/UI/save/solver inspection, new independent Playwright probes for the save-rejection and lives-reach-zero paths. No engine/test/docs files modified by me; no tests weakened; no requirements rewritten. Two new review scripts added (§ 7). One long-standing pre-existing dev server was briefly killed and restarted unchanged (same `npm run dev` command, port 5177) — no state modified.
 
 ---
@@ -304,7 +306,7 @@ Balance is unchanged (bounded solver re-measured below) — I make no balance cl
 # Dated Addendum — Regional-bonus system v4 (independent finished-diff review)
 
 **Reviewer:** Independent subagent (Hermes), delegated-child session. Routing metadata per required delegation override: **provider `ollama-cloud`, model `glm-5.3-flash`** (session-configured route; not the coordinator model `deepseek-v4-flash:0731`; no recursive delegation). All claims below cite tool outputs produced in this session.
-**Date:** 2026-09-09 (15:20–16:30 EDT) · **Repo:** `/Users/giofiore/Documents/Codex/worldhand`
+**Date:** 2026-09-09 (15:20–16:30 EDT) · **Repo:** `<local-checkout>/worldhand`
 **Reviewed revision (frozen):** **`785556a`** — "feat: regional-bonus system (v4) — 3 fixed poker specializations drive small flat Growth bonuses". I **waited for the freeze** before reviewing: HEAD sat at baseline `f89d397` with a clean tree through my baseline survey (baseline gate re-run on `f89d397`: tsc clean, **108/108**), I observed the worker's edits accumulate (up to 40 dirty files), the feature commit land at 15:51 EDT, then confirmed source/test/docs stability (only 9 screenshot-PNG artifacts ever remained dirty; last PNG mtime 27 min before my gate). The baseline gate numbers were re-confirmed by checking out `f89d397` mid-session and re-running vitest (108/108), then returning to `785556a`.
 **Scope discipline:** no source/test/doc files modified by me. My artifacts live outside the repo (`/tmp/rev-probe.mts`) plus this addendum. No global config touched; the dev server (port 5177) was left running as found.
 
@@ -436,13 +438,13 @@ One full run, seed `regional-ordinary-1`, driven through the real UI only (every
 
 ### 1. Default scoring restored (PASS)
 - `src/engine/worldhand.ts`: `SAVE_VERSION = 4` (line 44); `EPOCH_TARGETS = [45, 110, 360]` (need 45/110/360). Confirmed by direct read.
-- `grep -rn "NON_MATCH_PENALTY|nonMatchPenalty|nonMatch" src tests scripts` → no matches (exit 1). The constant survives only inside the rejected-candidate archive (`.hermes/experiments/.../experiment.diff`), which is correct.
+- `grep -rn "NON_MATCH_PENALTY|nonMatchPenalty|nonMatch" src tests scripts` → no matches (exit 1). The constant survives only inside the rejected-candidate archive (`docs/development/experiments/.../experiment.diff`), which is correct.
 - Save-rejection path unchanged: `src/ui/save.ts` still preserves incompatible saves verbatim under `worldhand.save.legacy.<ts>` (`preserveLegacy`); no migration, no erasure.
 - Drought unchanged: no drought/stability scoring terms in engine or solver (`"no drought, no wake terms — those mechanics do not exist anymore"` in scripts/solve.mjs header); '\''drought'\'' appears only as an obsolete market id in `OBSOLETE_ITEM_IDS`.
 - Working-tree diff touches only PLAYTEST_HANDOFF.md, RULES.md, scripts/solve.mjs (+52 lines: stale-expansion correction + wake-purchase rule), review/QA screenshots, and the untracked `.hermes/` archive + `scripts/flip-rate.mjs`. Engine and tests are untouched.
 
 ### 2. Rejected-candidate archive (PASS)
-`.hermes/experiments/non-match-penalty-d02b14c/` contains `experiment.diff` (30.9 KB, the exact candidate diff incl. `NON_MATCH_PENALTY = 3`), `flip-rate.mjs` (candidate version), `capture-nmp-shots.mjs`, `stat.txt` (git diff --stat of the candidate). The recorded measurements match the docs exactly: as-shipped **25/360 = 6.9%**, all-three-awake **7/360 = 1.9%**, and the diff'\''s own honest text states the pre-declared monotonicity prediction (all-three ≥ as-shipped) was **NOT met** (1.9% < 6.9%). No tuning iteration claimed.
+`docs/development/experiments/non-match-penalty-d02b14c/` contains `experiment.diff` (30.9 KB, the exact candidate diff incl. `NON_MATCH_PENALTY = 3`), `flip-rate.mjs` (candidate version), `capture-nmp-shots.mjs`, `stat.txt` (git diff --stat of the candidate). The recorded measurements match the docs exactly: as-shipped **25/360 = 6.9%**, all-three-awake **7/360 = 1.9%**, and the diff'\''s own honest text states the pre-declared monotonicity prediction (all-three ≥ as-shipped) was **NOT met** (1.9% < 6.9%). No tuning iteration claimed.
 
 ### 3. scripts/flip-rate.mjs (PASS, independently re-run)
 - Retained, runnable (`npx vite-node scripts/flip-rate.mjs`, exit 0, 2.5 s).
