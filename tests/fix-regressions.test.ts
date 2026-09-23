@@ -129,13 +129,13 @@ describe('FIX 1: Mycorrhiza decay — living-region decay is ZERO with the law, 
 })
 
 // ---------------------------------------------------------------------------
-// FIX 2 — uncapped Seed accumulation
+// FIX 2 — no Seed wallet ceiling (per-play income is capped separately, see F1)
 // ---------------------------------------------------------------------------
 
-describe('FIX 2: Seeds accumulate without ceiling — every play banks the full nominal earn', () => {
+describe('FIX 2: no Seed wallet ceiling — a play under the per-play cap banks its full nominal earn', () => {
   const nominal = (growth: number) => Math.ceil(growth * SEEDS_PER_GROWTH)
 
-  it('every play banks the full nominal earn (no credited/overflow split)', () => {
+  it('a play under the per-play cap banks the full nominal earn (no credited/overflow split)', () => {
     let s = newGame('fix2-plan')
     s.epoch = 20 // high target so early-advance never fires
     s.seeds = 24
@@ -151,7 +151,7 @@ describe('FIX 2: Seeds accumulate without ceiling — every play banks the full 
     expect(pv.summary).not.toContain('Credited')
   })
 
-  it('uncapped accumulation: 8+16→24 · 24+16→40 · 30+16→46 (no cap, no overflow)', () => {
+  it('no wallet ceiling: 8+16→24 · 24+16→40 · 30+16→46 (no overflow)', () => {
     const run = (seeds: number) => {
       let s = newGame('fix2-examples')
       s.epoch = 20 // high target so early-advance never fires
@@ -193,7 +193,7 @@ describe('FIX 2: Seeds accumulate without ceiling — every play banks the full 
     expect(committed.log.at(-1)!.text).not.toContain('overflow')
   })
 
-  it('preview == commit == log agree on the amount across balances (uncapped)', () => {
+  it('preview == commit == log agree on the amount across balances (below the per-play cap)', () => {
     for (const bal of [0, 8, 24, 29, 30]) {
       let s = newGame('fix2-agree' + bal)
       s.epoch = 20 // high target so early-advance never fires

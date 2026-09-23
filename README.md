@@ -66,9 +66,11 @@ npx playwright install chromium
 node scripts/qa-portable.mjs
 ```
 
-Verified on 2026-09-22: **211 tests passed**, plus production and portable builds
-(Node.js 26.8.1). Coverage includes poker, deterministic transitions, preview/commit,
-bounded economy, save validation and death boundaries. Builds report bundle-size
+Verified on 2026-09-23: **256 tests passed**, plus production and portable builds
+(Node.js 24 and 26). Coverage includes poker, deterministic transitions, preview/commit,
+bounded economy, save validation, death boundaries, and 40 recorded Classic replays
+that must reproduce exactly. GitHub Actions runs the tests, both builds and the
+portable browser checks on every push (`.github/workflows/ci.yml`). Builds report bundle-size
 and portable-bundling warnings; they complete successfully. The portable browser checks
 also passed: offline loading, keyboard play, shop purchases, a full run, reload
 persistence, mobile layout, and save export/import.
@@ -83,5 +85,9 @@ reduced-motion support are included.
 
 ## License
 
-`package.json` declares MIT, but this repository does not yet include a license
-file. The license notice and copyright attribution still need to be confirmed.
+**Undecided.** `package.json` declares `"license": "MIT"`, but the repository has
+no LICENSE file, and that field has not been confirmed as the project's license.
+Worldhand may become a commercial game; whether it will be open source,
+source-available, dual licensed, or proprietary with selected open-source
+components has not been decided. Until a decision is recorded here, do not treat
+the `package.json` field as a grant of rights.

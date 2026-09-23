@@ -167,34 +167,35 @@ written-down strategy gets, not how a person will do.
 | **P3 focused** | greedy play biased to one category + a shop that prioritises pieces matching it, then spends the remainder |
 
 `TARGET_GROWTH` was chosen on the **development** set (`probe-*`) via
-a historical `scripts/target-sweep.mjs` harness (not included in this checkout); the **held-out** set (`eval-*`) was never used to
+`scripts/target-sweep.mjs`; the **held-out** set (`eval-*`) was never used to
 pick a constant. Both are reported.
 
-**Run depth, 40 seeds each, epoch cap 60:**
+**Run depth, 40 seeds each, epoch cap 60** (re-measured 2026-09-23 on the
+current v8 engine; earlier published figures predate the terminal-death fix):
 
 | Policy | dev median (mean) | held-out median (mean) | held-out range |
 |---|---|---|---|
 | P4 weak play | 3 (3.0) | 3 (3.0) | 3–3 |
-| P0 no-shop | 9 (8.8) | 9 (8.8) | 7–10 |
-| P1 scattered | 16 (16.1) | 15 (15.1) | 12–19 |
-| P2 cheapest | 17 (16.6) | 15 (15.4) | 12–19 |
-| P3 focused | 17 (17.1) | 17 (16.4) | 12–20 |
+| P0 no-shop | 9 (8.7) | 9 (8.6) | 7–10 |
+| P1 scattered | 15 (14.7) | 15 (14.5) | 11–18 |
+| P2 cheapest | 15 (15.3) | 14 (14.1) | 11–18 |
+| P3 focused | 17 (16.4) | 16 (16.2) | 12–21 |
 
 **0 of 400 runs reached the epoch cap.** Every policy, on every seed, on both
 sets, eventually dies. Under v7 the same harness could not kill a run at all.
 
 What the numbers say about skill:
 
-- **Poker play is the dominant lever: ~12–13 epochs.** Same shop policy, weak
-  play dies at epoch 3, competent play at 15.
-- **Shopping at all is worth ~6–8 epochs** (no-shop 8.8 → shopping ~15–17).
-- **Build coherence is worth ~1 epoch** on held-out seeds (scattered 15.1 →
-  focused 16.4), i.e. several builds are viable and the committed one is
+- **Poker play is the dominant lever: ~11–12 epochs.** Same shop policy, weak
+  play dies at epoch 3, competent play at 14–15.
+- **Shopping at all is worth ~6–8 epochs** (no-shop 8.6 → shopping 14.1–16.2).
+- **Build coherence is worth ~1.7 epochs** on held-out seeds (scattered 14.5 →
+  focused 16.2), i.e. several builds are viable and the committed one is
   modestly ahead. Reported as measured, not band-forced.
 
-The banked/target margin for a shopping policy sits at 1.4–2.6× through the
-early epochs, crosses 1.5× around **epoch 10**, and goes under 1.0× in the
-high teens — the back half of a run is genuinely in doubt.
+The banked/target margin for a shopping policy sits at 1.5–2.0× through the
+early epochs, falls under 1.5× between **epochs 7 and 10**, and goes under
+1.0× in the early-to-mid teens — the back half of a run is genuinely in doubt.
 
 `scripts/solve.mjs` remains as the older single-policy probe; its two stale
 scoring terms (a 30-Seed balance cap and a 40-Growth/play ceiling, neither of
@@ -261,7 +262,7 @@ World Score = 5 × World Level
 
 **The shop is Balatro-style** — four rotating card types plus the World Level boost:
 
-- **Jokers** (max 5) — conditional multipliers that define your build: "×1.5 Growth when you play a Pair," "×2 on a Flush," "×1.5 if no face cards," "×1.25 on every hand." They stack multiplicatively.
+- **Jokers** (max 5) — conditional multipliers that define your build: "×2 Growth when you play a Pair," "×3.5 on a Flush," "×1.75 if no face cards," "×1.4 on every hand" (nine jokers, ×1.4 to ×5). They stack multiplicatively.
 - **Planet cards** — permanently raise a hand type's base mult (build toward one hand).
 - **Consumables** — one-shot boosts queued before a hand ("next hand ×2").
 - **Vouchers** — permanent globals (+1 hand size, all jokers +0.5 mult, +2 Seeds/epoch).
@@ -278,8 +279,8 @@ Same seed phrase → identical world, shuffles, deals, and chronicle. All random
 - **The first ~8 epochs are rarely in doubt** for a player who both makes poker
   hands and shops. With 3 lives and 4 plays per epoch, the early curve is a
   ramp, not a threat; tension measurably begins around epoch 10.
-- **Build coherence is worth only ~1 epoch** in the bounded measurement
-  (scattered 15.1 → focused 16.4 on held-out seeds). Several builds are viable,
+- **Build coherence is worth only ~1.7 epochs** in the bounded measurement
+  (scattered 14.5 → focused 16.2 on held-out seeds). Several builds are viable,
   which is healthy, but the *shape* of your build matters much less than
   whether you shop at all and far less than how well you play the cards.
 - **Seeds can still pool late in a long run**: once the shop's per-visit shelf

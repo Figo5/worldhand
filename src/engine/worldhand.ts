@@ -49,7 +49,7 @@ export type { Suit } from './poker'
  *  prices stayed fixed, vouchers could be re-bought without limit (+0.5 to
  *  EVERY joker per copy), and a single market visit allowed unlimited
  *  World-Level boosts and project purchases. v8 closes the loop — per-play
- *  Seed income is capped at that play's share of the epoch target, vouchers
+ *  Seed income is capped at `4 + epoch` (see `playSeedCap`), vouchers
  *  are one-time, a market visit allows ONE World-Level boost and ONE copy of
  *  each offered project, repeat power (World Level, Planet cards) costs
  *  superlinearly, the Bigger Hand voucher finally deals a card, unused plays
@@ -443,7 +443,7 @@ export interface GameState {
   version: number
   seed: Seed
   seedText: string
-  epoch: number // 1..3
+  epoch: number // 1.. (unlimited; the run ends when lives run out)
   phase: Phase
   /** Lifetime total Flourishing (score/display) — keeps growing across epochs. */
   flourishing: number
@@ -612,8 +612,9 @@ export function handSizeOf(laws: Law[], vouchers: Voucher[] = []): number {
  * "chips × mult = base" or "base" alone, but never "base × mult".
  *
  * The SAME plan also carries the auto-Seeds effect: every play earns
- * ceil(Growth × SEEDS_PER_GROWTH) Seeds, uncapped — the nominal earn IS the
- * banked earn, so the plan needs no balance and no credited/overflow split. */
+ * ceil(Growth × SEEDS_PER_GROWTH) Seeds, capped per play at `playSeedCap(epoch)`
+ * (`seedsGain`; the uncapped figure is `seedsNominal`). There is no wallet
+ * ceiling, so the plan needs no balance and no credited/overflow split. */
 export function buildPlan(
   hand: Card[],
   selected: number[],
@@ -709,10 +710,10 @@ export function buildPlan(
   const growth = Math.max(0, Math.round((pokerBase * lawMult + lawFlat + worldBonus + regionsBonus) * jokerMult * consumableMult))
 
   // AUTO-EARN SEEDS: hand quality pays, at 1 Seed per 4 Growth — but BOUNDED.
-  // A play can never earn more than its own share of this epoch's target
-  // (`playSeedCap`), so overkill buys nothing. This is the single change that
-  // turns the v7 `Growth -> Seeds -> multipliers -> Growth` loop from
-  // divergent into bounded: income now tracks the blind curve, not the score.
+  // A play can never earn more than `playSeedCap(epoch)` = 4 + epoch, so
+  // overkill buys nothing. This is the single change that turns the v7
+  // `Growth -> Seeds -> multipliers -> Growth` loop from divergent into
+  // bounded: income grows linearly with the epoch, not with the score.
   const seedsNominal = Math.max(0, Math.ceil(growth * SEEDS_PER_GROWTH))
   const seedsGain = Math.min(seedsNominal, playSeedCap(ctx.epoch ?? 1))
 

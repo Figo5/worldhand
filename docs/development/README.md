@@ -65,7 +65,3 @@ browser ones need a dev server on `127.0.0.1:5177` and have not been re-verified
 against v8. Consult their source and the dated reports before interpreting
 their results.
 
-Known presentation issue: the title screen still says “across three epochs”; the
-current engine has unlimited epochs and escalating targets. The current README
-and rules describe the engine accurately. This text-only UI issue is recorded for
-a later application pass.

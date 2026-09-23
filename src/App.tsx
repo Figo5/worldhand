@@ -211,7 +211,7 @@ export default function App() {
         <header className="intro-head">
           <h1 className="game-title">Worldhand</h1>
           <p className="tagline">
-            A deterministic planet-building card roguelike across three epochs. Each epoch you
+            A deterministic planet-building card roguelike of escalating epochs. Each epoch you
             make <strong>4 plays</strong> from an 8-card hand: select 1–5 cards, score them as a
             poker hand, and bank one big <strong>Growth</strong> number toward the epoch target.
             Every play also earns <strong>Seeds</strong> — spend them in the market on upgrades,
