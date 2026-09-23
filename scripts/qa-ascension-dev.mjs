@@ -4,8 +4,9 @@
 //   1. production (dist/) and portable (dist-portable/) artifacts contain no
 //      Ascension code or text at all, and neither shows an entry in a browser;
 //   2. the dev server exposes the prototype, which plays, discards, clears,
-//      previews with scorePlay, deals deterministically, saves nothing and
-//      returns to the Classic title;
+//      previews score AND world-stat gains with evaluatePlay (and commits
+//      exactly those), deals deterministically, saves nothing and returns to
+//      the Classic title;
 //   3. Classic stays the default path and its autosave/load is unchanged.
 //
 // Starts its own servers through the Vite API (no manual dev server needed).
@@ -79,20 +80,32 @@ try {
   const cards = p.locator('[data-testid="ascension-app"] .pcard-btn')
   if ((await cards.count()) !== 8) fail('prototype: expected an 8-card hand')
   const firstHand = await cards.allInnerTexts()
+  const readStats = () => p.locator('[data-testid="asc-stats"] [data-stat]')
+    .evaluateAll((els) => Object.fromEntries(els.map((e) => [e.dataset.stat, Number(e.dataset.value)])))
+  const zero = await readStats()
+  if (Object.keys(zero).length !== 4 || Object.values(zero).some((v) => v !== 0)) fail(`prototype: expected four stats at 0, got ${JSON.stringify(zero)}`)
   for (const i of [0, 1, 2]) await cards.nth(i).click()
   const pv = await p.locator('[data-testid="asc-preview"]').innerText()
   const m = pv.match(/chips × [\d.]+ mult = (\d+)$/)
-  if (!m) fail(`prototype: no scorePlay preview, got "${pv}"`)
+  if (!m) fail(`prototype: no evaluatePlay score preview, got "${pv}"`)
+  const pvStats = p.locator('[data-testid="asc-preview-stats"]')
+  const deltas = JSON.parse(await pvStats.getAttribute('data-deltas'))
+  const pvStatsText = await pvStats.innerText()
+  if (Object.values(deltas).reduce((a, b) => a + b, 0) !== 3) fail(`prototype: 3 cards should preview 3 stat points, got ${JSON.stringify(deltas)}`)
   await p.screenshot({ path: 'shots/ascension-dev-preview.png' })
   await p.click('[data-testid="asc-play"]')
   const score = Number(await p.locator('[data-testid="asc-score"]').innerText())
   if (score !== Number(m[1])) fail(`prototype: committed score ${score} != previewed ${m[1]}`)
+  const after = await readStats()
+  if (JSON.stringify(after) !== JSON.stringify(deltas)) fail(`prototype: committed stats ${JSON.stringify(after)} != previewed ${JSON.stringify(deltas)}`)
+  if (await p.locator('[data-testid="asc-last"]').getAttribute('data-deltas') !== JSON.stringify(deltas)) fail('prototype: last play does not show the committed stat changes')
   if (!(await p.locator('[data-testid="asc-status"]').innerText()).includes('Plays 3 · Discards 3')) fail('prototype: play did not spend a play')
-  ok('prototype play', `preview "${pv}" committed exactly (score ${score})`)
+  ok('prototype play', `preview "${pv}" / "${pvStatsText}" committed exactly (score ${score}, stats ${JSON.stringify(after)})`)
 
   await cards.nth(0).click(); await cards.nth(1).click()
   await p.click('[data-testid="asc-discard"]')
   if (!(await p.locator('[data-testid="asc-status"]').innerText()).includes('Plays 3 · Discards 2')) fail('prototype: discard did not spend a discard')
+  if (JSON.stringify(await readStats()) !== JSON.stringify(after)) fail('prototype: a discard changed world stats')
   await cards.nth(0).click()
   await p.click('[data-testid="asc-clear"]')
   if (await p.locator('[data-testid="ascension-app"] .pcard-btn.sel').count()) fail('prototype: clear left cards selected')
@@ -100,7 +113,7 @@ try {
   if ((await p.locator('[data-testid="ascension-app"] .pcard-btn.sel').count()) !== 5) fail('prototype: selection must stop at 5')
   if (!(await p.locator('p.error').innerText()).includes('at most 5')) fail('prototype: 6th card should explain the limit')
   await p.click('[data-testid="asc-clear"]')
-  ok('prototype discard / clear / limit', 'discard spends a discard, clear empties the selection, a 6th card is refused')
+  ok('prototype discard / clear / limit', 'discard spends a discard and leaves stats alone, clear empties the selection, a 6th card is refused')
 
   for (let i = 0; i < 3; i++) { await cards.nth(0).click(); await p.click('[data-testid="asc-play"]') }
   if (!(await p.locator('[data-testid="asc-status"]').innerText()).includes('Round 2 · Plays 4 · Discards 3')) fail('prototype: round did not roll over')

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
-  newAscensionGame, applyAscensionAction, scorePlay,
-  ASCENSION_RULES_VERSION, HAND_SIZE, PLAYS_PER_ROUND, DISCARDS_PER_ROUND,
-  type AscensionState, type AscensionAction,
+  newAscensionGame, applyAscensionAction, evaluatePlay, noStats,
+  ASCENSION_RULES_VERSION, HAND_SIZE, PLAYS_PER_ROUND, DISCARDS_PER_ROUND, WORLD_STATS, SUIT_STAT,
+  type AscensionState, type AscensionAction, type WorldStats,
 } from '../src/engine/ascension/ascension'
 import { newGame as newClassicGame, SAVE_VERSION } from '../src/engine/worldhand'
 import { Rng, hashSeed } from '../src/engine/rng'
@@ -10,6 +10,14 @@ import { deck, type Card } from '../src/engine/poker'
 
 const key = (c: Card) => `${c.r}${c.s}`
 const allCards = (s: AscensionState) => [...s.hand, ...s.drawPile, ...s.discardPile]
+const C = (r: Card['r'], suit: Card['s']): Card => ({ r, s: suit })
+
+/** A conserved state whose hand is exactly `cards` (the rest go to the draw pile). */
+function withHand(cards: Card[]): AscensionState {
+  const s = newAscensionGame('forced-hand')
+  const picked = new Set(cards.map(key))
+  return { ...s, hand: cards, drawPile: allCards(s).filter((c) => !picked.has(key(c))), discardPile: [] }
+}
 
 /** Every one of the 52 cards exists exactly once across hand, draw and discard. */
 function expectConserved(s: AscensionState) {
@@ -44,7 +52,7 @@ describe('Ascension skeleton: new game', () => {
     const s = newAscensionGame('seam')
     expect(s.mode).toBe('ascension')
     expect(s.rulesVersion).toBe(ASCENSION_RULES_VERSION)
-    expect(ASCENSION_RULES_VERSION).toBe(1)
+    expect(ASCENSION_RULES_VERSION).toBe(2)
     expect('version' in s).toBe(false) // Classic's SAVE_VERSION field is not reused
     expect(SAVE_VERSION).toBe(8)
   })
@@ -88,7 +96,7 @@ describe('Ascension skeleton: transitions', () => {
       for (const a of randomActions(seed, 200)) {
         const before = s
         s = applyAscensionAction(s, a)
-        if (a.type === 'play') scored += scorePlay(before.hand, a.cards).score
+        if (a.type === 'play') scored += evaluatePlay(before, a.cards).score
         expectConserved(s)
         expect(s.hand).toHaveLength(HAND_SIZE)
         expect(s.score).toBe(scored)
@@ -106,10 +114,10 @@ describe('Ascension skeleton: transitions', () => {
     expectConserved(s)
   })
 
-  it('a play scores exactly what scorePlay previewed and moves the cards to discard', () => {
+  it('a play scores exactly what evaluatePlay previewed and moves the cards to discard', () => {
     const s = newAscensionGame('score')
     const idxs = [0, 2, 4]
-    const preview = scorePlay(s.hand, idxs)
+    const preview = evaluatePlay(s, idxs)
     const next = applyAscensionAction(s, { type: 'play', cards: idxs })
     expect(next.score).toBe(preview.score)
     expect(next.lastPlay).toEqual(preview)
@@ -118,9 +126,10 @@ describe('Ascension skeleton: transitions', () => {
     expect(next.discardsLeft).toBe(DISCARDS_PER_ROUND)
   })
 
-  it('scorePlay is chips × the shared poker mult', () => {
-    const hand: Card[] = [{ r: 5, s: 'S' }, { r: 5, s: 'H' }, { r: 13, s: 'D' }, { r: 2, s: 'C' }]
-    expect(scorePlay(hand, [0, 1, 2])).toMatchObject({ category: 'pair', label: 'Pair', chips: 23, mult: 1.5, score: 35 })
+  it('evaluatePlay scores chips × the shared poker mult', () => {
+    const s = withHand([C(5, 'S'), C(5, 'H'), C(13, 'D'), C(2, 'C'), C(3, 'C'), C(4, 'C'), C(6, 'C'), C(7, 'C')])
+    expectConserved(s)
+    expect(evaluatePlay(s, [0, 1, 2])).toMatchObject({ category: 'pair', label: 'Pair', chips: 23, mult: 1.5, score: 35 })
   })
 
   it('a discard costs a discard, not a play, and scores nothing', () => {
@@ -173,5 +182,110 @@ describe('Ascension skeleton: illegal actions are rejected safely', () => {
   it('playing with no plays left throws (unreachable through rollover, guarded anyway)', () => {
     const t = { ...newAscensionGame('no-plays'), playsLeft: 0 }
     expect(() => applyAscensionAction(t, { type: 'play', cards: [0] })).toThrow(/no plays left/)
+  })
+})
+
+describe('Ascension world stats', () => {
+  const statsOf = (s: AscensionState) => ({ ...s.stats })
+  const HAND = [C(9, 'H'), C(6, 'H'), C(3, 'H'), C(13, 'S'), C(13, 'D'), C(12, 'C'), C(2, 'S'), C(8, 'D')]
+
+  it('a new game starts with all four stats at 0 and no deltas', () => {
+    const s = newAscensionGame('stats')
+    expect(s.stats).toEqual({ vitality: 0, prosperity: 0, industry: 0, knowledge: 0 })
+    expect(s.lastPlay).toBeNull()
+  })
+
+  it('suits map to the right stats: ♥ Vitality, ♦ Prosperity, ♣ Industry, ♠ Knowledge', () => {
+    expect(SUIT_STAT).toEqual({ H: 'vitality', D: 'prosperity', C: 'industry', S: 'knowledge' })
+    const s = withHand([C(10, 'H'), C(10, 'D'), C(10, 'C'), C(10, 'S'), C(2, 'H'), C(3, 'D'), C(4, 'C'), C(5, 'S')])
+    const only = (stat: keyof WorldStats, n = 1): WorldStats => ({ ...noStats(), [stat]: n })
+    expect(evaluatePlay(s, [0]).statDeltas).toEqual(only('vitality'))
+    expect(evaluatePlay(s, [1]).statDeltas).toEqual(only('prosperity'))
+    expect(evaluatePlay(s, [2]).statDeltas).toEqual(only('industry'))
+    expect(evaluatePlay(s, [3]).statDeltas).toEqual(only('knowledge'))
+  })
+
+  it('every played card counts, kickers included, so a play grows the world by its card count', () => {
+    const s = withHand(HAND)
+    expect(evaluatePlay(s, [0, 1, 2]).statDeltas).toEqual({ vitality: 3, prosperity: 0, industry: 0, knowledge: 0 })
+    for (const idxs of [[0], [3, 4], [0, 3, 5], [0, 1, 4, 5], [0, 1, 2, 6, 7]]) {
+      const d = evaluatePlay(s, idxs).statDeltas
+      expect(WORLD_STATS.reduce((n, k) => n + d[k], 0)).toBe(idxs.length)
+    }
+  })
+
+  it('a mixed-suit hand develops several stats at once', () => {
+    const s = withHand(HAND)
+    expect(evaluatePlay(s, [3, 4, 5, 0]).statDeltas).toEqual({ vitality: 1, prosperity: 1, industry: 1, knowledge: 1 })
+  })
+
+  it('previewed deltas are exactly the committed deltas', () => {
+    let s = newAscensionGame('preview-commit')
+    for (const a of randomActions('preview-commit', 120)) {
+      const before = s
+      s = applyAscensionAction(s, a)
+      if (a.type !== 'play') continue
+      const preview = evaluatePlay(before, a.cards)
+      expect(s.lastPlay).toEqual(preview)
+      for (const k of WORLD_STATS) expect(s.stats[k]).toBe(before.stats[k] + preview.statDeltas[k])
+    }
+  })
+
+  it('same seed + same actions gives identical world stats', () => {
+    const actions = randomActions('stats-det', 200)
+    const a = replay('stats-det', actions)
+    const b = replay('stats-det', actions)
+    expect(a.stats).toEqual(b.stats)
+    expect(a.lastPlay?.statDeltas).toEqual(b.lastPlay?.statDeltas)
+    expect(WORLD_STATS.every((k) => a.stats[k] > 0)).toBe(true)
+  })
+
+  it('stats always equal the sum of every play\'s deltas, and cards stay conserved', () => {
+    let s = newAscensionGame('stats-sum')
+    const total = noStats()
+    for (const a of randomActions('stats-sum', 200)) {
+      const before = s
+      s = applyAscensionAction(s, a)
+      if (a.type === 'play') for (const k of WORLD_STATS) total[k] += evaluatePlay(before, a.cards).statDeltas[k]
+      expect(s.stats).toEqual(total)
+      expectConserved(s)
+    }
+  })
+
+  it('discards never change world stats', () => {
+    let s = applyAscensionAction(newAscensionGame('stats-discard'), { type: 'play', cards: [0, 1, 2] })
+    const stats = statsOf(s)
+    const last = s.lastPlay
+    for (let i = 0; i < DISCARDS_PER_ROUND; i++) s = applyAscensionAction(s, { type: 'discard', cards: [0, 1, 2, 3, 4] })
+    expect(s.stats).toEqual(stats)
+    expect(s.lastPlay).toEqual(last)
+  })
+
+  it('illegal actions never change world stats', () => {
+    const s = deepFreeze(applyAscensionAction(newAscensionGame('stats-illegal'), { type: 'play', cards: [0, 1] }))
+    const stats = statsOf(s)
+    for (const a of [{ type: 'play', cards: [] }, { type: 'play', cards: [1, 1] }, { type: 'play', cards: [9] }, { type: 'discard', cards: [0, 1, 2, 3, 4, 5] }] as AscensionAction[]) {
+      expect(() => applyAscensionAction(s, a)).toThrow()
+      expect(s.stats).toEqual(stats)
+    }
+  })
+
+  it('evaluatePlay changes nothing (pure preview)', () => {
+    const s = deepFreeze(newAscensionGame('stats-pure'))
+    const snapshot = JSON.stringify(s)
+    evaluatePlay(s, [0, 1, 2, 3, 4])
+    expect(JSON.stringify(s)).toBe(snapshot)
+  })
+
+  // Not a balance claim: it only shows the mechanic can make choices diverge.
+  it('tradeoff: the higher-scoring hand is not the one that develops Vitality', () => {
+    const s = withHand(HAND)
+    const kings = evaluatePlay(s, [3, 4, 5])  // K♠ K♦ Q♣: a pair
+    const hearts = evaluatePlay(s, [0, 1, 2]) // 9♥ 6♥ 3♥: high card
+    expect(kings).toMatchObject({ category: 'pair', score: 57 })
+    expect(hearts).toMatchObject({ category: 'high', score: 18 })
+    expect(kings.score).toBeGreaterThan(hearts.score * 3)
+    expect(kings.statDeltas).toEqual({ vitality: 0, prosperity: 1, industry: 1, knowledge: 1 })
+    expect(hearts.statDeltas).toEqual({ vitality: 3, prosperity: 0, industry: 0, knowledge: 0 })
   })
 })
