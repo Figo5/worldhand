@@ -132,9 +132,19 @@ export default function App() {
     if (state) saveGame(state)
   }, [state])
 
+  // The engine throws on an illegal action. It must run HERE, not inside a
+  // setState updater: React runs updaters during render, where a throw escapes
+  // this try/catch and unmounts the whole app (e.g. clicking a 6th card).
+  // `latest` tracks the newest state so back-to-back actions chain correctly.
+  const latest = useRef(state)
+  latest.current = state
   const act = useCallback((a: Action) => {
+    const s = latest.current
+    if (!s) return
     try {
-      setState((s) => (s ? applyAction(s, a) : s))
+      const next = applyAction(s, a)
+      latest.current = next
+      setState(next)
       setError('')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -201,7 +211,7 @@ export default function App() {
         <header className="intro-head">
           <h1 className="game-title">Worldhand</h1>
           <p className="tagline">
-            A deterministic planet-building card roguelike across three epochs. Each epoch you
+            A deterministic planet-building card roguelike of escalating epochs. Each epoch you
             make <strong>4 plays</strong> from an 8-card hand: select 1–5 cards, score them as a
             poker hand, and bank one big <strong>Growth</strong> number toward the epoch target.
             Every play also earns <strong>Seeds</strong> — spend them in the market on upgrades,
@@ -661,11 +671,17 @@ function Shop({
             {state.laws.length > 0 && (
               <div className="row owned-row" role="group" aria-label="Owned laws and upgrades — remove to free a slot">
                 <span className="muted">Owned:</span>
-                {state.laws.map((l) => (
-                  <button key={l.id} className="remove-btn" title={`Remove ${l.title} (frees a slot; no refund)`} onClick={() => act({ type: 'removeLaw', lawId: l.id })}>
-                    Remove {l.title}
-                  </button>
-                ))}
+                {state.laws.map((l) => (l.kind === 'expansion'
+                  ? (
+                    <button key={l.id} className="remove-btn" disabled title={`${l.title} is permanent: a woken region stays awake and keeps its slot`}>
+                      {l.title} (permanent)
+                    </button>
+                  )
+                  : (
+                    <button key={l.id} className="remove-btn" title={`Remove ${l.title} (frees a slot; no refund)`} onClick={() => act({ type: 'removeLaw', lawId: l.id })}>
+                      Remove {l.title}
+                    </button>
+                  )))}
               </div>
             )}
           </>

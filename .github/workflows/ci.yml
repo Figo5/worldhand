@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Tests (incl. Classic replay fixtures)
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - name: Portable build
+        run: npm run build:portable
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Portable browser QA
+        run: node scripts/qa-portable.mjs

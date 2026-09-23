@@ -53,8 +53,13 @@ function canonicalizeTerminalState(state: GameState): GameState {
 
 /** Preserve an incompatible save verbatim as recoverable legacy data. The
  *  raw string is stored untouched under a timestamped key — never erased,
- *  never rewritten. Returns the legacy key used. */
+ *  never rewritten. Returns the legacy key used. Idempotent: the active save
+ *  stays in place after a rejection, so every later load (StrictMode's second
+ *  effect run, a "Load Saved World" click) sees the same blob — it is kept
+ *  once, and the existing key is returned. */
 export function preserveLegacy(raw: string): string {
+  const existing = legacyKeys().find((k) => localStorage.getItem(k) === raw)
+  if (existing) return existing
   const key = `${LEGACY_PREFIX}${Date.now()}`
   try {
     localStorage.setItem(key, raw)
