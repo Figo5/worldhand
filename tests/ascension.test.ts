@@ -13,6 +13,7 @@ import { newGame as newClassicGame, SAVE_VERSION } from '../src/engine/worldhand
 import { Rng, hashSeed } from '../src/engine/rng'
 import { stream } from '../src/engine/core/streams'
 import { deck, type Card } from '../src/engine/poker'
+import { ERAS, eraRequirements, canAdvance, isComplete } from '../src/engine/ascension/eras'
 
 const key = (c: Card) => `${c.r}${c.s}`
 const allCards = (s: AscensionState) => [...s.hand, ...s.drawPile, ...s.discardPile]
@@ -30,12 +31,13 @@ function expectConserved(s: AscensionState) {
   expect(allCards(s).map(key).sort()).toEqual(deck().map(key).sort())
 }
 
-/** A seeded random mix of legal plays and discards, including rollovers. */
+/** A seeded random mix of legal plays and discards, including rollovers (stops at first-playable completion). */
 function randomActions(seedText: string, n: number): AscensionAction[] {
   const rng = new Rng(hashSeed(`actions:${seedText}`))
   let s = newAscensionGame(seedText)
   const out: AscensionAction[] = []
   for (let i = 0; i < n; i++) {
+    if (isComplete(s.era)) break
     const cards = rng.shuffle(s.hand.map((_, j) => j)).slice(0, rng.int(1, 6))
     const a: AscensionAction = s.discardsLeft > 0 && rng.next() < 0.3 ? { type: 'discard', cards } : { type: 'play', cards }
     s = applyAscensionAction(s, a)
@@ -58,7 +60,7 @@ describe('Ascension skeleton: new game', () => {
     const s = newAscensionGame('seam')
     expect(s.mode).toBe('ascension')
     expect(s.rulesVersion).toBe(ASCENSION_RULES_VERSION)
-    expect(ASCENSION_RULES_VERSION).toBe(5)
+    expect(ASCENSION_RULES_VERSION).toBe(6)
     expect('version' in s).toBe(false) // Classic's SAVE_VERSION field is not reused
     expect(SAVE_VERSION).toBe(8)
   })
@@ -67,7 +69,7 @@ describe('Ascension skeleton: new game', () => {
     const s = newAscensionGame('seam')
     expect(s.hand).toHaveLength(HAND_SIZE)
     expect(s.drawPile).toHaveLength(52 - HAND_SIZE)
-    expect(s).toMatchObject({ round: 1, playsLeft: PLAYS_PER_ROUND, discardsLeft: DISCARDS_PER_ROUND, score: 0, reshuffles: 0, lastPlay: null })
+    expect(s).toMatchObject({ round: 1, playsLeft: PLAYS_PER_ROUND, discardsLeft: DISCARDS_PER_ROUND, score: 0, reshuffles: 0, lastPlay: null, era: 0, eraLog: [] })
     expectConserved(s)
   })
 
@@ -769,5 +771,203 @@ describe('Ascension civilization passives', () => {
     const before = world(hand, {}, []), after = world(hand, {}, [civ('merchants')])
     expect([evaluatePlay(before, aces).score, evaluatePlay(before, kings).score]).toEqual([60 + 9, 57 + 9])
     expect([evaluatePlay(after, aces).score, evaluatePlay(after, kings).score]).toEqual([69, 66 + 5])
+  })
+})
+
+describe('Ascension eras', () => {
+  const civ = (archetype: Archetype, home: number, id: number): Civilization => ({
+    id, archetype, home, tier: 1, emergedRound: 1,
+    reason: { stat: ARCHETYPES[archetype].stats[0], readiness: EMERGENCE_STEP, needed: EMERGENCE_STEP, terrain: ARCHETYPES[archetype].terrains[0], regionFit: 0 },
+  })
+  /** All tundra: only Nomads (Vitality) and Scholars (Knowledge) can ever found a home here. */
+  const TUNDRA = REGION_ADJACENCY.map((n, id) => ({ id, terrain: 'tundra' as Terrain, neighbors: [...n] }))
+  /** A conserved state `playsLeft` plays from a round end, with this hand, stats, civs and era. */
+  const at = (o: { stats?: Partial<WorldStats>; civs?: Civilization[]; era?: number; playsLeft?: number }) => ({
+    ...withHand([C(2, 'H'), C(3, 'D'), C(4, 'C'), C(5, 'S'), C(6, 'H'), C(7, 'D'), C(8, 'C'), C(9, 'S')]),
+    regions: TUNDRA.map((r) => ({ ...r, neighbors: [...r.neighbors] })),
+    stats: { ...noStats(), ...o.stats }, civilizations: o.civs ?? [], era: o.era ?? 0, playsLeft: o.playsLeft ?? 1,
+  })
+  const H = 0, D = 1, C_ = 2, S = 3 // hand positions of 2♥ 3♦ 4♣ 5♠
+  const play = (s: AscensionState, cards: number[]) => applyAscensionAction(s, { type: 'play', cards })
+  const reqs = (s: AscensionState) => eraRequirements(s.era, s.stats, s.civilizations).map((r) => [r.key, r.have, r.need, r.met])
+  /** 5 cards, each time the one whose stat (current + chosen) is lowest; the deterministic diagnostic bot. */
+  const balanced = (s: AscensionState): AscensionAction => {
+    const add = { ...s.stats }, pick: number[] = []
+    while (pick.length < 5) {
+      const i = s.hand.map((_, j) => j).filter((j) => !pick.includes(j)).sort((a, b) => add[SUIT_STAT[s.hand[a].s]] - add[SUIT_STAT[s.hand[b].s]] || a - b)[0]
+      pick.push(i); add[SUIT_STAT[s.hand[i].s]] += 1
+    }
+    return { type: 'play', cards: pick }
+  }
+  /** Every state of a balanced run to completion (states[0] = new game); throws if 100 rounds are not enough. */
+  const completeRun = (seed: string) => {
+    const states = [newAscensionGame(seed)]
+    while (!isComplete(states[states.length - 1].era)) {
+      if (states.length > 100 * PLAYS_PER_ROUND) throw new Error(`${seed}: not complete after 100 rounds`)
+      states.push(applyAscensionAction(states[states.length - 1], balanced(states[states.length - 1])))
+    }
+    return states
+  }
+
+  it('three eras, in order, with the documented requirements; every world can meet them', () => {
+    expect(ERAS.map((e) => [e.id, e.label, e.needs])).toEqual([
+      ['tribal', 'Tribal', { civilizations: 1, stats: 2, min: 15 }],
+      ['ancient', 'Ancient', { civilizations: 2, stats: 3, min: 30 }],
+      ['medieval', 'Medieval', { civilizations: 3, stats: 4, min: 50 }],
+    ])
+    // each era asks one more developed stat, at a higher level, from more civilizations
+    for (let i = 1; i < ERAS.length; i++) {
+      expect(ERAS[i].needs.stats).toBe(ERAS[i - 1].needs.stats + 1)
+      expect(ERAS[i].needs.min).toBeGreaterThan(ERAS[i - 1].needs.min)
+      expect(ERAS[i].needs.civilizations).toBeGreaterThan(ERAS[i - 1].needs.civilizations)
+    }
+    // 3 civilizations need 3 archetypes with distinct homes: true of every sampled world
+    const hosts = (seed: string) => {
+      const regions = generateRegions(hashSeed(seed))
+      const opts = ARCHETYPE_ORDER.map((a) => regions.filter((r) => ARCHETYPES[a].terrains.includes(r.terrain)).map((r) => r.id))
+      const go = (i: number, used: number[]): number => (i === opts.length ? 0
+        : Math.max(go(i + 1, used), ...opts[i].filter((h) => !used.includes(h)).map((h) => 1 + go(i + 1, [...used, h]))))
+      return go(0, [])
+    }
+    for (let i = 0; i < 300; i++) expect(hosts(`hosts-${i}`)).toBeGreaterThanOrEqual(ERAS[ERAS.length - 1].needs.civilizations)
+  })
+
+  it('a new world is Tribal and shows exactly what it needs', () => {
+    const s = newAscensionGame('era-new')
+    expect(s).toMatchObject({ era: 0, eraLog: [] })
+    expect(reqs(s)).toEqual([['civilizations', 0, 1, false], ['stats', 0, 2, false]])
+    expect(canAdvance(s.era, s.stats, s.civilizations)).toBe(false)
+  })
+
+  it('requirements are met exactly at their thresholds, never one short', () => {
+    ERAS.forEach(({ needs }, era) => {
+      const civs = ARCHETYPE_ORDER.slice(0, needs.civilizations).map((a, i) => civ(a, i, i))
+      const stats = (n: number, v: number) => Object.fromEntries(WORLD_STATS.map((k, i) => [k, i < n ? v : 0])) as WorldStats
+      expect(canAdvance(era, stats(needs.stats, needs.min), civs)).toBe(true)
+      expect(canAdvance(era, stats(needs.stats, needs.min - 1), civs)).toBe(false) // a stat one short
+      expect(canAdvance(era, stats(needs.stats - 1, 999), civs)).toBe(false) // one stat too few
+      expect(canAdvance(era, stats(needs.stats, needs.min), civs.slice(1))).toBe(false) // one civilization too few
+      expect(eraRequirements(era, stats(needs.stats, needs.min), civs).map((r) => [r.have, r.need, r.met]))
+        .toEqual([[needs.civilizations, needs.civilizations, true], [needs.stats, needs.stats, true]])
+    })
+  })
+
+  it('advances at the round end where the requirements hold, not before, and logs the world as it stood', () => {
+    const nomads = [civ('nomads', 0, 0)]
+    let s = at({ stats: { vitality: 14, prosperity: 15 }, civs: nomads, playsLeft: 2 })
+    s = play(s, [H]) // Vitality 15: met, but mid-round
+    expect(canAdvance(s.era, s.stats, s.civilizations)).toBe(true)
+    expect(s.era).toBe(0)
+    s = applyAscensionAction(s, { type: 'discard', cards: [0] }) // a discard is not a checkpoint
+    expect(s.era).toBe(0)
+    const round = s.round
+    s = play(s, [0]) // the round's last play
+    expect(s.era).toBe(1)
+    expect(s.eraLog).toEqual([{ from: 'tribal', to: 'ancient', round, stats: s.stats, civilizations: 1 }])
+    expect(reqs(s)).toEqual([['civilizations', 1, 2, false], ['stats', 0, 3, false]]) // now Ancient's: stats at 30+
+  })
+
+  it('a round end one short of any requirement does not advance', () => {
+    const civs = [civ('nomads', 0, 0)]
+    expect(play(at({ stats: { vitality: 13, prosperity: 15 }, civs }), [H]).era).toBe(0) // Vitality 14
+    expect(play(at({ stats: { vitality: 14, prosperity: 20 }, civs }), [H]).era).toBe(1)
+    // no civilization, and none can emerge here (no Vitality or Knowledge for tundra's archetypes)
+    const s = play(at({ stats: { prosperity: 20, industry: 20 } }), [D])
+    expect(s.civilizations).toEqual([])
+    expect(s.era).toBe(0)
+  })
+
+  it('a civilization that emerges at this round end counts toward this round end', () => {
+    const s = play(at({ stats: { vitality: 20, prosperity: 20 } }), [D])
+    expect(s.civilizations.map((c) => c.archetype)).toEqual(['nomads'])
+    expect(s.eraLog).toMatchObject([{ from: 'tribal', to: 'ancient', civilizations: 1 }])
+  })
+
+  it('at most one era per round end, even with everything met', () => {
+    const civs = [civ('nomads', 0, 0), civ('scholars', 1, 1), civ('technocrats', 2, 2)]
+    let s = at({ stats: { vitality: 99, prosperity: 99, industry: 99, knowledge: 99 }, civs })
+    for (const era of [1, 2, 3]) {
+      s = play(s, [0])
+      expect(s.era).toBe(era)
+      for (let i = 1; i < PLAYS_PER_ROUND && !isComplete(s.era); i++) s = play(s, [0])
+    }
+    expect(s.eraLog.map((e) => [e.from, e.to])).toEqual([['tribal', 'ancient'], ['ancient', 'medieval'], ['medieval', null]])
+  })
+
+  it('in real runs: advancement is never early or late, and the world carries over whole', () => {
+    for (const seed of ['era-run-0', 'era-run-1', 'era-run-2']) {
+      let s = newAscensionGame(seed)
+      const land = JSON.stringify(s.regions)
+      for (const a of randomActions(seed, 600)) {
+        const before = s
+        const preview = a.type === 'play' ? evaluatePlay(before, a.cards) : null
+        s = applyAscensionAction(s, a)
+        const roundEnd = s.round > before.round
+        // advance exactly when a round end finds the requirements met (after that round end's emergence)
+        expect(s.era).toBe(before.era + (roundEnd && canAdvance(before.era, s.stats, s.civilizations) ? 1 : 0))
+        if (s.era > before.era) expect(s.eraLog[s.eraLog.length - 1]).toEqual({ from: ERAS[before.era].id, to: ERAS[s.era]?.id ?? null, round: before.round, stats: s.stats, civilizations: s.civilizations.length })
+        // nothing resets: terrain, civilizations (and homes), stats, score, preview == commit, cards
+        expect(JSON.stringify(s.regions)).toBe(land)
+        expect(s.civilizations.slice(0, before.civilizations.length)).toEqual(before.civilizations)
+        if (preview) {
+          expect(s.lastPlay).toEqual(preview)
+          expect(s.score - before.score).toBe(preview.score)
+          for (const k of WORLD_STATS) expect(s.stats[k]).toBe(before.stats[k] + preview.statDeltas[k])
+        } else {
+          expect([s.stats, s.score, s.era]).toEqual([before.stats, before.score, before.era])
+        }
+        expectConserved(s)
+      }
+      expect(s.era).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  it('a balanced run completes the first playable, deterministically, with civilizations and passives working in every era', () => {
+    const run = completeRun('era-complete')
+    const done = run[run.length - 1]
+    expect(completeRun('era-complete')).toEqual(run)
+    expect(done.eraLog.map((e) => [e.from, e.to])).toEqual([['tribal', 'ancient'], ['ancient', 'medieval'], ['medieval', null]])
+    expect(done.eraLog.map((e) => e.round)).toEqual([3, 6, 11])
+    expect(done.civilizations.length).toBeGreaterThanOrEqual(3)
+    const played = run.slice(1).map((s) => s.lastPlay!)
+    for (let era = 0; era < ERAS.length; era++) {
+      const inEra = run.slice(1).filter((s, i) => run[i].era === era)
+      expect(inEra.some((s) => s.lastPlay!.civBonus > 0)).toBe(true) // passives keep acting after transitions
+    }
+    expect(played.every((r) => r.score === r.pokerScore + r.landBonus + r.civBonus)).toBe(true)
+  })
+
+  it('passives are the same in every era: eras change no play', () => {
+    const civs = ARCHETYPE_ORDER.map((a, i) => civ(a, i, i))
+    const base = at({ stats: { vitality: 50, knowledge: 50 }, civs })
+    for (let era = 0; era < ERAS.length; era++) expect(evaluatePlay({ ...base, era }, [H, D, C_, S, 6])).toEqual(evaluatePlay(base, [H, D, C_, S, 6]))
+  })
+
+  it('first playable complete: every action is refused and the world is kept for inspection', () => {
+    const run = completeRun('era-final')
+    const done = deepFreeze(run[run.length - 1])
+    const snap = JSON.stringify(done)
+    expect(isComplete(done.era)).toBe(true)
+    expect(done.era).toBe(ERAS.length)
+    expect(eraRequirements(done.era, done.stats, done.civilizations)).toEqual([])
+    expect(canAdvance(done.era, done.stats, done.civilizations)).toBe(false)
+    expect(() => evaluatePlay(done, [0])).toThrow('first playable complete')
+    expect(() => applyAscensionAction(done, { type: 'play', cards: [0] })).toThrow('first playable complete')
+    expect(() => applyAscensionAction(done, { type: 'discard', cards: [0] })).toThrow('first playable complete')
+    expect(JSON.stringify(done)).toBe(snap)
+    expect(done.hand).toHaveLength(HAND_SIZE)
+    expectConserved(done)
+    expect(done.regions).toEqual(run[0].regions)
+    expect(done.eraLog[2]).toMatchObject({ from: 'medieval', to: null })
+  })
+
+  it('same seed + same actions give the same era progression; worlds and strategies differ', () => {
+    const actions = randomActions('era-det', 600)
+    const a = replay('era-det', actions)
+    expect(a.eraLog.length).toBeGreaterThanOrEqual(1)
+    expect(replay('era-det', actions)).toEqual(a)
+    // same balanced strategy, different worlds: different civilizations carry each era
+    const civsAt = (seed: string) => completeRun(seed).at(-1)!.civilizations.map((c) => c.archetype).join()
+    expect(new Set(['era-w-0', 'era-w-1', 'era-w-2', 'era-w-3'].map(civsAt)).size).toBeGreaterThan(1)
   })
 })

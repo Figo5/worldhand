@@ -8,8 +8,10 @@ import {
   type AscensionAction, type AscensionState, type WorldStats,
 } from '../engine/ascension/ascension'
 import { ARCHETYPES, emergenceThreshold } from '../engine/ascension/civilizations'
+import { ERAS, eraRequirements, isComplete, type Era } from '../engine/ascension/eras'
 import { cardName } from '../engine/poker'
 
+const eraLabel = (id: Era) => ERAS.find((e) => e.id === id)!.label
 /** "+2 Vitality · +1 Industry" (non-zero gains, in stat order) */
 const gains = (d: WorldStats) =>
   WORLD_STATS.filter((k) => d[k] !== 0).map((k) => `+${d[k]} ${WORLD_STAT_LABEL[k]}`).join(' · ')
@@ -21,8 +23,9 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
   const [error, setError] = useState('')
 
   const affinity = useMemo(() => (game ? landAffinity(game.regions) : null), [game])
+  const reqs = game ? eraRequirements(game.era, game.stats, game.civilizations) : []
   const preview = useMemo(() => {
-    if (!game || selected.length === 0) return null
+    if (!game || selected.length === 0 || isComplete(game.era)) return null
     try { return evaluatePlay(game, selected) } catch { return null }
   }, [game, selected])
 
@@ -47,7 +50,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
     <main className="shell intro" data-testid="ascension-app">
       <header className="intro-head">
         <h1 className="game-title">Ascension prototype</h1>
-        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, the land pays a bonus for the stats its terrain favours, civilizations emerge at round ends, and each one then adds a passive bonus to plays. Nothing is saved.</p>
+        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, the land pays a bonus for the stats its terrain favours, civilizations emerge at round ends and add passive bonuses, and the world advances through three eras (Tribal, Ancient, Medieval) when it has enough civilizations and developed stats. Nothing is saved.</p>
         <button data-testid="asc-exit" onClick={onExit}>Back to Classic</button>
       </header>
 
@@ -71,6 +74,41 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
               <span key={k} data-stat={k} data-value={game.stats[k]}>{i > 0 ? ' · ' : ''}{WORLD_STAT_LABEL[k]} {game.stats[k]}</span>
             ))}
           </p>
+          <div data-testid="asc-era" data-era={ERAS[game.era]?.id ?? 'complete'}>
+            {!isComplete(game.era) ? (
+              <>
+                <p>Era: <strong>{ERAS[game.era].label}</strong> ({game.era + 1} of {ERAS.length}). To advance, at a round end the world needs:</p>
+                <ul>
+                  {reqs.map((r) => (
+                    <li key={r.key} data-testid="asc-req" data-key={r.key} data-met={r.met} data-have={r.have} data-need={r.need}>
+                      {r.met ? '✓' : '✗'} {r.label}: {r.have} / {r.need}
+                    </li>
+                  ))}
+                </ul>
+                <p data-testid="asc-era-status">
+                  {reqs.every((r) => r.met)
+                    ? 'All requirements met: the world advances at the end of this round.'
+                    : `Not yet: ${reqs.filter((r) => !r.met).map((r) => r.key === 'stats'
+                      ? `${r.need - r.have} more stat${r.need - r.have > 1 ? 's' : ''} to ${ERAS[game.era].needs.min} (${WORLD_STATS.filter((k) => game.stats[k] < ERAS[game.era].needs.min).map((k) => `${WORLD_STAT_LABEL[k]} ${game.stats[k]}`).join(', ')})`
+                      : `${r.need - r.have} more civilization${r.need - r.have > 1 ? 's' : ''}`).join('; ')}.`}
+                </p>
+              </>
+            ) : (
+              <div data-testid="asc-complete">
+                <h2>First playable complete</h2>
+                <p>Medieval completed at the end of round {game.eraLog[game.eraLog.length - 1].round} with score {game.score}. The world is kept below for inspection; no further plays.</p>
+              </div>
+            )}
+            {game.eraLog.length > 0 && (
+              <ul data-testid="asc-era-log">
+                {game.eraLog.map((e) => (
+                  <li key={e.from}>
+                    End of round {e.round}: {e.to ? `${eraLabel(e.from)} → ${eraLabel(e.to)}` : `${eraLabel(e.from)} completed`} with {e.civilizations} civilization{e.civilizations > 1 ? 's' : ''} and {WORLD_STATS.map((k) => `${WORLD_STAT_LABEL[k]} ${e.stats[k]}`).join(', ')}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <details open data-testid="asc-world">
             <summary data-testid="asc-affinity">
               Land bonus per stat point: {WORLD_STATS.map((k) => `${WORLD_STAT_LABEL[k]} +${affinity![k]}`).join(' · ')}
@@ -103,35 +141,39 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
               </ul>
             )}
           </div>
-          <div className="hand-cards" role="listbox" aria-label="Hand">
-            {game.hand.map((c, i) => (
-              <button key={i} role="option" aria-selected={selected.includes(i)}
-                className={`pcard-btn ${selected.includes(i) ? 'sel' : ''}`} onClick={() => toggle(i)}>
-                <span className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>
-                  <span className="pcard-rank">{cardName(c)}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-          <p data-testid="asc-preview">
-            {preview ? `${preview.label}: ${preview.chips} chips × ${preview.mult} mult = ${preview.pokerScore}` : 'Select 1–5 cards.'}
-          </p>
-          {preview && <p data-testid="asc-preview-stats" data-deltas={JSON.stringify(preview.statDeltas)}>World: {gains(preview.statDeltas)}</p>}
-          {preview && preview.civBonuses.length > 0 && (
-            <div data-testid="asc-preview-civs">
-              {preview.civBonuses.map((b) => (
-                <p key={b.civ} data-testid="asc-preview-civ" data-archetype={b.archetype} data-amount={b.amount}>
-                  {ARCHETYPES[b.archetype].label} ({ARCHETYPES[b.archetype].passive.name}): +{b.amount} — {b.detail}
-                </p>
-              ))}
-            </div>
+          {!isComplete(game.era) && (
+            <>
+              <div className="hand-cards" role="listbox" aria-label="Hand">
+                {game.hand.map((c, i) => (
+                  <button key={i} role="option" aria-selected={selected.includes(i)}
+                    className={`pcard-btn ${selected.includes(i) ? 'sel' : ''}`} onClick={() => toggle(i)}>
+                    <span className={`pcard ${c.s === 'H' || c.s === 'D' ? 'red' : ''}`}>
+                      <span className="pcard-rank">{cardName(c)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p data-testid="asc-preview">
+                {preview ? `${preview.label}: ${preview.chips} chips × ${preview.mult} mult = ${preview.pokerScore}` : 'Select 1–5 cards.'}
+              </p>
+              {preview && <p data-testid="asc-preview-stats" data-deltas={JSON.stringify(preview.statDeltas)}>World: {gains(preview.statDeltas)}</p>}
+              {preview && preview.civBonuses.length > 0 && (
+                <div data-testid="asc-preview-civs">
+                  {preview.civBonuses.map((b) => (
+                    <p key={b.civ} data-testid="asc-preview-civ" data-archetype={b.archetype} data-amount={b.amount}>
+                      {ARCHETYPES[b.archetype].label} ({ARCHETYPES[b.archetype].passive.name}): +{b.amount} — {b.detail}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {preview && <p data-testid="asc-preview-total" data-land={preview.landBonus} data-civ={preview.civBonus} data-score={preview.score}>Land bonus +{preview.landBonus} · Civilizations +{preview.civBonus} → play adds {preview.score}</p>}
+              <div className="row">
+                <button className="primary" data-testid="asc-play" disabled={!preview} onClick={() => act({ type: 'play', cards: selected })}>Play</button>
+                <button data-testid="asc-discard" disabled={selected.length === 0 || game.discardsLeft <= 0} onClick={() => act({ type: 'discard', cards: selected })}>Discard</button>
+                <button data-testid="asc-clear" disabled={selected.length === 0} onClick={() => { setSelected([]); setError('') }}>Clear</button>
+              </div>
+            </>
           )}
-          {preview && <p data-testid="asc-preview-total" data-land={preview.landBonus} data-civ={preview.civBonus} data-score={preview.score}>Land bonus +{preview.landBonus} · Civilizations +{preview.civBonus} → play adds {preview.score}</p>}
-          <div className="row">
-            <button className="primary" data-testid="asc-play" disabled={!preview} onClick={() => act({ type: 'play', cards: selected })}>Play</button>
-            <button data-testid="asc-discard" disabled={selected.length === 0 || game.discardsLeft <= 0} onClick={() => act({ type: 'discard', cards: selected })}>Discard</button>
-            <button data-testid="asc-clear" disabled={selected.length === 0} onClick={() => { setSelected([]); setError('') }}>Clear</button>
-          </div>
           {game.lastPlay && (
             <p className="muted" data-testid="asc-last" data-deltas={JSON.stringify(game.lastPlay.statDeltas)}>
               Last play: {game.lastPlay.label} ({game.lastPlay.cards.map(cardName).join(' ')}) for {game.lastPlay.pokerScore} + land {game.lastPlay.landBonus}{game.lastPlay.civBonus > 0 ? ` + civ ${game.lastPlay.civBonus}` : ''} = {game.lastPlay.score} · World: {gains(game.lastPlay.statDeltas)}
