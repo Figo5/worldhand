@@ -7,6 +7,7 @@ import {
 } from '../src/engine/ascension/ascension'
 import {
   ARCHETYPES, ARCHETYPE_ORDER, EMERGENCE_STEP, emergeCivilization, emergenceThreshold, readinessOf,
+  type Archetype, type Civilization,
 } from '../src/engine/ascension/civilizations'
 import { newGame as newClassicGame, SAVE_VERSION } from '../src/engine/worldhand'
 import { Rng, hashSeed } from '../src/engine/rng'
@@ -57,7 +58,7 @@ describe('Ascension skeleton: new game', () => {
     const s = newAscensionGame('seam')
     expect(s.mode).toBe('ascension')
     expect(s.rulesVersion).toBe(ASCENSION_RULES_VERSION)
-    expect(ASCENSION_RULES_VERSION).toBe(4)
+    expect(ASCENSION_RULES_VERSION).toBe(5)
     expect('version' in s).toBe(false) // Classic's SAVE_VERSION field is not reused
     expect(SAVE_VERSION).toBe(8)
   })
@@ -357,14 +358,14 @@ describe('Ascension terrain', () => {
     expect(a.pokerScore).toBe(b.pokerScore)
   })
 
-  it('land bonus = Σ stat deltas × regions favouring that stat; a play adds poker score + land bonus', () => {
+  it('land bonus = Σ stat deltas × regions favouring that stat; a play adds poker score + land bonus + civ bonus', () => {
     let s = newAscensionGame('land-bonus')
     for (const act of randomActions('land-bonus', 100)) {
       if (act.type === 'play') {
         const r = evaluatePlay(s, act.cards)
         const affinity = landAffinity(s.regions)
         expect(r.landBonus).toBe(WORLD_STATS.reduce((n, k) => n + r.statDeltas[k] * affinity[k], 0))
-        expect(r.score).toBe(r.pokerScore + r.landBonus)
+        expect(r.score).toBe(r.pokerScore + r.landBonus + r.civBonus)
         const next = applyAscensionAction(s, act)
         expect(next.score - s.score).toBe(r.score)
       }
@@ -572,5 +573,201 @@ describe('Ascension civilizations', () => {
     const play = evaluatePlay(s, [0])
     expect(next.score).toBe(s.score + play.score)
     for (const k of WORLD_STATS) expect(next.stats[k]).toBe(s.stats[k] + play.statDeltas[k])
+  })
+})
+
+describe('Ascension civilization passives', () => {
+  const civ = (archetype: Archetype, home = 0, id = 0): Civilization => ({
+    id, archetype, home, tier: 1, emergedRound: 1,
+    reason: { stat: ARCHETYPES[archetype].stats[0], readiness: EMERGENCE_STEP, needed: EMERGENCE_STEP, terrain: ARCHETYPES[archetype].terrains[0], regionFit: 0 },
+  })
+  /** Every archetype, Empire Builders at hub R8 (5 borders). */
+  const allSix = () => ARCHETYPE_ORDER.map((a, i) => civ(a, [0, 1, 2, 8, 4, 5][i], i))
+  /** Forest, mountains, desert, coast ×3: every stat has land affinity 3, so
+   *  plays of the same size earn the same land bonus. */
+  const EVEN_LAND = REGION_ADJACENCY.map((n, id) => ({ id, terrain: (['forest', 'mountains', 'desert', 'coast'] as const)[id % 4] as Terrain, neighbors: [...n] }))
+  const world = (hand: Card[], stats: Partial<WorldStats>, civilizations: Civilization[]): AscensionState =>
+    ({ ...withHand(hand), regions: EVEN_LAND.map((r) => ({ ...r, neighbors: [...r.neighbors] })), stats: { ...noStats(), ...stats }, civilizations })
+  /** [archetype, amount] of each triggered passive, in order. */
+  const bonuses = (s: AscensionState, idxs: number[]) => evaluatePlay(s, idxs).civBonuses.map((b) => [b.archetype, b.amount])
+  // hand positions:  0     1     2     3     4     5     6     7
+  const HAND = [C(2, 'H'), C(3, 'H'), C(4, 'C'), C(5, 'C'), C(9, 'S'), C(10, 'S'), C(13, 'D'), C(14, 'D')]
+  const H1 = 0, H2 = 1, C1 = 2, C2 = 3, S1 = 4, S2 = 5, D1 = 6, D2 = 7
+
+  it('the passive table is well-formed: every archetype has a named, documented passive', () => {
+    for (const a of ARCHETYPE_ORDER) {
+      expect(ARCHETYPES[a].passive.name).toMatch(/\w/)
+      expect(ARCHETYPES[a].passive.text).toMatch(/\+\d/)
+    }
+  })
+
+  it('Nature Keepers (Stewardship): +3 per ♥ while Vitality ≥ Industry AFTER the play', () => {
+    const s = world(HAND, { vitality: 5, industry: 5 }, [civ('natureKeepers')])
+    expect(bonuses(s, [H1])).toEqual([['natureKeepers', 3]]) // 6 ≥ 5
+    expect(bonuses(s, [H1, H2])).toEqual([['natureKeepers', 6]])
+    expect(bonuses(s, [H1, C1])).toEqual([['natureKeepers', 3]]) // 6 ≥ 6: equality counts
+    expect(bonuses(s, [H1, C1, C2])).toEqual([]) // its own ♣ push Industry to 7 > 6
+    expect(bonuses(s, [C1, S1])).toEqual([]) // no ♥
+    expect(evaluatePlay(s, [H1, C1, C2]).civBonus).toBe(0)
+  })
+
+  it('Nomads (Wandering): +4 per suit beyond the first', () => {
+    const s = world(HAND, {}, [civ('nomads')])
+    expect(bonuses(s, [H1, H2])).toEqual([])
+    expect(bonuses(s, [H1, C1])).toEqual([['nomads', 4]])
+    expect(bonuses(s, [H1, C1, S1])).toEqual([['nomads', 8]])
+    expect(bonuses(s, [H1, H2, C1, S1, D1])).toEqual([['nomads', 12]])
+  })
+
+  it('Merchants (Commerce): with at least 2 ♦, +10% of the poker score rounded down', () => {
+    const s = world([C(14, 'D'), C(13, 'D'), C(12, 'S'), C(14, 'S'), C(2, 'H'), C(3, 'H'), C(4, 'C'), C(5, 'C')], {}, [civ('merchants')])
+    expect(evaluatePlay(s, [0, 1, 2]).pokerScore).toBe(39) // A♦ K♦ Q♠ high card
+    expect(bonuses(s, [0, 1, 2])).toEqual([['merchants', 3]])
+    expect(bonuses(s, [0, 1])).toEqual([['merchants', 2]]) // 27 → 2
+    expect(bonuses(s, [0, 3, 2])).toEqual([]) // one ♦
+  })
+
+  it("Empire Builders (Roads): +1 per ♣ per border of the empire's home", () => {
+    const at = (home: number) => world(HAND, {}, [civ('empireBuilders', home)])
+    expect(bonuses(at(8), [C1, C2])).toEqual([['empireBuilders', 10]]) // R8: 5 borders
+    expect(bonuses(at(9), [C1, C2])).toEqual([['empireBuilders', 8]]) // R9: 4 borders
+    expect(bonuses(at(0), [C1, C2])).toEqual([['empireBuilders', 6]]) // R0: 3 borders
+    expect(bonuses(at(8), [H1, S1])).toEqual([])
+  })
+
+  it('Scholars (Libraries): +1 per ♠ per 10 Knowledge AFTER the play, capped at +5 per ♠', () => {
+    const at = (knowledge: number) => world(HAND, { knowledge }, [civ('scholars')])
+    expect(bonuses(at(8), [S1])).toEqual([]) // 9
+    expect(bonuses(at(9), [S1])).toEqual([['scholars', 1]]) // this ♠ makes 10
+    expect(bonuses(at(18), [S1])).toEqual([['scholars', 1]]) // 19
+    expect(bonuses(at(29), [S1])).toEqual([['scholars', 3]]) // 30
+    expect(bonuses(at(80), [S1, S2])).toEqual([['scholars', 10]]) // 82 → capped at 5 per ♠
+    expect(bonuses(at(80), [H1, C1])).toEqual([])
+  })
+
+  it('Technocrats (Engineering): with both ♣ and ♠, +3 per ♣ and ♠ card', () => {
+    const s = world(HAND, {}, [civ('technocrats')])
+    expect(bonuses(s, [C1, S1])).toEqual([['technocrats', 6]])
+    expect(bonuses(s, [C1, C2, S1, H1])).toEqual([['technocrats', 9]]) // the ♥ adds nothing
+    expect(bonuses(s, [C1, C2])).toEqual([])
+    expect(bonuses(s, [S1, S2])).toEqual([])
+  })
+
+  it('only emerged civilizations act; all of them stack, in emergence order, into the score', () => {
+    const play = [H1, C1, S1, D1, D2] // 1♥ 1♣ 1♠ 2♦
+    const stats = { vitality: 50, knowledge: 50 }
+    expect(evaluatePlay(world(HAND, stats, []), play)).toMatchObject({ civBonuses: [], civBonus: 0 })
+    expect(bonuses(world(HAND, stats, [civ('nomads')]), play)).toEqual([['nomads', 12]])
+    const six = evaluatePlay(world(HAND, stats, allSix()), play) // 2♥ 4♣ 9♠ K♦ A♦: high card, poker 42
+    expect(six.civBonuses.map((b) => [b.archetype, b.amount])).toEqual([
+      ['natureKeepers', 3], ['nomads', 12], ['merchants', 4], ['empireBuilders', 5], ['scholars', 5], ['technocrats', 6],
+    ])
+    expect(six.civBonus).toBe(35)
+    expect(six.score).toBe(42 + 15 + 35)
+    expect(bonuses(world(HAND, stats, allSix().reverse()), play).map(([a]) => a)).toEqual([...ARCHETYPE_ORDER].reverse())
+    // untriggered passives are left out, not listed at 0
+    expect(bonuses(world(HAND, stats, [civ('technocrats'), civ('merchants', 1, 1)]), [H1, H2])).toEqual([])
+  })
+
+  it('every civ bonus carries a readable explanation of its numbers', () => {
+    const six = evaluatePlay(world(HAND, { vitality: 50, knowledge: 50 }, allSix()), [H1, C1, S1, D1, D2])
+    expect(six.civBonuses.map((b) => b.detail)).toEqual([
+      '1 ♥ × 3 (Vitality 51 ≥ Industry 1)', '4 suits → 3 × 4', '2 ♦: 10% of 42', '1 ♣ × 5 borders of R8', '1 ♠ × 5 (Knowledge 51)', '1 ♣ + 1 ♠ × 3',
+    ])
+  })
+
+  it('in real runs: preview equals commit, determinism, stats and emergence untouched, terrain static, cards conserved', () => {
+    let withBonus = 0
+    for (const seed of ['civ-run-0', 'civ-run-1', 'civ-run-2']) {
+      const actions = randomActions(seed, 400)
+      let s = newAscensionGame(seed)
+      const land = JSON.stringify(s.regions)
+      // an independent shadow of the world: suit counts only, and emergence from them
+      const shadow = noStats()
+      let shadowCivs: Civilization[] = []
+      for (const a of actions) {
+        const before = s
+        const preview = a.type === 'play' ? evaluatePlay(before, a.cards) : null
+        s = applyAscensionAction(s, a)
+        if (!preview) continue
+        expect(s.score - before.score).toBe(preview.score)
+        expect(s.lastPlay).toEqual(preview)
+        if (preview.civBonus > 0) withBonus += 1
+        for (const c of preview.cards) shadow[SUIT_STAT[c.s]] += 1
+        if (s.round > before.round) {
+          const civ = emergeCivilization(s.seed, before.round, s.regions, shadow, shadowCivs)
+          if (civ) shadowCivs = [...shadowCivs, civ]
+        }
+        expect(s.stats).toEqual(shadow)
+        expect(s.civilizations).toEqual(shadowCivs)
+        expectConserved(s)
+      }
+      expect(s.civilizations.length).toBeGreaterThanOrEqual(2)
+      expect(JSON.stringify(s.regions)).toBe(land)
+      expect(replay(seed, actions)).toEqual(s)
+    }
+    expect(withBonus).toBeGreaterThan(50) // not vacuous
+  })
+
+  it('evaluatePlay with all six civilizations changes nothing (deep-frozen state)', () => {
+    const s = deepFreeze(world(HAND, { vitality: 50, knowledge: 50 }, allSix()))
+    const snap = JSON.stringify(s)
+    expect(evaluatePlay(s, [H1, C1, S1, D1, D2]).civBonus).toBe(35)
+    expect(applyAscensionAction(s, { type: 'play', cards: [H1, C1, S1, D1, D2] }).score).toBe(s.score + evaluatePlay(s, [H1, C1, S1, D1, D2]).score)
+    expect(JSON.stringify(s)).toBe(snap)
+  })
+
+  it('a discard triggers no passive, even with a selection every civilization would reward', () => {
+    const s = world(HAND, { vitality: 50, knowledge: 50 }, allSix())
+    const next = applyAscensionAction(s, { type: 'discard', cards: [H1, C1, S1, D1, D2] })
+    expect(next.score).toBe(s.score)
+    expect(next.stats).toEqual(s.stats)
+    expect(next.lastPlay).toBeNull()
+    expect(next.civilizations).toEqual(s.civilizations)
+    expectConserved(next)
+  })
+
+  it('illegal actions trigger no passive and leave the state untouched', () => {
+    const s = world(HAND, { vitality: 50, knowledge: 50 }, allSix())
+    const snap = JSON.stringify(s)
+    const bad: [AscensionState, AscensionAction][] = [
+      [s, { type: 'play', cards: [] }],
+      [s, { type: 'play', cards: [H1, H1] }],
+      [s, { type: 'play', cards: [8] }],
+      [s, { type: 'play', cards: [0, 1, 2, 3, 4, 5] }],
+      [{ ...s, playsLeft: 0 }, { type: 'play', cards: [H1] }],
+      [{ ...s, discardsLeft: 0 }, { type: 'discard', cards: [H1] }],
+    ]
+    for (const [state, a] of bad) expect(() => applyAscensionAction(state, a)).toThrow()
+    expect(JSON.stringify(s)).toBe(snap)
+  })
+
+  // Tradeoffs, not balance: each pair of plays comes from ONE hand in ONE
+  // state; the civilization flips which play scores more. EVEN_LAND gives
+  // equal-sized plays the same land bonus, so only poker + passive differ.
+  it('reversal: Nomads make a mixed pair beat a flush', () => {
+    const hand = [C(2, 'H'), C(3, 'H'), C(4, 'H'), C(5, 'H'), C(7, 'H'), C(14, 'S'), C(14, 'D'), C(13, 'C')]
+    const flush = [0, 1, 2, 3, 4], pair = [5, 6, 7, 4, 3] // A♠ A♦ K♣ 7♥ 5♥
+    const before = world(hand, {}, []), after = world(hand, {}, [civ('nomads')])
+    expect([evaluatePlay(before, flush).score, evaluatePlay(before, pair).score]).toEqual([84 + 15, 80 + 15])
+    expect([evaluatePlay(after, flush).score, evaluatePlay(after, pair).score]).toEqual([99, 95 + 12])
+  })
+
+  it('reversal: Nature Keepers turn Industry growth into a cost', () => {
+    // both plays have one ♥; the ♣ play pushes Industry past Vitality and loses Stewardship
+    const hand = [C(13, 'H'), C(12, 'C'), C(11, 'C'), C(12, 'D'), C(9, 'S'), C(2, 'S'), C(3, 'D'), C(4, 'D')]
+    const clubs = [0, 1, 2], mixed = [0, 3, 4] // K♥ Q♣ J♣ (36) vs K♥ Q♦ 9♠ (34)
+    const stats = { vitality: 10, industry: 10 }
+    const before = world(hand, stats, []), after = world(hand, stats, [civ('natureKeepers')])
+    expect([evaluatePlay(before, clubs).score, evaluatePlay(before, mixed).score]).toEqual([36 + 9, 34 + 9])
+    expect([evaluatePlay(after, clubs).score, evaluatePlay(after, mixed).score]).toEqual([45, 43 + 3])
+  })
+
+  it('reversal: Merchants make a smaller pair with diamonds beat bigger aces', () => {
+    const hand = [C(14, 'S'), C(14, 'C'), C(12, 'S'), C(13, 'D'), C(13, 'H'), C(12, 'D'), C(2, 'C'), C(3, 'C')]
+    const aces = [0, 1, 2], kings = [3, 4, 5] // 40 × 1.5 = 60 vs 38 × 1.5 = 57
+    const before = world(hand, {}, []), after = world(hand, {}, [civ('merchants')])
+    expect([evaluatePlay(before, aces).score, evaluatePlay(before, kings).score]).toEqual([60 + 9, 57 + 9])
+    expect([evaluatePlay(after, aces).score, evaluatePlay(after, kings).score]).toEqual([69, 66 + 5])
   })
 })

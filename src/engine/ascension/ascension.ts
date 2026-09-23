@@ -3,8 +3,8 @@
 // Generate a seeded 12-region world, deal a seeded 52-card deck, play or
 // discard 1–5 cards, score plays with the shared poker evaluator, grow four
 // world stats from the played suits, pay a land bonus for stat gains the
-// world's terrain favours, and let civilizations emerge at round ends
-// (civilizations.ts). Rounds of 4 plays / 3 discards roll over forever.
+// world's terrain favours, let civilizations emerge at round ends and add
+// their passive bonuses to later plays (civilizations.ts). Rounds of 4 plays / 3 discards roll over forever.
 // No saves, no content yet.
 //
 // Boundaries (enforced by tests/engine-boundaries.test.ts): this module never
@@ -15,12 +15,13 @@
 import { hashSeed, type Seed } from '../rng'
 import { deck, evaluateSelection, categoryLabel, CATEGORY_MULT, type Card, type HandCategory, type Suit } from '../poker'
 import { stream } from '../core/streams'
-import { emergeCivilization, type Civilization } from './civilizations'
+import { emergeCivilization, civilizationBonuses, type Civilization, type CivBonus } from './civilizations'
 
 /** Rules generation of Ascension state. Independent of Classic's SAVE_VERSION.
  *  1 = seam skeleton (poker score only), 2 = suit-driven world stats,
- *  3 = procedural terrain + land bonus, 4 = civilization emergence. */
-export const ASCENSION_RULES_VERSION = 4
+ *  3 = procedural terrain + land bonus, 4 = civilization emergence,
+ *  5 = civilization passives. */
+export const ASCENSION_RULES_VERSION = 5
 export const HAND_SIZE = 8
 export const PLAYS_PER_ROUND = 4
 export const DISCARDS_PER_ROUND = 3
@@ -103,7 +104,11 @@ export interface PlayResult {
   statDeltas: WorldStats
   /** Σ over stats of statDeltas × (regions whose terrain favours that stat) */
   landBonus: number
-  /** what the play adds to the run score: pokerScore + landBonus */
+  /** triggered passives of emerged civilizations, in emergence order */
+  civBonuses: CivBonus[]
+  /** Σ civBonuses amounts */
+  civBonus: number
+  /** what the play adds to the run score: pokerScore + landBonus + civBonus */
   score: number
 }
 
@@ -165,10 +170,12 @@ export function newAscensionGame(seedText: string): AscensionState {
  *    pokerScore = round(chips × mult)   (chips = rank sum, mult = poker category)
  *    statDeltas = +1 to SUIT_STAT[suit] for every played card
  *    landBonus  = Σ statDeltas[stat] × landAffinity(regions)[stat]
- *    score      = pokerScore + landBonus
+ *    civBonus   = Σ passives of the emerged civilizations (civilizations.ts),
+ *                 which see the cards, pokerScore and the stats after the play
+ *    score      = pokerScore + landBonus + civBonus
  *  Poker score follows ranks and hand category; stats follow suits only; the
  *  land bonus makes the same stat gains worth more in a world whose terrain
- *  favours them. */
+ *  favours them; civilizations add score only, never stats. */
 export function evaluatePlay(state: AscensionState, idxs: readonly number[]): PlayResult {
   checkSelection(state.hand, idxs)
   const cards = idxs.map((i) => state.hand[i])
@@ -180,7 +187,11 @@ export function evaluatePlay(state: AscensionState, idxs: readonly number[]): Pl
   const pokerScore = Math.round(chips * mult)
   const affinity = landAffinity(state.regions)
   const landBonus = WORLD_STATS.reduce((n, k) => n + statDeltas[k] * affinity[k], 0)
-  return { cards, category, label: categoryLabel(category), chips, mult, pokerScore, statDeltas, landBonus, score: pokerScore + landBonus }
+  const statsAfter = { ...state.stats }
+  for (const k of WORLD_STATS) statsAfter[k] += statDeltas[k]
+  const civBonuses = civilizationBonuses(state.civilizations, state.regions, { cards, pokerScore, stats: statsAfter })
+  const civBonus = civBonuses.reduce((n, b) => n + b.amount, 0)
+  return { cards, category, label: categoryLabel(category), chips, mult, pokerScore, statDeltas, landBonus, civBonuses, civBonus, score: pokerScore + landBonus + civBonus }
 }
 
 /** Pure transition. An illegal action throws before anything is built, so the

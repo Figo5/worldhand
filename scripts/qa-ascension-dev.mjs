@@ -156,9 +156,34 @@ try {
   const civText = await civ.innerText()
   if (!civText.includes(`home R${home}`) || !/\d+ ≥ \d+/.test(civText)) fail(`prototype: civilization entry lacks home or reason: "${civText}"`)
   if (!(await p.locator(`[data-testid="asc-world"] li[data-region="${home}"]`).innerText()).includes('home of')) fail('prototype: home region is not marked')
+  if (!/: .*\+\d/.test(await civ.locator('[data-testid="asc-civ-passive"]').innerText())) fail('prototype: civilization entry lacks its passive')
   if ((await p.locator('[data-testid="asc-civ-next"]').innerText()) !== '12') fail('prototype: second civilization threshold should be 12')
+
+  // its passive: find a selection (single cards, then pairs) that triggers it
+  const civLines = p.locator('[data-testid="asc-preview-civ"]')
+  const combos = [...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => [i]), ...[0, 1, 2, 3, 4, 5, 6].flatMap((i) => [1, 2, 3, 4, 5, 6, 7].filter((j) => j > i).map((j) => [i, j]))]
+  let picked = null
+  for (const combo of combos) {
+    for (const i of combo) await cards.nth(i).click()
+    if (await civLines.count()) { picked = combo; break }
+    await p.click('[data-testid="asc-clear"]')
+  }
+  if (!picked) fail('prototype: no 1–2 card selection triggers the emerged civilization\'s passive')
+  const civLine = await civLines.first().innerText()
+  if (!civLine.includes(await civ.locator('[data-testid="asc-civ-passive"] strong').innerText().then((t) => t.replace(':', '')))) fail(`prototype: preview civ line does not name the passive: "${civLine}"`)
+  const pvT = p.locator('[data-testid="asc-preview-total"]')
+  const civBonus = Number(await pvT.getAttribute('data-civ'))
+  const pvScore = Number(await pvT.getAttribute('data-score'))
+  const pvPoker = Number((await p.locator('[data-testid="asc-preview"]').innerText()).match(/= (\d+)$/)[1])
+  const lineSum = (await civLines.evaluateAll((els) => els.map((e) => Number(e.dataset.amount)))).reduce((x, y) => x + y, 0)
+  if (!(civBonus > 0) || lineSum !== civBonus || pvScore !== pvPoker + Number(await pvT.getAttribute('data-land')) + civBonus) fail(`prototype: civ preview ${civBonus} / lines ${lineSum} / total ${pvScore} inconsistent`)
+  const scoreBefore = Number(await p.locator('[data-testid="asc-score"]').innerText())
+  await p.click('[data-testid="asc-play"]')
+  const committed = Number(await p.locator('[data-testid="asc-score"]').innerText()) - scoreBefore
+  if (committed !== pvScore) fail(`prototype: committed ${committed} != previewed ${pvScore} with civilization bonus`)
+  if (!(await p.locator('[data-testid="asc-last"]').innerText()).includes(`civ ${civBonus}`)) fail('prototype: last play does not show the civilization bonus')
   await p.screenshot({ path: 'shots/ascension-dev-civilization.png' })
-  ok('prototype civilizations', `"${civText}" (home terrain ${homeTerrain}); next needs 12`)
+  ok('prototype civilizations', `"${civText}" (home terrain ${homeTerrain}); next needs 12; preview "${civLine}" committed exactly (+${pvScore})`)
 
   // back to Classic; Ascension wrote nothing
   await p.click('[data-testid="asc-exit"]')
