@@ -12,6 +12,7 @@ import { cardName, SUIT_NAMES } from './engine/poker'
 import type { Suit } from './engine/poker'
 import { saveGame, loadGame, loadGameDetailed, clearSave, listLegacySaves, exportSave, importSave } from './ui/save'
 import Planet3D from './components/Planet3D'
+import AscensionApp from './ui/AscensionApp'
 
 const SUIT_GLYPH: Record<Suit, string> = { S: '♠', H: '♥', D: '♦', C: '♣' }
 
@@ -113,6 +114,9 @@ export default function App() {
   const [rejected, setRejected] = useState<{ reason: string; legacyKey: string | null } | null>(null)
   // Confirmation gate for destructive actions (Clear Save / Back to Menu).
   const [confirmClear, setConfirmClear] = useState<null | 'clear' | 'back'>(null)
+  // Ascension prototype: dev server only. `import.meta.env.DEV` is false in
+  // production and portable builds, so the entry and screen are compiled out.
+  const [ascension, setAscension] = useState(false)
   // Portable save transfer (offline build: no backend, no account) — the file
   // picker is driven by a real button so it stays keyboard-reachable.
   const importRef = useRef<HTMLInputElement>(null)
@@ -204,6 +208,8 @@ export default function App() {
     [previewSpec, state],
   )
 
+  if (import.meta.env.DEV && ascension) return <AscensionApp onExit={() => setAscension(false)} />
+
   if (!state) {
     const legacyCount = listLegacySaves().length
     return (
@@ -256,6 +262,9 @@ export default function App() {
           />
           <div className="row">
             <button className="primary" onClick={start}>Begin New World</button>
+            {import.meta.env.DEV && (
+              <button data-testid="ascension-entry" onClick={() => setAscension(true)}>Ascension prototype (dev only)</button>
+            )}
             <button onClick={() => { const res = loadGameDetailed(); if (res.state) { setState(res.state); setRejected(null) } else if (res.rejectedReason) setRejected({ reason: res.rejectedReason, legacyKey: res.legacyKey }); else setError('No saved world found.') }}>Load Saved World</button>
             {confirmClear !== 'clear' ? (
               <button className="danger" onClick={() => setConfirmClear('clear')}>Clear Save</button>
