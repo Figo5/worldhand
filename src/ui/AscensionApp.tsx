@@ -1,13 +1,17 @@
 // Ascension prototype screen: dev server only (App.tsx gates it behind
 // import.meta.env.DEV, so production and portable builds drop it entirely).
-// Deliberately plain: a seam for the engine skeleton, not a design pass.
+// Deliberately plain: a seam for the engine, not a design pass.
 // Saves nothing; selection lives here, not in engine state.
 import { useMemo, useState } from 'react'
 import {
-  newAscensionGame, applyAscensionAction, scorePlay,
-  type AscensionAction, type AscensionState,
+  newAscensionGame, applyAscensionAction, evaluatePlay, WORLD_STATS, WORLD_STAT_LABEL,
+  type AscensionAction, type AscensionState, type WorldStats,
 } from '../engine/ascension/ascension'
 import { cardName } from '../engine/poker'
+
+/** "+2 Vitality · +1 Industry" (non-zero gains, in stat order) */
+const gains = (d: WorldStats) =>
+  WORLD_STATS.filter((k) => d[k] !== 0).map((k) => `+${d[k]} ${WORLD_STAT_LABEL[k]}`).join(' · ')
 
 export default function AscensionApp({ onExit }: { onExit: () => void }) {
   const [seedText, setSeedText] = useState('')
@@ -17,7 +21,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
 
   const preview = useMemo(() => {
     if (!game || selected.length === 0) return null
-    try { return scorePlay(game.hand, selected) } catch { return null }
+    try { return evaluatePlay(game, selected) } catch { return null }
   }, [game, selected])
 
   const act = (a: AscensionAction) => {
@@ -41,7 +45,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
     <main className="shell intro" data-testid="ascension-app">
       <header className="intro-head">
         <h1 className="game-title">Ascension prototype</h1>
-        <p className="muted">Development build only. Engine skeleton: seeded deal, play, discard, rounds. Nothing is saved.</p>
+        <p className="muted">Development build only. Seeded deal, play, discard, rounds; played suits grow four world stats. Nothing is saved.</p>
         <button data-testid="asc-exit" onClick={onExit}>Back to Classic</button>
       </header>
 
@@ -60,6 +64,11 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
           <p data-testid="asc-status">
             Seed {game.seedText} · Round {game.round} · Plays {game.playsLeft} · Discards {game.discardsLeft} · Score <strong data-testid="asc-score">{game.score}</strong>
           </p>
+          <p data-testid="asc-stats">
+            {WORLD_STATS.map((k, i) => (
+              <span key={k} data-stat={k} data-value={game.stats[k]}>{i > 0 ? ' · ' : ''}{WORLD_STAT_LABEL[k]} {game.stats[k]}</span>
+            ))}
+          </p>
           <div className="hand-cards" role="listbox" aria-label="Hand">
             {game.hand.map((c, i) => (
               <button key={i} role="option" aria-selected={selected.includes(i)}
@@ -73,14 +82,15 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
           <p data-testid="asc-preview">
             {preview ? `${preview.label}: ${preview.chips} chips × ${preview.mult} mult = ${preview.score}` : 'Select 1–5 cards.'}
           </p>
+          {preview && <p data-testid="asc-preview-stats" data-deltas={JSON.stringify(preview.statDeltas)}>World: {gains(preview.statDeltas)}</p>}
           <div className="row">
             <button className="primary" data-testid="asc-play" disabled={!preview} onClick={() => act({ type: 'play', cards: selected })}>Play</button>
             <button data-testid="asc-discard" disabled={selected.length === 0 || game.discardsLeft <= 0} onClick={() => act({ type: 'discard', cards: selected })}>Discard</button>
             <button data-testid="asc-clear" disabled={selected.length === 0} onClick={() => { setSelected([]); setError('') }}>Clear</button>
           </div>
           {game.lastPlay && (
-            <p className="muted" data-testid="asc-last">
-              Last play: {game.lastPlay.label} ({game.lastPlay.cards.map(cardName).join(' ')}) for {game.lastPlay.score}
+            <p className="muted" data-testid="asc-last" data-deltas={JSON.stringify(game.lastPlay.statDeltas)}>
+              Last play: {game.lastPlay.label} ({game.lastPlay.cards.map(cardName).join(' ')}) for {game.lastPlay.score} · World: {gains(game.lastPlay.statDeltas)}
             </p>
           )}
         </div>
