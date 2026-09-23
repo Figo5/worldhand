@@ -2,8 +2,9 @@
 //
 // Generate a seeded 12-region world, deal a seeded 52-card deck, play or
 // discard 1–5 cards, score plays with the shared poker evaluator, grow four
-// world stats from the played suits, and pay a land bonus for stat gains the
-// world's terrain favours. Rounds of 4 plays / 3 discards roll over forever.
+// world stats from the played suits, pay a land bonus for stat gains the
+// world's terrain favours, and let civilizations emerge at round ends
+// (civilizations.ts). Rounds of 4 plays / 3 discards roll over forever.
 // No saves, no content yet.
 //
 // Boundaries (enforced by tests/engine-boundaries.test.ts): this module never
@@ -14,11 +15,12 @@
 import { hashSeed, type Seed } from '../rng'
 import { deck, evaluateSelection, categoryLabel, CATEGORY_MULT, type Card, type HandCategory, type Suit } from '../poker'
 import { stream } from '../core/streams'
+import { emergeCivilization, type Civilization } from './civilizations'
 
 /** Rules generation of Ascension state. Independent of Classic's SAVE_VERSION.
  *  1 = seam skeleton (poker score only), 2 = suit-driven world stats,
- *  3 = procedural terrain + land bonus. */
-export const ASCENSION_RULES_VERSION = 3
+ *  3 = procedural terrain + land bonus, 4 = civilization emergence. */
+export const ASCENSION_RULES_VERSION = 4
 export const HAND_SIZE = 8
 export const PLAYS_PER_ROUND = 4
 export const DISCARDS_PER_ROUND = 3
@@ -123,6 +125,8 @@ export interface AscensionState {
   score: number
   /** the four world stats, grown only by plays */
   stats: WorldStats
+  /** civilizations in emergence order; at most one emerges per round end */
+  civilizations: Civilization[]
   /** the last play's full result, including its world-stat deltas */
   lastPlay: PlayResult | null
 }
@@ -149,6 +153,7 @@ export function newAscensionGame(seedText: string): AscensionState {
     reshuffles: 0,
     score: 0,
     stats: noStats(),
+    civilizations: [],
     lastPlay: null,
   }
   drawUp(s)
@@ -191,6 +196,9 @@ export function applyAscensionAction(state: AscensionState, action: AscensionAct
     s.lastPlay = result
     s.playsLeft -= 1
     if (s.playsLeft === 0) {
+      // round-end checkpoint: at most one civilization emerges
+      const civ = emergeCivilization(s.seed, s.round, s.regions, s.stats, s.civilizations)
+      if (civ) s.civilizations = [...s.civilizations, civ]
       s.discardPile.push(...s.hand)
       s.hand = []
       s.round += 1

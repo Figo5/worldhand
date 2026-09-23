@@ -7,6 +7,7 @@ import {
   newAscensionGame, applyAscensionAction, evaluatePlay, landAffinity, WORLD_STATS, WORLD_STAT_LABEL, TERRAIN,
   type AscensionAction, type AscensionState, type WorldStats,
 } from '../engine/ascension/ascension'
+import { ARCHETYPES, emergenceThreshold } from '../engine/ascension/civilizations'
 import { cardName } from '../engine/poker'
 
 /** "+2 Vitality · +1 Industry" (non-zero gains, in stat order) */
@@ -46,7 +47,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
     <main className="shell intro" data-testid="ascension-app">
       <header className="intro-head">
         <h1 className="game-title">Ascension prototype</h1>
-        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, and the land pays a bonus for the stats its terrain favours. Nothing is saved.</p>
+        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, the land pays a bonus for the stats its terrain favours, and civilizations emerge at round ends. Nothing is saved.</p>
         <button data-testid="asc-exit" onClick={onExit}>Back to Classic</button>
       </header>
 
@@ -78,10 +79,27 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
               {game.regions.map((r) => (
                 <li key={r.id} data-region={r.id} data-terrain={r.terrain}>
                   R{r.id} {TERRAIN[r.terrain].label} (favours {WORLD_STAT_LABEL[TERRAIN[r.terrain].stat]}) — borders {r.neighbors.map((n) => `R${n}`).join(', ')}
+                  {game.civilizations.filter((c) => c.home === r.id).map((c) => ` — home of ${ARCHETYPES[c.archetype].label}`)}
                 </li>
               ))}
             </ul>
           </details>
+          <div data-testid="asc-civs">
+            <p>
+              Civilizations — next emerges at a round end once one reaches{' '}
+              <span data-testid="asc-civ-next">{emergenceThreshold(game.civilizations.length)}</span> in its stat and has a free home on its terrain.
+            </p>
+            {game.civilizations.length === 0 ? <p className="muted">None yet.</p> : (
+              <ul>
+                {game.civilizations.map((c) => (
+                  <li key={c.id} data-archetype={c.archetype} data-home={c.home}>
+                    {ARCHETYPES[c.archetype].label} — home R{c.home} {TERRAIN[c.reason.terrain].label} — round {c.emergedRound}:{' '}
+                    {WORLD_STAT_LABEL[c.reason.stat]} {c.reason.readiness} ≥ {c.reason.needed}, region fit {c.reason.regionFit}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <div className="hand-cards" role="listbox" aria-label="Hand">
             {game.hand.map((c, i) => (
               <button key={i} role="option" aria-selected={selected.includes(i)}
