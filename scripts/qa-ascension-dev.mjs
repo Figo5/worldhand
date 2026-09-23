@@ -5,7 +5,8 @@
 //      Ascension code or text at all, and neither shows an entry in a browser;
 //   2. the dev server exposes the prototype, which shows a seeded 12-region
 //      world, plays, discards, clears, previews poker score, world-stat gains
-//      and land bonus with evaluatePlay (and commits exactly those), deals
+//      and land bonus with evaluatePlay (and commits exactly those), grows
+//      civilizations at round ends with an engine-derived reason, deals
 //      deterministically, saves nothing and returns to the Classic title;
 //   3. Classic stays the default path and its autosave/load is unchanged.
 //
@@ -140,6 +141,24 @@ try {
   const terrainsAgain = await p.locator('[data-testid="asc-world"] li[data-terrain]').evaluateAll((els) => els.map((e) => e.dataset.terrain))
   if (terrainsAgain.join() !== terrains.join()) fail('prototype: same seed generated a different world')
   ok('prototype determinism', 'same seed, same world and first hand')
+
+  // civilizations: 5-card plays until one emerges at a round end
+  if ((await p.locator('[data-testid="asc-civ-next"]').innerText()) !== '6') fail('prototype: first civilization threshold should be 6')
+  if (await p.locator('[data-testid="asc-civs"] li').count()) fail('prototype: a fresh world should have no civilizations')
+  for (let i = 0; i < 16 && !(await p.locator('[data-testid="asc-civs"] li').count()); i++) {
+    for (let j = 0; j < 5; j++) await cards.nth(j).click()
+    await p.click('[data-testid="asc-play"]')
+  }
+  const civ = p.locator('[data-testid="asc-civs"] li').first()
+  if (!(await civ.count())) fail('prototype: no civilization emerged after 4 rounds of 5-card plays')
+  const home = await civ.getAttribute('data-home')
+  const homeTerrain = await p.locator(`[data-testid="asc-world"] li[data-region="${home}"]`).getAttribute('data-terrain')
+  const civText = await civ.innerText()
+  if (!civText.includes(`home R${home}`) || !/\d+ ≥ \d+/.test(civText)) fail(`prototype: civilization entry lacks home or reason: "${civText}"`)
+  if (!(await p.locator(`[data-testid="asc-world"] li[data-region="${home}"]`).innerText()).includes('home of')) fail('prototype: home region is not marked')
+  if ((await p.locator('[data-testid="asc-civ-next"]').innerText()) !== '12') fail('prototype: second civilization threshold should be 12')
+  await p.screenshot({ path: 'shots/ascension-dev-civilization.png' })
+  ok('prototype civilizations', `"${civText}" (home terrain ${homeTerrain}); next needs 12`)
 
   // back to Classic; Ascension wrote nothing
   await p.click('[data-testid="asc-exit"]')

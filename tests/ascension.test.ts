@@ -3,8 +3,11 @@ import {
   newAscensionGame, applyAscensionAction, evaluatePlay, noStats, generateRegions, landAffinity,
   ASCENSION_RULES_VERSION, HAND_SIZE, PLAYS_PER_ROUND, DISCARDS_PER_ROUND, WORLD_STATS, SUIT_STAT,
   TERRAIN, TERRAINS, REGION_ADJACENCY,
-  type AscensionState, type AscensionAction, type WorldStats,
+  type AscensionState, type AscensionAction, type WorldStats, type Terrain,
 } from '../src/engine/ascension/ascension'
+import {
+  ARCHETYPES, ARCHETYPE_ORDER, EMERGENCE_STEP, emergeCivilization, emergenceThreshold, readinessOf,
+} from '../src/engine/ascension/civilizations'
 import { newGame as newClassicGame, SAVE_VERSION } from '../src/engine/worldhand'
 import { Rng, hashSeed } from '../src/engine/rng'
 import { stream } from '../src/engine/core/streams'
@@ -54,7 +57,7 @@ describe('Ascension skeleton: new game', () => {
     const s = newAscensionGame('seam')
     expect(s.mode).toBe('ascension')
     expect(s.rulesVersion).toBe(ASCENSION_RULES_VERSION)
-    expect(ASCENSION_RULES_VERSION).toBe(3)
+    expect(ASCENSION_RULES_VERSION).toBe(4)
     expect('version' in s).toBe(false) // Classic's SAVE_VERSION field is not reused
     expect(SAVE_VERSION).toBe(8)
   })
@@ -393,5 +396,181 @@ describe('Ascension terrain', () => {
     for (const seed of ['alpha', 'beta', 'world-5', 'world-8']) expect(classic(seed)).toBe(classic('replay-0'))
     expect(newClassicGame('world-5').regions.map((r) => r.terrain)).toEqual(
       ['meadow', 'coast', 'highland', 'forest', 'steppe', 'wetland', 'meadow', 'coast', 'highland', 'forest', 'steppe', 'wetland'])
+  })
+})
+
+describe('Ascension civilizations', () => {
+  /** A policy that plays up to 5 cards of the given suits (else the first card). */
+  const suitPolicy = (suits: Card['s'][]) => (s: AscensionState) => {
+    const idx = s.hand.flatMap((c, i) => (suits.includes(c.s) ? [i] : [])).slice(0, 5)
+    return idx.length ? idx : [0]
+  }
+  const runRounds = (seed: string, suits: Card['s'][], rounds = 6) => {
+    let s = newAscensionGame(seed)
+    const policy = suitPolicy(suits)
+    while (s.round <= rounds) s = applyAscensionAction(s, { type: 'play', cards: policy(s) })
+    return s
+  }
+  const labels = (s: AscensionState) => s.civilizations.map((c) => c.archetype)
+  /** A crafted world: terrain per region (or one terrain everywhere) and stats; one play from a round end. */
+  const crafted = (terrain: Terrain | Terrain[], stats: Partial<WorldStats>, seed = 'craft') => {
+    const s = newAscensionGame(seed)
+    return {
+      ...s,
+      regions: REGION_ADJACENCY.map((n, id) => ({ id, terrain: Array.isArray(terrain) ? terrain[id] : terrain, neighbors: [...n] })),
+      stats: { ...noStats(), ...stats },
+      playsLeft: 1,
+    }
+  }
+  const endRound = (s: AscensionState) => applyAscensionAction(s, { type: 'play', cards: [0] })
+
+  it('the archetype table is well-formed and a new game has no civilizations', () => {
+    expect([...ARCHETYPE_ORDER].sort()).toEqual(Object.keys(ARCHETYPES).sort())
+    for (const a of ARCHETYPE_ORDER) {
+      expect(ARCHETYPES[a].stats.length).toBeGreaterThan(0)
+      for (const t of ARCHETYPES[a].terrains) expect(TERRAINS).toContain(t)
+      for (const k of ARCHETYPES[a].stats) expect(WORLD_STATS).toContain(k)
+    }
+    expect(newAscensionGame('civ').civilizations).toEqual([])
+  })
+
+  it('emerges only at a round end, at most one per round, with an escalating threshold', () => {
+    let s = { ...crafted('plains', { vitality: 50, prosperity: 50 }), playsLeft: PLAYS_PER_ROUND }
+    for (let i = 0; i < PLAYS_PER_ROUND - 1; i++) s = applyAscensionAction(s, { type: 'play', cards: [0] })
+    expect(s.civilizations).toEqual([])
+    s = endRound(s)
+    expect(s.civilizations).toHaveLength(1)
+    expect(s.civilizations[0]).toMatchObject({ id: 0, tier: 1, emergedRound: 1, reason: { needed: EMERGENCE_STEP } })
+    for (let i = 0; i < PLAYS_PER_ROUND; i++) s = applyAscensionAction(s, { type: 'play', cards: [0] })
+    expect(s.civilizations).toHaveLength(2)
+    expect(s.civilizations[1]).toMatchObject({ id: 1, emergedRound: 2, reason: { needed: 2 * EMERGENCE_STEP } })
+    expect(emergenceThreshold(2)).toBe(3 * EMERGENCE_STEP)
+    expect(endRound(crafted('plains', { vitality: EMERGENCE_STEP - 2 })).civilizations).toEqual([])
+  })
+
+  it('same seed + same actions gives the same civilizations', () => {
+    const actions = randomActions('civ-det', 300)
+    const a = replay('civ-det', actions)
+    expect(a.civilizations.length).toBeGreaterThan(0)
+    expect(replay('civ-det', actions).civilizations).toEqual(a.civilizations)
+  })
+
+  it('the player decides: different strategies on the same seed grow different civilizations', () => {
+    expect(labels(runRounds('alpha', ['H']))).toEqual(['nomads', 'natureKeepers'])
+    expect(labels(runRounds('alpha', ['S']))).toEqual(['scholars'])
+    expect(labels(runRounds('alpha', ['D']))).toEqual(['merchants'])
+    expect(labels(runRounds('alpha', ['C', 'S']))).toEqual(['empireBuilders', 'scholars', 'technocrats'])
+  })
+
+  it('the seed decides too: the same strategy on different terrain grows different civilizations', () => {
+    // world-5 has no desert or tundra; world-8 has seven Knowledge regions
+    expect(landAffinity(newAscensionGame('world-5').regions).knowledge).toBe(0)
+    expect(labels(runRounds('world-5', ['S']))).toEqual([])
+    expect(labels(runRounds('world-8', ['S']))).toEqual(['scholars'])
+    // beta has no plains or coast, so no Merchants however much Prosperity grows
+    const beta = runRounds('beta', ['D'])
+    expect(beta.stats.prosperity).toBeGreaterThan(3 * EMERGENCE_STEP)
+    expect(labels(beta)).toEqual([])
+  })
+
+  it('terrain preference: a civilization only founds a home on its terrains', () => {
+    expect(endRound(crafted('forest', { industry: 50 })).civilizations).toEqual([]) // no mountains
+    expect(labels(endRound(crafted('mountains', { industry: 50 })))).toEqual(['empireBuilders'])
+    expect(endRound(crafted('mountains', { vitality: 50 })).civilizations).toEqual([]) // no forest or open land
+  })
+
+  it('stat preference: the most developed eligible archetype emerges', () => {
+    const land: Terrain[] = ['forest', 'desert', 'plains', 'coast', 'mountains', 'tundra', 'forest', 'desert', 'plains', 'coast', 'mountains', 'tundra']
+    expect(labels(endRound(crafted(land, { vitality: 9, knowledge: 30 })))).toEqual(['scholars'])
+    expect(labels(endRound(crafted(land, { vitality: 30, knowledge: 9 }))).map((a) => ARCHETYPES[a].stats[0])).toEqual(['vitality'])
+    expect(labels(endRound(crafted(land, { prosperity: 20, industry: 21 })))).toEqual(['empireBuilders'])
+    // all coast: Empire Builders (mountains) and Scholars (desert/tundra) have no home,
+    // so Technocrats emerge when BOTH their stats are high, and not before
+    expect(labels(endRound(crafted('coast', { industry: 30, knowledge: 30 })))).toEqual(['technocrats'])
+    expect(endRound(crafted('coast', { industry: 30, knowledge: 4 })).civilizations).toEqual([])
+    expect(readinessOf('technocrats', { ...noStats(), industry: 30, knowledge: 7 })).toBe(7)
+  })
+
+  it('adjacency matters: Empire Builders take the best-connected mountain', () => {
+    // all mountains: region 8 is the only one with 5 neighbours
+    expect(endRound(crafted('mountains', { industry: 50 })).civilizations[0].home).toBe(8)
+    // mountains at R0, R1, R2, R8: R0/R1 have the most mountain neighbours (2 each), but the
+    // hub preference adds each region's degree, so R8 (1 mountain neighbour, 5 borders) wins
+    const hubLand = REGION_ADJACENCY.map((_, id): Terrain => ([0, 1, 2, 8].includes(id) ? 'mountains' : 'plains'))
+    expect(endRound(crafted(hubLand, { industry: 50 })).civilizations[0]).toMatchObject({ archetype: 'empireBuilders', home: 8, reason: { regionFit: 6 } })
+    // Nature Keepers prefer the forest with the most forest neighbours
+    const land: Terrain[] = ['forest', 'forest', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'forest', 'forest', 'mountains', 'mountains', 'mountains']
+    const civ = endRound(crafted(land, { vitality: 50 })).civilizations[0]
+    expect(civ).toMatchObject({ archetype: 'natureKeepers', home: 0, reason: { regionFit: 3, terrain: 'forest' } }) // R0 borders forests R1, R7, R8
+  })
+
+  it('exact ties are broken by the seeded civ stream, reproducibly', () => {
+    // all tundra, Vitality == Knowledge: Nomads and Scholars tie on readiness AND fit
+    // (called directly, so no round-ending play can tip one stat first)
+    const regions = crafted('tundra', {}).regions
+    const stats = { ...noStats(), vitality: 50, knowledge: 50 }
+    const pick = (i: number) => emergeCivilization(hashSeed(`tie-${i}`), 1, regions, stats, [])!
+    const picks = Array.from({ length: 30 }, (_, i) => pick(i).archetype)
+    expect(new Set(picks)).toEqual(new Set(['nomads', 'scholars']))
+    for (let i = 0; i < 5; i++) expect(pick(i).archetype).toBe(picks[i])
+    expect(pick(0).home).toBe(8) // the only region with 5 tundra neighbours: no tie, no RNG
+  })
+
+  it('equally good homes are chosen by the seeded civ stream, reproducibly', () => {
+    // forest only at R2 and R5 (no forest neighbours each): Nature Keepers' homes tie on fit
+    const land = REGION_ADJACENCY.map((_, id): Terrain => ([2, 5].includes(id) ? 'forest' : 'mountains'))
+    const regions = crafted(land, {}).regions
+    const stats = { ...noStats(), vitality: 50 }
+    const home = (i: number) => emergeCivilization(hashSeed(`home-${i}`), 1, regions, stats, [])!.home
+    const homes = Array.from({ length: 30 }, (_, i) => home(i))
+    expect(new Set(homes)).toEqual(new Set([2, 5]))
+    for (let i = 0; i < 5; i++) expect(home(i)).toBe(homes[i])
+  })
+
+  it('one civilization per region and per archetype; a lone home cannot be shared', () => {
+    let s = crafted(['forest', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains'], { vitality: 90 })
+    s = endRound(s)
+    expect(labels(s)).toEqual(['natureKeepers'])
+    for (let i = 0; i < 3 * PLAYS_PER_ROUND; i++) s = applyAscensionAction(s, { type: 'play', cards: [0] })
+    expect(labels(s)).toEqual(['natureKeepers'])
+  })
+
+  it('invariants over many runs: valid unique homes on favoured terrain, readiness met and maximal, terrain untouched', () => {
+    for (let i = 0; i < 12; i++) {
+      const seed = `civ-inv-${i}`
+      let s = newAscensionGame(seed)
+      const land = JSON.stringify(s.regions)
+      for (const a of randomActions(seed, 250)) {
+        const before = s
+        s = applyAscensionAction(s, a)
+        if (s.civilizations.length === before.civilizations.length) continue
+        const civ = s.civilizations[s.civilizations.length - 1]
+        const home = s.regions[civ.home]
+        expect(ARCHETYPES[civ.archetype].terrains).toContain(home.terrain)
+        expect(civ.reason.readiness).toBe(readinessOf(civ.archetype, s.stats))
+        expect(civ.reason.readiness).toBeGreaterThanOrEqual(emergenceThreshold(before.civilizations.length))
+        for (const other of ARCHETYPE_ORDER) {
+          if (before.civilizations.some((c) => c.archetype === other)) continue
+          const hasHome = s.regions.some((r) => ARCHETYPES[other].terrains.includes(r.terrain) && !before.civilizations.some((c) => c.home === r.id))
+          if (hasHome) expect(readinessOf(other, s.stats)).toBeLessThanOrEqual(civ.reason.readiness)
+        }
+      }
+      expect(JSON.stringify(s.regions)).toBe(land)
+      const homes = s.civilizations.map((c) => c.home)
+      expect(new Set(homes).size).toBe(homes.length)
+      expect(new Set(labels(s)).size).toBe(s.civilizations.length)
+      for (const h of homes) expect(h >= 0 && h < 12).toBe(true)
+      expectConserved(s)
+    }
+  })
+
+  it('emergence is a pure function of its inputs and does not touch stats or score', () => {
+    const s = deepFreeze(crafted('plains', { prosperity: 40 }))
+    const a = emergeCivilization(s.seed, s.round, s.regions, s.stats, s.civilizations)
+    expect(emergeCivilization(s.seed, s.round, s.regions, s.stats, s.civilizations)).toEqual(a)
+    const next = endRound(s)
+    const play = evaluatePlay(s, [0])
+    expect(next.score).toBe(s.score + play.score)
+    for (const k of WORLD_STATS) expect(next.stats[k]).toBe(s.stats[k] + play.statDeltas[k])
   })
 })
