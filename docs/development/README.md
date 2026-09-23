@@ -26,13 +26,15 @@ Run from the repository root. Browser checks use Playwright (a dev dependency);
 install its Chromium runtime with `npx playwright install chromium` if needed.
 Generated QA folders are ignored.
 
-Current and verified against the v8 rules (CI runs the first four on every push):
+Current and verified against the v8 rules (CI runs the first four, plus
+`qa-ascension-dev.mjs`, on every push):
 
 ```sh
 npm test                    # unit/contract tests + Classic replay fixtures
 npm run build
 npm run build:portable
 node scripts/qa-portable.mjs                  # browser QA of the file:// artifact
+node scripts/qa-ascension-dev.mjs             # Ascension prototype: dev server only; absent from both builds
 node scripts/playtest-v8.mjs                  # v8 bounded-economy rules, in the browser
 npx vite --port 5177 --host 127.0.0.1 & node scripts/qa.mjs   # dev-server layout check
 node --import ./scripts/ts-resolve.mjs scripts/difficulty-measure.mjs   # balance harness
