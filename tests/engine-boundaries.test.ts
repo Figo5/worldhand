@@ -21,7 +21,7 @@ const inside = (path: string, dir: string) => path.startsWith(dir + '/')
 
 describe('engine boundaries', () => {
   it('scans the engine sources', () => {
-    expect(sources.map((s) => s.path)).toEqual(expect.arrayContaining(['worldhand.ts', 'rng.ts', 'poker.ts', 'core/streams.ts']))
+    expect(sources.map((s) => s.path)).toEqual(expect.arrayContaining(['worldhand.ts', 'rng.ts', 'poker.ts', 'core/streams.ts', 'ascension/ascension.ts']))
   })
 
   it('the engine imports only other engine modules', () => {
