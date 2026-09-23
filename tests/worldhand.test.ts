@@ -937,6 +937,16 @@ describe('market: Seeds, laws, upgrades, expansions, card additions', () => {
     expect(s.laws.some((l) => l.id === item.id)).toBe(true)
     expect(s.seeds).toBe(30 - realCost)
   })
+  it('a woken region is permanent: its expansion keeps its slot and cannot be removed', () => {
+    let s = toMarket('market-wake')
+    s.market = [{ ...MARKET_ITEMS.find((m) => m.id === 'wake-laguna')! }]
+    s.seeds = 30
+    s = applyAction(s, { type: 'buy', itemId: 'wake-laguna' })
+    expect(s.regions[4].dormant).toBe(false)
+    expect(() => applyAction(s, { type: 'removeLaw', lawId: 'wake-laguna' })).toThrow(/permanent/)
+    // (before the fix, removal freed the slot while Laguna stayed awake)
+    expect(s.laws.map((l) => l.id)).toContain('wake-laguna')
+  })
   it('removal of a nonexistent law throws', () => {
     const s = toMarket('market-remove2')
     expect(() => applyAction(s, { type: 'removeLaw', lawId: 'not-a-law' })).toThrow()

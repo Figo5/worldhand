@@ -1093,6 +1093,9 @@ export function applyAction(state: GameState, action: Action): GameState {
       if (s.phase !== 'market') throw new Error('not in market phase')
       const at = s.laws.findIndex((l) => l.id === action.lawId)
       if (at < 0) throw new Error('no such owned law')
+      // a woken region stays awake, so its expansion keeps its slot: removing
+      // it used to free the slot for free while the region stayed awake
+      if (s.laws[at].kind === 'expansion') throw new Error(`${s.laws[at].title} is permanent — a woken region stays awake`)
       const [removed] = s.laws.splice(at, 1)
       s.log.push({ at: `e${s.epoch}`, text: `Removed ${removed.kind}: ${removed.title}.` })
       return s

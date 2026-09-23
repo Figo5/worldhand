@@ -139,7 +139,7 @@ reference save saw 6,077 purchases. v8 limits per visit:
 | World Projects | 3 offered, **one copy per visit** | `base + owned × costGrowth`, rises every time |
 | World Level boost | **once per visit** | `10 × current level` (quadratic total spend for linear power) |
 
-- Up to 3 offers per epoch from the item pool, bought with Seeds. **Max 5 owned items**; buying is blocked at the cap until you explicitly remove an item (no refund, frees the slot). Owned items never reappear.
+- Up to 3 offers per epoch from the item pool, bought with Seeds. **Max 5 owned items**; buying is blocked at the cap until you explicitly remove an item (no refund, frees the slot). Wake-region expansions are permanent: the region stays awake and the expansion keeps its slot. Owned items never reappear.
 - **Hand upgrades**: Canopy Choir (+3 Growth every play), Stone Masonry (+6 Growth every play), Open Canals (Growth ×1.2 every play). Bonuses apply exactly once per play.
 - **Card additions**: Fourth Counsel (hand 9), Fifth Counsel (hand 10) — new unique ids; deck conservation still holds at 52.
 - **Expansions**: Wake Laguna / Wake Brumal — awaken a specific dormant region; the planet visibly grows. **Wake Pellucid / Wake Vantage (12 Seeds each, same convention)** — awaken the Two-Pair / Flush-specialized region and activate its regional Growth bonus (see *Regional bonus* above).

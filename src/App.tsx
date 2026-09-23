@@ -671,11 +671,17 @@ function Shop({
             {state.laws.length > 0 && (
               <div className="row owned-row" role="group" aria-label="Owned laws and upgrades — remove to free a slot">
                 <span className="muted">Owned:</span>
-                {state.laws.map((l) => (
-                  <button key={l.id} className="remove-btn" title={`Remove ${l.title} (frees a slot; no refund)`} onClick={() => act({ type: 'removeLaw', lawId: l.id })}>
-                    Remove {l.title}
-                  </button>
-                ))}
+                {state.laws.map((l) => (l.kind === 'expansion'
+                  ? (
+                    <button key={l.id} className="remove-btn" disabled title={`${l.title} is permanent: a woken region stays awake and keeps its slot`}>
+                      {l.title} (permanent)
+                    </button>
+                  )
+                  : (
+                    <button key={l.id} className="remove-btn" title={`Remove ${l.title} (frees a slot; no refund)`} onClick={() => act({ type: 'removeLaw', lawId: l.id })}>
+                      Remove {l.title}
+                    </button>
+                  )))}
               </div>
             )}
           </>
