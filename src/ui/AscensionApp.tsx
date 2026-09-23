@@ -47,7 +47,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
     <main className="shell intro" data-testid="ascension-app">
       <header className="intro-head">
         <h1 className="game-title">Ascension prototype</h1>
-        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, the land pays a bonus for the stats its terrain favours, and civilizations emerge at round ends. Nothing is saved.</p>
+        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, the land pays a bonus for the stats its terrain favours, civilizations emerge at round ends, and each one then adds a passive bonus to plays. Nothing is saved.</p>
         <button data-testid="asc-exit" onClick={onExit}>Back to Classic</button>
       </header>
 
@@ -95,6 +95,9 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
                   <li key={c.id} data-archetype={c.archetype} data-home={c.home}>
                     {ARCHETYPES[c.archetype].label} — home R{c.home} {TERRAIN[c.reason.terrain].label} — round {c.emergedRound}:{' '}
                     {WORLD_STAT_LABEL[c.reason.stat]} {c.reason.readiness} ≥ {c.reason.needed}, region fit {c.reason.regionFit}
+                    <div data-testid="asc-civ-passive" data-archetype={c.archetype}>
+                      <strong>{ARCHETYPES[c.archetype].passive.name}:</strong> {ARCHETYPES[c.archetype].passive.text}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -114,7 +117,16 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
             {preview ? `${preview.label}: ${preview.chips} chips × ${preview.mult} mult = ${preview.pokerScore}` : 'Select 1–5 cards.'}
           </p>
           {preview && <p data-testid="asc-preview-stats" data-deltas={JSON.stringify(preview.statDeltas)}>World: {gains(preview.statDeltas)}</p>}
-          {preview && <p data-testid="asc-preview-total" data-land={preview.landBonus} data-score={preview.score}>Land bonus +{preview.landBonus} → play adds {preview.score}</p>}
+          {preview && preview.civBonuses.length > 0 && (
+            <div data-testid="asc-preview-civs">
+              {preview.civBonuses.map((b) => (
+                <p key={b.civ} data-testid="asc-preview-civ" data-archetype={b.archetype} data-amount={b.amount}>
+                  {ARCHETYPES[b.archetype].label} ({ARCHETYPES[b.archetype].passive.name}): +{b.amount} — {b.detail}
+                </p>
+              ))}
+            </div>
+          )}
+          {preview && <p data-testid="asc-preview-total" data-land={preview.landBonus} data-civ={preview.civBonus} data-score={preview.score}>Land bonus +{preview.landBonus} · Civilizations +{preview.civBonus} → play adds {preview.score}</p>}
           <div className="row">
             <button className="primary" data-testid="asc-play" disabled={!preview} onClick={() => act({ type: 'play', cards: selected })}>Play</button>
             <button data-testid="asc-discard" disabled={selected.length === 0 || game.discardsLeft <= 0} onClick={() => act({ type: 'discard', cards: selected })}>Discard</button>
@@ -122,7 +134,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
           </div>
           {game.lastPlay && (
             <p className="muted" data-testid="asc-last" data-deltas={JSON.stringify(game.lastPlay.statDeltas)}>
-              Last play: {game.lastPlay.label} ({game.lastPlay.cards.map(cardName).join(' ')}) for {game.lastPlay.pokerScore} + land {game.lastPlay.landBonus} = {game.lastPlay.score} · World: {gains(game.lastPlay.statDeltas)}
+              Last play: {game.lastPlay.label} ({game.lastPlay.cards.map(cardName).join(' ')}) for {game.lastPlay.pokerScore} + land {game.lastPlay.landBonus}{game.lastPlay.civBonus > 0 ? ` + civ ${game.lastPlay.civBonus}` : ''} = {game.lastPlay.score} · World: {gains(game.lastPlay.statDeltas)}
             </p>
           )}
         </div>
