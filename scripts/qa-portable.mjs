@@ -103,6 +103,16 @@ async function advancePanels(page) {
   await page.locator('.pcard-btn.sel').first().click()
   ok('keyboard', 'arrow navigation + Enter/Space toggle select cards and drive the preview')
 
+  // a rejected action shows the engine's reason and leaves the app mounted
+  // (regression: a 6th card click used to throw inside a setState updater and
+  // unmount the whole UI)
+  for (let i = 0; i < 6; i++) await page.locator('.hand-cards .pcard-btn').nth(i).click()
+  const errText = await page.locator('p.error').allTextContents()
+  if (!errText.some((t) => t.includes('at most 5'))) throw new Error(`6th card: expected the engine's refusal, got ${JSON.stringify(errText)}`)
+  if ((await page.locator('.pcard-btn.sel').count()) !== 5) throw new Error('6th card: selection should stay at 5')
+  while (await page.locator('.pcard-btn.sel').count()) await page.locator('.pcard-btn.sel').first().click()
+  ok('rejected action', 'a 6th card shows "at most 5 cards" and the table stays mounted')
+
   // shop: reach the first market and buy the cheapest affordable offer
   let guard = 0
   while (!(await page.locator('[data-testid="end-market-btn"]').count()) && guard++ < 12) {

@@ -132,9 +132,19 @@ export default function App() {
     if (state) saveGame(state)
   }, [state])
 
+  // The engine throws on an illegal action. It must run HERE, not inside a
+  // setState updater: React runs updaters during render, where a throw escapes
+  // this try/catch and unmounts the whole app (e.g. clicking a 6th card).
+  // `latest` tracks the newest state so back-to-back actions chain correctly.
+  const latest = useRef(state)
+  latest.current = state
   const act = useCallback((a: Action) => {
+    const s = latest.current
+    if (!s) return
     try {
-      setState((s) => (s ? applyAction(s, a) : s))
+      const next = applyAction(s, a)
+      latest.current = next
+      setState(next)
       setError('')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
