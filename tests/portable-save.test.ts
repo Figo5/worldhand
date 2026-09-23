@@ -2,9 +2,9 @@
 // to another machine (the portable single-file build has no backend), and
 // import it back through the SAME version+structure gate `loadGameDetailed`
 // uses. A rejected import must never damage the save already on this device.
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { newGame, applyAction, SAVE_VERSION, SCHEMA_VERSION } from '../src/engine/worldhand'
-import { saveGame, loadGame, exportSave, importSave } from '../src/ui/save'
+import { saveGame, loadGame, loadGameDetailed, listLegacySaves, exportSave, importSave } from '../src/ui/save'
 
 class MemStorage {
   private m = new Map<string, string>()
@@ -78,5 +78,21 @@ describe('portable save export/import', () => {
     expect(res.state).toBeNull()
     expect(res.rejectedReason).toMatch(/JSON|corrupt/i)
     expect(loadGame()).toEqual(mine)
+  })
+
+  it('re-loading the same incompatible save preserves it only once', () => {
+    const raw = JSON.stringify({ schema: 3, version: 2, savedAt: '2026-01-01T00:00:00.000Z', state: {} })
+    store.setItem('worldhand.save', raw)
+    let t = 1_000
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => t++)
+    try {
+      const first = loadGameDetailed()
+      const again = loadGameDetailed() // StrictMode re-run / "Load Saved World" click
+      expect(first.state).toBeNull()
+      expect(again.legacyKey).toBe(first.legacyKey)
+      expect(listLegacySaves().map((l) => l.savedBlob)).toEqual([raw])
+    } finally {
+      now.mockRestore()
+    }
   })
 })
