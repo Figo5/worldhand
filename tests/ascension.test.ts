@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
-  newAscensionGame, applyAscensionAction, evaluatePlay, noStats,
+  newAscensionGame, applyAscensionAction, evaluatePlay, noStats, generateRegions, landAffinity,
   ASCENSION_RULES_VERSION, HAND_SIZE, PLAYS_PER_ROUND, DISCARDS_PER_ROUND, WORLD_STATS, SUIT_STAT,
+  TERRAIN, TERRAINS, REGION_ADJACENCY,
   type AscensionState, type AscensionAction, type WorldStats,
 } from '../src/engine/ascension/ascension'
 import { newGame as newClassicGame, SAVE_VERSION } from '../src/engine/worldhand'
 import { Rng, hashSeed } from '../src/engine/rng'
+import { stream } from '../src/engine/core/streams'
 import { deck, type Card } from '../src/engine/poker'
 
 const key = (c: Card) => `${c.r}${c.s}`
@@ -13,8 +15,8 @@ const allCards = (s: AscensionState) => [...s.hand, ...s.drawPile, ...s.discardP
 const C = (r: Card['r'], suit: Card['s']): Card => ({ r, s: suit })
 
 /** A conserved state whose hand is exactly `cards` (the rest go to the draw pile). */
-function withHand(cards: Card[]): AscensionState {
-  const s = newAscensionGame('forced-hand')
+function withHand(cards: Card[], seedText = 'forced-hand'): AscensionState {
+  const s = newAscensionGame(seedText)
   const picked = new Set(cards.map(key))
   return { ...s, hand: cards, drawPile: allCards(s).filter((c) => !picked.has(key(c))), discardPile: [] }
 }
@@ -52,7 +54,7 @@ describe('Ascension skeleton: new game', () => {
     const s = newAscensionGame('seam')
     expect(s.mode).toBe('ascension')
     expect(s.rulesVersion).toBe(ASCENSION_RULES_VERSION)
-    expect(ASCENSION_RULES_VERSION).toBe(2)
+    expect(ASCENSION_RULES_VERSION).toBe(3)
     expect('version' in s).toBe(false) // Classic's SAVE_VERSION field is not reused
     expect(SAVE_VERSION).toBe(8)
   })
@@ -129,7 +131,7 @@ describe('Ascension skeleton: transitions', () => {
   it('evaluatePlay scores chips × the shared poker mult', () => {
     const s = withHand([C(5, 'S'), C(5, 'H'), C(13, 'D'), C(2, 'C'), C(3, 'C'), C(4, 'C'), C(6, 'C'), C(7, 'C')])
     expectConserved(s)
-    expect(evaluatePlay(s, [0, 1, 2])).toMatchObject({ category: 'pair', label: 'Pair', chips: 23, mult: 1.5, score: 35 })
+    expect(evaluatePlay(s, [0, 1, 2])).toMatchObject({ category: 'pair', label: 'Pair', chips: 23, mult: 1.5, pokerScore: 35 })
   })
 
   it('a discard costs a discard, not a play, and scores nothing', () => {
@@ -278,14 +280,118 @@ describe('Ascension world stats', () => {
   })
 
   // Not a balance claim: it only shows the mechanic can make choices diverge.
-  it('tradeoff: the higher-scoring hand is not the one that develops Vitality', () => {
+  it('tradeoff: the higher-scoring poker hand is not the one that develops Vitality', () => {
     const s = withHand(HAND)
     const kings = evaluatePlay(s, [3, 4, 5])  // K♠ K♦ Q♣: a pair
     const hearts = evaluatePlay(s, [0, 1, 2]) // 9♥ 6♥ 3♥: high card
-    expect(kings).toMatchObject({ category: 'pair', score: 57 })
-    expect(hearts).toMatchObject({ category: 'high', score: 18 })
-    expect(kings.score).toBeGreaterThan(hearts.score * 3)
+    expect(kings).toMatchObject({ category: 'pair', pokerScore: 57 })
+    expect(hearts).toMatchObject({ category: 'high', pokerScore: 18 })
+    expect(kings.pokerScore).toBeGreaterThan(hearts.pokerScore * 3)
     expect(kings.statDeltas).toEqual({ vitality: 0, prosperity: 1, industry: 1, knowledge: 1 })
     expect(hearts.statDeltas).toEqual({ vitality: 3, prosperity: 0, industry: 0, knowledge: 0 })
+  })
+})
+
+describe('Ascension terrain', () => {
+  const layout = (seed: string) => newAscensionGame(seed).regions.map((r) => r.terrain).join(',')
+  /** the documented rule: weighted pick over TERRAINS from stream ('ascension','terrain',id) */
+  const expectedTerrain = (seed: number, id: number) => {
+    let roll = stream(seed, 'ascension', 'terrain', id).int(0, TERRAINS.reduce((n, t) => n + TERRAIN[t].weight, 0))
+    return TERRAINS.find((t) => (roll -= TERRAIN[t].weight) < 0)
+  }
+
+  it('the same seed always generates the same world', () => {
+    for (const seed of ['alpha', 'beta', 'world-5']) {
+      expect(newAscensionGame(seed).regions).toEqual(newAscensionGame(seed).regions)
+      expect(newAscensionGame(seed).regions).toEqual(generateRegions(hashSeed(seed)))
+    }
+  })
+
+  it('different seeds usually generate different layouts, and every terrain occurs', () => {
+    const layouts = Array.from({ length: 200 }, (_, i) => layout(`sample-${i}`))
+    expect(new Set(layouts).size).toBeGreaterThanOrEqual(195)
+    const seen = new Set(layouts.flatMap((l) => l.split(',')))
+    expect([...seen].sort()).toEqual([...TERRAINS].sort())
+  })
+
+  it('region ids and adjacency are stable, symmetric and connected; terrain is always valid', () => {
+    for (const seed of ['alpha', 'beta', 'gamma', 'world-8']) {
+      const regions = newAscensionGame(seed).regions
+      expect(regions.map((r) => r.id)).toEqual([...Array(12).keys()])
+      expect(regions.map((r) => r.neighbors)).toEqual(REGION_ADJACENCY)
+      for (const r of regions) expect(TERRAINS).toContain(r.terrain)
+    }
+    REGION_ADJACENCY.forEach((ns, id) => {
+      expect(ns).not.toContain(id)
+      for (const n of ns) expect(REGION_ADJACENCY[n]).toContain(id)
+    })
+    const reached = new Set([0])
+    for (let grew = true; grew;) {
+      grew = false
+      for (const id of [...reached]) for (const n of REGION_ADJACENCY[id]) if (!reached.has(n)) { reached.add(n); grew = true }
+    }
+    expect(reached.size).toBe(12)
+  })
+
+  it('each region draws only from its own named stream, and terrain never shifts the deal', () => {
+    for (const seedText of ['alpha', 'beta', 'world-5']) {
+      const s = newAscensionGame(seedText)
+      s.regions.forEach((r) => expect(r.terrain).toBe(expectedTerrain(s.seed, r.id)))
+      const deal = stream(s.seed, 'ascension', 'deck').shuffle(deck()).slice(-HAND_SIZE).reverse()
+      expect(s.hand).toEqual(deal)
+    }
+  })
+
+  it('terrain is static during play and never changes suit stats or poker score', () => {
+    let s = newAscensionGame('static-land')
+    const regions = JSON.stringify(s.regions)
+    for (const a of randomActions('static-land', 150)) s = applyAscensionAction(s, a)
+    expect(JSON.stringify(s.regions)).toBe(regions)
+    const hand = [C(9, 'H'), C(6, 'H'), C(3, 'H'), C(2, 'H'), C(10, 'S'), C(7, 'S'), C(4, 'S'), C(2, 'S')]
+    const a = evaluatePlay(withHand(hand, 'world-5'), [0, 1, 2, 3])
+    const b = evaluatePlay(withHand(hand, 'world-8'), [0, 1, 2, 3])
+    expect(a.statDeltas).toEqual(b.statDeltas)
+    expect(a.pokerScore).toBe(b.pokerScore)
+  })
+
+  it('land bonus = Σ stat deltas × regions favouring that stat; a play adds poker score + land bonus', () => {
+    let s = newAscensionGame('land-bonus')
+    for (const act of randomActions('land-bonus', 100)) {
+      if (act.type === 'play') {
+        const r = evaluatePlay(s, act.cards)
+        const affinity = landAffinity(s.regions)
+        expect(r.landBonus).toBe(WORLD_STATS.reduce((n, k) => n + r.statDeltas[k] * affinity[k], 0))
+        expect(r.score).toBe(r.pokerScore + r.landBonus)
+        const next = applyAscensionAction(s, act)
+        expect(next.score - s.score).toBe(r.score)
+      }
+      s = applyAscensionAction(s, act)
+    }
+    expect(WORLD_STATS.reduce((n, k) => n + landAffinity(s.regions)[k], 0)).toBe(12)
+  })
+
+  // Not a balance claim: it only shows terrain can change which play is better.
+  it('two seeds, same hand: terrain flips which play is worth more', () => {
+    expect(landAffinity(newAscensionGame('world-5').regions)).toEqual({ vitality: 6, prosperity: 4, industry: 2, knowledge: 0 })
+    expect(landAffinity(newAscensionGame('world-8').regions)).toEqual({ vitality: 1, prosperity: 2, industry: 2, knowledge: 7 })
+    const hand = [C(9, 'H'), C(6, 'H'), C(3, 'H'), C(2, 'H'), C(10, 'S'), C(7, 'S'), C(4, 'S'), C(2, 'S')]
+    const HEARTS = [0, 1, 2, 3] // 9♥ 6♥ 3♥ 2♥: high card 20, +4 Vitality
+    const SPADES = [4, 5, 6, 7] // 10♠ 7♠ 4♠ 2♠: high card 23, +4 Knowledge
+    const forestWorld = withHand(hand, 'world-5')
+    const loreWorld = withHand(hand, 'world-8')
+    // poker alone always prefers the spades
+    expect(evaluatePlay(forestWorld, SPADES).pokerScore).toBeGreaterThan(evaluatePlay(forestWorld, HEARTS).pokerScore)
+    // the same +4 Vitality is worth +24 in the forest world and +4 in the lore world
+    expect(evaluatePlay(forestWorld, HEARTS)).toMatchObject({ pokerScore: 20, landBonus: 24, score: 44 })
+    expect(evaluatePlay(loreWorld, HEARTS)).toMatchObject({ pokerScore: 20, landBonus: 4, score: 24 })
+    expect(evaluatePlay(forestWorld, SPADES)).toMatchObject({ pokerScore: 23, landBonus: 0, score: 23 })
+    expect(evaluatePlay(loreWorld, SPADES)).toMatchObject({ pokerScore: 23, landBonus: 28, score: 51 })
+  })
+
+  it('Classic geography ignores the seed and is untouched by Ascension terrain', () => {
+    const classic = (seed: string) => newClassicGame(seed).regions.map((r) => `${r.id}:${r.name}:${r.terrain}:${r.adjacency.join('.')}`).join('|')
+    for (const seed of ['alpha', 'beta', 'world-5', 'world-8']) expect(classic(seed)).toBe(classic('replay-0'))
+    expect(newClassicGame('world-5').regions.map((r) => r.terrain)).toEqual(
+      ['meadow', 'coast', 'highland', 'forest', 'steppe', 'wetland', 'meadow', 'coast', 'highland', 'forest', 'steppe', 'wetland'])
   })
 })

@@ -1,8 +1,10 @@
 // Ascension ruleset: engine skeleton. Pure — no DOM, no clock, no Math.random.
 //
-// Deal a seeded 52-card deck, play or discard 1–5 cards, score plays with the
-// shared poker evaluator, and grow four world stats from the played suits.
-// Rounds of 4 plays / 3 discards roll over forever. No saves, no content yet.
+// Generate a seeded 12-region world, deal a seeded 52-card deck, play or
+// discard 1–5 cards, score plays with the shared poker evaluator, grow four
+// world stats from the played suits, and pay a land bonus for stat gains the
+// world's terrain favours. Rounds of 4 plays / 3 discards roll over forever.
+// No saves, no content yet.
 //
 // Boundaries (enforced by tests/engine-boundaries.test.ts): this module never
 // imports the Classic ruleset (worldhand.ts). It shares only rng.ts, poker.ts
@@ -14,8 +16,9 @@ import { deck, evaluateSelection, categoryLabel, CATEGORY_MULT, type Card, type 
 import { stream } from '../core/streams'
 
 /** Rules generation of Ascension state. Independent of Classic's SAVE_VERSION.
- *  1 = seam skeleton (poker score only), 2 = suit-driven world stats. */
-export const ASCENSION_RULES_VERSION = 2
+ *  1 = seam skeleton (poker score only), 2 = suit-driven world stats,
+ *  3 = procedural terrain + land bonus. */
+export const ASCENSION_RULES_VERSION = 3
 export const HAND_SIZE = 8
 export const PLAYS_PER_ROUND = 4
 export const DISCARDS_PER_ROUND = 3
@@ -34,6 +37,57 @@ export const WORLD_STAT_LABEL: Record<WorldStat, string> = {
 export const SUIT_STAT: Record<Suit, WorldStat> = { H: 'vitality', D: 'prosperity', C: 'industry', S: 'knowledge' }
 export const noStats = (): WorldStats => ({ vitality: 0, prosperity: 0, industry: 0, knowledge: 0 })
 
+// ---------------------------------------------------------------------------
+// World geography: a FIXED 12-region topology (an outer ring of 8 around a
+// core of 4, the same shape Classic's globe renders; copied here, not shared,
+// so Classic stays untouched) with terrain assigned per run from the seed.
+// ---------------------------------------------------------------------------
+export type Terrain = 'plains' | 'forest' | 'mountains' | 'desert' | 'coast' | 'tundra'
+/** Terrain data. `stat` is the world stat the terrain favours (working
+ *  mapping); `weight` is its relative chance per region. Weights give every
+ *  stat the same expected share of the land (2 of 8): forest and mountains
+ *  are the only Vitality and Industry terrains, so they count double. */
+export const TERRAIN: Record<Terrain, { label: string; stat: WorldStat; weight: number }> = {
+  plains: { label: 'Plains', stat: 'prosperity', weight: 1 },
+  forest: { label: 'Forest', stat: 'vitality', weight: 2 },
+  mountains: { label: 'Mountains', stat: 'industry', weight: 2 },
+  desert: { label: 'Desert', stat: 'knowledge', weight: 1 },
+  coast: { label: 'Coast', stat: 'prosperity', weight: 1 },
+  tundra: { label: 'Tundra', stat: 'knowledge', weight: 1 },
+}
+/** Fixed pick order for the weighted draw (never iterate object keys for this). */
+export const TERRAINS: readonly Terrain[] = ['plains', 'forest', 'mountains', 'desert', 'coast', 'tundra']
+/** Region id -> neighbouring region ids (symmetric, connected, stable). */
+export const REGION_ADJACENCY: readonly (readonly number[])[] = [
+  [1, 7, 8], [0, 2, 9], [1, 3, 9], [2, 4, 10], [3, 5, 11], [4, 6, 11],
+  [5, 7, 8], [0, 6, 8], [0, 6, 7, 9, 11], [1, 2, 8, 10], [3, 9, 11], [4, 5, 8, 10],
+]
+
+export interface AscensionRegion {
+  id: number
+  terrain: Terrain
+  neighbors: number[]
+}
+
+/** The world for a run seed. Each region draws its terrain from its own named
+ *  stream ('ascension', 'terrain', id), so a region's terrain depends only on
+ *  (seed, id): not on generation order, other regions, the deck, or the UI. */
+export function generateRegions(seed: Seed): AscensionRegion[] {
+  const total = TERRAINS.reduce((n, t) => n + TERRAIN[t].weight, 0)
+  return REGION_ADJACENCY.map((neighbors, id) => {
+    let roll = stream(seed, 'ascension', 'terrain', id).int(0, total)
+    const terrain = TERRAINS.find((t) => (roll -= TERRAIN[t].weight) < 0) as Terrain
+    return { id, terrain, neighbors: [...neighbors] }
+  })
+}
+
+/** How many regions favour each stat: the land bonus rate for that stat. */
+export function landAffinity(regions: readonly AscensionRegion[]): WorldStats {
+  const a = noStats()
+  for (const r of regions) a[TERRAIN[r.terrain].stat] += 1
+  return a
+}
+
 export interface PlayResult {
   cards: Card[]
   category: HandCategory
@@ -42,9 +96,13 @@ export interface PlayResult {
   chips: number
   mult: number
   /** round(chips × mult) */
-  score: number
+  pokerScore: number
   /** world-stat gains: +1 to a suit's stat for every played card of that suit */
   statDeltas: WorldStats
+  /** Σ over stats of statDeltas × (regions whose terrain favours that stat) */
+  landBonus: number
+  /** what the play adds to the run score: pokerScore + landBonus */
+  score: number
 }
 
 export interface AscensionState {
@@ -52,6 +110,8 @@ export interface AscensionState {
   rulesVersion: number
   seed: Seed
   seedText: string
+  /** the generated world: fixed topology, seeded terrain */
+  regions: AscensionRegion[]
   round: number
   playsLeft: number
   discardsLeft: number
@@ -79,6 +139,7 @@ export function newAscensionGame(seedText: string): AscensionState {
     rulesVersion: ASCENSION_RULES_VERSION,
     seed,
     seedText,
+    regions: generateRegions(seed),
     round: 1,
     playsLeft: PLAYS_PER_ROUND,
     discardsLeft: DISCARDS_PER_ROUND,
@@ -96,10 +157,13 @@ export function newAscensionGame(seedText: string): AscensionState {
 
 /** Everything a play would do, without changing anything. The UI preview and
  *  the committed `play` action both use this one result, so they cannot differ.
- *    score      = round(chips × mult)   (chips = rank sum, mult = poker category)
+ *    pokerScore = round(chips × mult)   (chips = rank sum, mult = poker category)
  *    statDeltas = +1 to SUIT_STAT[suit] for every played card
- *  Score follows ranks and hand category; stats follow suits only, so a
- *  lower-scoring hand can still be the better choice for the world. */
+ *    landBonus  = Σ statDeltas[stat] × landAffinity(regions)[stat]
+ *    score      = pokerScore + landBonus
+ *  Poker score follows ranks and hand category; stats follow suits only; the
+ *  land bonus makes the same stat gains worth more in a world whose terrain
+ *  favours them. */
 export function evaluatePlay(state: AscensionState, idxs: readonly number[]): PlayResult {
   checkSelection(state.hand, idxs)
   const cards = idxs.map((i) => state.hand[i])
@@ -108,7 +172,10 @@ export function evaluatePlay(state: AscensionState, idxs: readonly number[]): Pl
   const mult = CATEGORY_MULT[category]
   const statDeltas = noStats()
   for (const c of cards) statDeltas[SUIT_STAT[c.s]] += 1
-  return { cards, category, label: categoryLabel(category), chips, mult, score: Math.round(chips * mult), statDeltas }
+  const pokerScore = Math.round(chips * mult)
+  const affinity = landAffinity(state.regions)
+  const landBonus = WORLD_STATS.reduce((n, k) => n + statDeltas[k] * affinity[k], 0)
+  return { cards, category, label: categoryLabel(category), chips, mult, pokerScore, statDeltas, landBonus, score: pokerScore + landBonus }
 }
 
 /** Pure transition. An illegal action throws before anything is built, so the

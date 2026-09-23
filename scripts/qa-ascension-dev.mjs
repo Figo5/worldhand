@@ -3,10 +3,10 @@
 // Proves:
 //   1. production (dist/) and portable (dist-portable/) artifacts contain no
 //      Ascension code or text at all, and neither shows an entry in a browser;
-//   2. the dev server exposes the prototype, which plays, discards, clears,
-//      previews score AND world-stat gains with evaluatePlay (and commits
-//      exactly those), deals deterministically, saves nothing and returns to
-//      the Classic title;
+//   2. the dev server exposes the prototype, which shows a seeded 12-region
+//      world, plays, discards, clears, previews poker score, world-stat gains
+//      and land bonus with evaluatePlay (and commits exactly those), deals
+//      deterministically, saves nothing and returns to the Classic title;
 //   3. Classic stays the default path and its autosave/load is unchanged.
 //
 // Starts its own servers through the Vite API (no manual dev server needed).
@@ -80,6 +80,12 @@ try {
   const cards = p.locator('[data-testid="ascension-app"] .pcard-btn')
   if ((await cards.count()) !== 8) fail('prototype: expected an 8-card hand')
   const firstHand = await cards.allInnerTexts()
+  const terrains = await p.locator('[data-testid="asc-world"] li[data-terrain]').evaluateAll((els) => els.map((e) => e.dataset.terrain))
+  const VALID = ['plains', 'forest', 'mountains', 'desert', 'coast', 'tundra']
+  if (terrains.length !== 12 || !terrains.every((t) => VALID.includes(t))) fail(`prototype: expected 12 regions with valid terrain, got ${JSON.stringify(terrains)}`)
+  const rates = Object.fromEntries([...(await p.locator('[data-testid="asc-affinity"]').innerText()).matchAll(/(\w+) \+(\d+)/g)].map((x) => [x[1].toLowerCase(), Number(x[2])]))
+  if (Object.values(rates).reduce((a, b) => a + b, 0) !== 12) fail(`prototype: land rates should cover all 12 regions, got ${JSON.stringify(rates)}`)
+  ok('prototype world', `12 regions (${terrains.join(' ')}), land bonus per stat point ${JSON.stringify(rates)}`)
   const readStats = () => p.locator('[data-testid="asc-stats"] [data-stat]')
     .evaluateAll((els) => Object.fromEntries(els.map((e) => [e.dataset.stat, Number(e.dataset.value)])))
   const zero = await readStats()
@@ -88,19 +94,24 @@ try {
   const pv = await p.locator('[data-testid="asc-preview"]').innerText()
   const m = pv.match(/chips × [\d.]+ mult = (\d+)$/)
   if (!m) fail(`prototype: no evaluatePlay score preview, got "${pv}"`)
+  const pvTotal = p.locator('[data-testid="asc-preview-total"]')
+  const land = Number(await pvTotal.getAttribute('data-land'))
+  const total = Number(await pvTotal.getAttribute('data-score'))
   const pvStats = p.locator('[data-testid="asc-preview-stats"]')
   const deltas = JSON.parse(await pvStats.getAttribute('data-deltas'))
   const pvStatsText = await pvStats.innerText()
   if (Object.values(deltas).reduce((a, b) => a + b, 0) !== 3) fail(`prototype: 3 cards should preview 3 stat points, got ${JSON.stringify(deltas)}`)
+  const expectLand = Object.entries(deltas).reduce((n, [k, d]) => n + d * rates[k], 0)
+  if (land !== expectLand || total !== Number(m[1]) + land) fail(`prototype: land bonus ${land} / total ${total} do not match deltas × land rates (${expectLand})`)
   await p.screenshot({ path: 'shots/ascension-dev-preview.png' })
   await p.click('[data-testid="asc-play"]')
   const score = Number(await p.locator('[data-testid="asc-score"]').innerText())
-  if (score !== Number(m[1])) fail(`prototype: committed score ${score} != previewed ${m[1]}`)
+  if (score !== total) fail(`prototype: committed score ${score} != previewed total ${total}`)
   const after = await readStats()
   if (JSON.stringify(after) !== JSON.stringify(deltas)) fail(`prototype: committed stats ${JSON.stringify(after)} != previewed ${JSON.stringify(deltas)}`)
   if (await p.locator('[data-testid="asc-last"]').getAttribute('data-deltas') !== JSON.stringify(deltas)) fail('prototype: last play does not show the committed stat changes')
   if (!(await p.locator('[data-testid="asc-status"]').innerText()).includes('Plays 3 · Discards 3')) fail('prototype: play did not spend a play')
-  ok('prototype play', `preview "${pv}" / "${pvStatsText}" committed exactly (score ${score}, stats ${JSON.stringify(after)})`)
+  ok('prototype play', `preview "${pv}" / "${pvStatsText}" / land +${land} committed exactly (score ${score}, stats ${JSON.stringify(after)})`)
 
   await cards.nth(0).click(); await cards.nth(1).click()
   await p.click('[data-testid="asc-discard"]')
@@ -126,7 +137,9 @@ try {
   await p.fill('#asc-seed', 'qa-asc')
   await p.click('[data-testid="asc-start"]')
   if ((await cards.allInnerTexts()).join() !== firstHand.join()) fail('prototype: same seed dealt a different hand')
-  ok('prototype determinism', 'same seed, same first hand')
+  const terrainsAgain = await p.locator('[data-testid="asc-world"] li[data-terrain]').evaluateAll((els) => els.map((e) => e.dataset.terrain))
+  if (terrainsAgain.join() !== terrains.join()) fail('prototype: same seed generated a different world')
+  ok('prototype determinism', 'same seed, same world and first hand')
 
   // back to Classic; Ascension wrote nothing
   await p.click('[data-testid="asc-exit"]')

@@ -4,7 +4,7 @@
 // Saves nothing; selection lives here, not in engine state.
 import { useMemo, useState } from 'react'
 import {
-  newAscensionGame, applyAscensionAction, evaluatePlay, WORLD_STATS, WORLD_STAT_LABEL,
+  newAscensionGame, applyAscensionAction, evaluatePlay, landAffinity, WORLD_STATS, WORLD_STAT_LABEL, TERRAIN,
   type AscensionAction, type AscensionState, type WorldStats,
 } from '../engine/ascension/ascension'
 import { cardName } from '../engine/poker'
@@ -19,6 +19,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
   const [selected, setSelected] = useState<number[]>([])
   const [error, setError] = useState('')
 
+  const affinity = useMemo(() => (game ? landAffinity(game.regions) : null), [game])
   const preview = useMemo(() => {
     if (!game || selected.length === 0) return null
     try { return evaluatePlay(game, selected) } catch { return null }
@@ -45,7 +46,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
     <main className="shell intro" data-testid="ascension-app">
       <header className="intro-head">
         <h1 className="game-title">Ascension prototype</h1>
-        <p className="muted">Development build only. Seeded deal, play, discard, rounds; played suits grow four world stats. Nothing is saved.</p>
+        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, and the land pays a bonus for the stats its terrain favours. Nothing is saved.</p>
         <button data-testid="asc-exit" onClick={onExit}>Back to Classic</button>
       </header>
 
@@ -69,6 +70,18 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
               <span key={k} data-stat={k} data-value={game.stats[k]}>{i > 0 ? ' · ' : ''}{WORLD_STAT_LABEL[k]} {game.stats[k]}</span>
             ))}
           </p>
+          <details open data-testid="asc-world">
+            <summary data-testid="asc-affinity">
+              Land bonus per stat point: {WORLD_STATS.map((k) => `${WORLD_STAT_LABEL[k]} +${affinity![k]}`).join(' · ')}
+            </summary>
+            <ul>
+              {game.regions.map((r) => (
+                <li key={r.id} data-region={r.id} data-terrain={r.terrain}>
+                  R{r.id} {TERRAIN[r.terrain].label} (favours {WORLD_STAT_LABEL[TERRAIN[r.terrain].stat]}) — borders {r.neighbors.map((n) => `R${n}`).join(', ')}
+                </li>
+              ))}
+            </ul>
+          </details>
           <div className="hand-cards" role="listbox" aria-label="Hand">
             {game.hand.map((c, i) => (
               <button key={i} role="option" aria-selected={selected.includes(i)}
@@ -80,9 +93,10 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
             ))}
           </div>
           <p data-testid="asc-preview">
-            {preview ? `${preview.label}: ${preview.chips} chips × ${preview.mult} mult = ${preview.score}` : 'Select 1–5 cards.'}
+            {preview ? `${preview.label}: ${preview.chips} chips × ${preview.mult} mult = ${preview.pokerScore}` : 'Select 1–5 cards.'}
           </p>
           {preview && <p data-testid="asc-preview-stats" data-deltas={JSON.stringify(preview.statDeltas)}>World: {gains(preview.statDeltas)}</p>}
+          {preview && <p data-testid="asc-preview-total" data-land={preview.landBonus} data-score={preview.score}>Land bonus +{preview.landBonus} → play adds {preview.score}</p>}
           <div className="row">
             <button className="primary" data-testid="asc-play" disabled={!preview} onClick={() => act({ type: 'play', cards: selected })}>Play</button>
             <button data-testid="asc-discard" disabled={selected.length === 0 || game.discardsLeft <= 0} onClick={() => act({ type: 'discard', cards: selected })}>Discard</button>
@@ -90,7 +104,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
           </div>
           {game.lastPlay && (
             <p className="muted" data-testid="asc-last" data-deltas={JSON.stringify(game.lastPlay.statDeltas)}>
-              Last play: {game.lastPlay.label} ({game.lastPlay.cards.map(cardName).join(' ')}) for {game.lastPlay.score} · World: {gains(game.lastPlay.statDeltas)}
+              Last play: {game.lastPlay.label} ({game.lastPlay.cards.map(cardName).join(' ')}) for {game.lastPlay.pokerScore} + land {game.lastPlay.landBonus} = {game.lastPlay.score} · World: {gains(game.lastPlay.statDeltas)}
             </p>
           )}
         </div>
