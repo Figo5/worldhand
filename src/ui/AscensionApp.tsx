@@ -4,17 +4,50 @@
 // Saves nothing; selection lives here, not in engine state.
 import { useMemo, useState } from 'react'
 import {
-  newAscensionGame, applyAscensionAction, evaluatePlay, landAffinity, WORLD_STATS, WORLD_STAT_LABEL, TERRAIN,
+  newAscensionGame, applyAscensionAction, evaluatePlay, landAffinity, WORLD_STATS, WORLD_STAT_LABEL, TERRAIN, runStatus,
   type AscensionAction, type AscensionState, type WorldStats,
 } from '../engine/ascension/ascension'
 import { ARCHETYPES, emergenceThreshold } from '../engine/ascension/civilizations'
 import { ERAS, eraRequirements, isComplete, type Era } from '../engine/ascension/eras'
+import { CRISES, evaluateCrisis, type Factor } from '../engine/ascension/crises'
 import { cardName } from '../engine/poker'
 
 const eraLabel = (id: Era) => ERAS.find((e) => e.id === id)!.label
 /** "+2 Vitality · +1 Industry" (non-zero gains, in stat order) */
 const gains = (d: WorldStats) =>
   WORLD_STATS.filter((k) => d[k] !== 0).map((k) => `+${d[k]} ${WORLD_STAT_LABEL[k]}`).join(' · ')
+
+/** Factor list component: two sections (pressures and mitigations) with data-testid */
+function FactorTable({ pressures, mitigations }: { pressures: Factor[]; mitigations: Factor[] }) {
+  return (
+    <div className="factor-table">
+      <div>
+        <h4>Pressures (hurt)</h4>
+        <ul>
+          {pressures.map((f, i) => (
+            <li key={i} data-testid="asc-factor" data-side="pressure" data-amount={f.amount} className={f.amount === 0 ? 'muted' : ''}>
+              {f.label} {f.amount > 0 ? '+' : ''}
+              {f.amount} ({f.detail})
+            </li>
+          ))}
+        </ul>
+        <p><strong>Total pressure: {pressures.reduce((n, f) => n + f.amount, 0)}</strong></p>
+      </div>
+      <div>
+        <h4>Resilience (help)</h4>
+        <ul>
+          {mitigations.map((f, i) => (
+            <li key={i} data-testid="asc-factor" data-side="mitigation" data-amount={f.amount} className={f.amount === 0 ? 'muted' : ''}>
+              {f.label} {f.amount > 0 ? '+' : ''}
+              {f.amount} ({f.detail})
+            </li>
+          ))}
+        </ul>
+        <p><strong>Total resilience: {mitigations.reduce((n, f) => n + f.amount, 0)}</strong></p>
+      </div>
+    </div>
+  )
+}
 
 export default function AscensionApp({ onExit }: { onExit: () => void }) {
   const [seedText, setSeedText] = useState('')
@@ -24,10 +57,15 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
 
   const affinity = useMemo(() => (game ? landAffinity(game.regions) : null), [game])
   const reqs = game ? eraRequirements(game.era, game.stats, game.civilizations) : []
+  const status = game ? runStatus(game) : null
   const preview = useMemo(() => {
-    if (!game || selected.length === 0 || isComplete(game.era)) return null
+    if (!game || selected.length === 0 || isComplete(game.era) || status !== 'playing') return null
     try { return evaluatePlay(game, selected) } catch { return null }
-  }, [game, selected])
+  }, [game, selected, status])
+  const crisisEval = useMemo(() => {
+    if (!game || isComplete(game.era)) return null
+    try { return evaluateCrisis(game.era, game) } catch { return null }
+  }, [game])
 
   const act = (a: AscensionAction) => {
     if (!game) return
@@ -50,7 +88,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
     <main className="shell intro" data-testid="ascension-app">
       <header className="intro-head">
         <h1 className="game-title">Ascension prototype</h1>
-        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, the land pays a bonus for the stats its terrain favours, civilizations emerge at round ends and add passive bonuses, and the world advances through three eras (Tribal, Ancient, Medieval) when it has enough civilizations and developed stats. Nothing is saved.</p>
+        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, the land pays a bonus for the stats its terrain favours, civilizations emerge at round ends and add passive bonuses, the world advances through three eras (Tribal, Ancient, Medieval) by meeting requirements at round ends, and each era ends in a crisis that tests the world before advancing. Nothing is saved.</p>
         <button data-testid="asc-exit" onClick={onExit}>Back to Classic</button>
       </header>
 
@@ -75,7 +113,30 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
             ))}
           </p>
           <div data-testid="asc-era" data-era={ERAS[game.era]?.id ?? 'complete'}>
-            {!isComplete(game.era) ? (
+            {status === 'failed' ? (
+              <div data-testid="asc-failed">
+                <h2>Run over</h2>
+                <p>{game.crises[game.crises.length - 1].label} was not survived at the end of round {game.crises[game.crises.length - 1].round}: resilience {game.crises[game.crises.length - 1].resilience} vs pressure {game.crises[game.crises.length - 1].pressure}.</p>
+                <FactorTable pressures={game.crises[game.crises.length - 1].pressures} mitigations={game.crises[game.crises.length - 1].mitigations} />
+                <p>The world is kept below for inspection.</p>
+              </div>
+            ) : status === 'crisis' ? (
+              <div data-testid="asc-crisis" data-crisis={crisisEval?.crisis}>
+                <h2>Crisis: {crisisEval?.label}</h2>
+                <p>{ERAS[game.era].label} requirements met at the end of round {game.crisis?.round}.</p>
+                <p>{CRISES[game.era].theme}</p>
+                {crisisEval && <FactorTable pressures={crisisEval.pressures} mitigations={crisisEval.mitigations} />}
+                {crisisEval && (
+                  <p>
+                    <strong>
+                      resilience {crisisEval.resilience} vs pressure {crisisEval.pressure} →{' '}
+                      {crisisEval.result === 'survived' ? `survives by ${crisisEval.resilience - crisisEval.pressure}` : `fails by ${crisisEval.pressure - crisisEval.resilience}`}
+                    </strong>
+                  </p>
+                )}
+                <button className="primary" data-testid="asc-resolve" onClick={() => act({ type: 'resolve' })}>Face the crisis</button>
+              </div>
+            ) : !isComplete(game.era) ? (
               <>
                 <p>Era: <strong>{ERAS[game.era].label}</strong> ({game.era + 1} of {ERAS.length}). To advance, at a round end the world needs:</p>
                 <ul>
@@ -92,12 +153,34 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
                       ? `${r.need - r.have} more stat${r.need - r.have > 1 ? 's' : ''} to ${ERAS[game.era].needs.min} (${WORLD_STATS.filter((k) => game.stats[k] < ERAS[game.era].needs.min).map((k) => `${WORLD_STAT_LABEL[k]} ${game.stats[k]}`).join(', ')})`
                       : `${r.need - r.have} more civilization${r.need - r.have > 1 ? 's' : ''}`).join('; ')}.`}
                 </p>
+                {crisisEval && (
+                  <div data-testid="asc-crisis-forecast">
+                    <h3>Coming crisis</h3>
+                    <p>{CRISES[game.era].label}: {CRISES[game.era].theme}</p>
+                    <p>It strikes at the round end where these requirements are met. If it struck now:</p>
+                    <FactorTable pressures={crisisEval.pressures} mitigations={crisisEval.mitigations} />
+                    <p>resilience {crisisEval.resilience} vs pressure {crisisEval.pressure} → would {crisisEval.result === 'survived' ? `survive by ${crisisEval.resilience - crisisEval.pressure}` : `fail by ${crisisEval.pressure - crisisEval.resilience}`}</p>
+                  </div>
+                )}
               </>
             ) : (
               <div data-testid="asc-complete">
                 <h2>First playable complete</h2>
                 <p>Medieval completed at the end of round {game.eraLog[game.eraLog.length - 1].round} with score {game.score}. The world is kept below for inspection; no further plays.</p>
               </div>
+            )}
+            {game.crises.length > 0 && (
+              <ul data-testid="asc-crisis-log">
+                {game.crises.map((c, i) => {
+                  const mostHelp = c.mitigations.reduce((best, f) => f.amount > best.amount ? f : best)
+                  const mostHurt = c.pressures.slice(1).reduce((worst, f) => f.amount > worst.amount ? f : worst, { label: '', amount: 0, detail: '' })
+                  return (
+                    <li key={i} data-result={c.result}>
+                      End of round {c.round}: {c.label} — {c.result} (resilience {c.resilience} vs pressure {c.pressure}){mostHelp.amount > 0 ? ` · helped most: ${mostHelp.label}` : ''}{mostHurt.amount > 0 ? ` · hurt most: ${mostHurt.label}` : ''}
+                    </li>
+                  )
+                })}
+              </ul>
             )}
             {game.eraLog.length > 0 && (
               <ul data-testid="asc-era-log">
@@ -141,7 +224,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
               </ul>
             )}
           </div>
-          {!isComplete(game.era) && (
+          {status === 'playing' && (
             <>
               <div className="hand-cards" role="listbox" aria-label="Hand">
                 {game.hand.map((c, i) => (

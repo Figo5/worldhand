@@ -3,8 +3,9 @@
 // cards/hands → rounds → world development + civilizations → era.
 // A world leaves an era at a round end once it has enough civilizations and
 // enough DEVELOPED stats: each era asks for one more stat than the last
-// (Tribal 2, Ancient 3, Medieval all 4), at a higher level. Leaving Medieval
-// completes the first playable. Nothing is reset between eras.
+// (Tribal 2, Ancient 3, Medieval all 4), at a higher level. Meeting them
+// makes the world face the era's crisis (crises.ts); surviving it advances,
+// and surviving Medieval's completes the first playable. Nothing is reset.
 import type { Civilization } from './civilizations'
 import type { WorldStats } from './ascension'
 
@@ -20,8 +21,8 @@ export const ERAS: readonly { id: Era; label: string; needs: { civilizations: nu
 ]
 
 export interface Requirement { key: 'civilizations' | 'stats'; label: string; have: number; need: number; met: boolean }
-/** One era advance, logged at the round end where it happened, with the world
- *  as it stood. `to` = null: the first playable is complete. */
+/** One era advance (a survived crisis), with the round whose end brought the
+ *  crisis and the world as it stood. `to` = null: the first playable is complete. */
 export interface EraAdvance { from: Era; to: Era | null; round: number; stats: WorldStats; civilizations: number }
 
 export const isComplete = (era: number) => era >= ERAS.length
@@ -37,6 +38,6 @@ export function eraRequirements(era: number, stats: WorldStats, civs: readonly C
   ]
 }
 
-/** True when the world may leave era `era` at this round end. */
+/** True when the world meets era `era`'s requirements (at a round end: its crisis strikes). */
 export const canAdvance = (era: number, stats: WorldStats, civs: readonly Civilization[]) =>
   !isComplete(era) && eraRequirements(era, stats, civs).every((r) => r.met)

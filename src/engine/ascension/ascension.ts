@@ -4,9 +4,11 @@
 // discard 1–5 cards, score plays with the shared poker evaluator, grow four
 // world stats from the played suits, pay a land bonus for stat gains the
 // world's terrain favours, let civilizations emerge at round ends and add
-// their passive bonuses to later plays (civilizations.ts). Advance through
-// three eras (Tribal, Ancient, Medieval) when their criteria are met. Rounds
-// of 4 plays / 3 discards roll over until Medieval is complete.
+// their passive bonuses to later plays (civilizations.ts). When an era's
+// requirements are met at a round end (eras.ts) its crisis strikes
+// (crises.ts): play stops until a `resolve` action weighs the world against
+// it; survival advances one era (after Medieval: first playable complete),
+// failure ends the run. Rounds of 4 plays / 3 discards roll over meanwhile.
 // No saves, no content yet.
 //
 // Boundaries (enforced by tests/engine-boundaries.test.ts): this module never
@@ -19,12 +21,14 @@ import { deck, evaluateSelection, categoryLabel, CATEGORY_MULT, type Card, type 
 import { stream } from '../core/streams'
 import { emergeCivilization, civilizationBonuses, type Civilization, type CivBonus } from './civilizations'
 import { ERAS, canAdvance, isComplete, type EraAdvance } from './eras'
+import { evaluateCrisis, type CrisisEvaluation } from './crises'
 
 /** Rules generation of Ascension state. Independent of Classic's SAVE_VERSION.
  *  1 = seam skeleton (poker score only), 2 = suit-driven world stats,
  *  3 = procedural terrain + land bonus, 4 = civilization emergence,
- *  5 = civilization passives, 6 = eras (Tribal, Ancient, Medieval) + first-playable completion. */
-export const ASCENSION_RULES_VERSION = 6
+ *  5 = civilization passives, 6 = eras (Tribal, Ancient, Medieval) + first-playable completion,
+ *  7 = era crises. */
+export const ASCENSION_RULES_VERSION = 7
 export const HAND_SIZE = 8
 export const PLAYS_PER_ROUND = 4
 export const DISCARDS_PER_ROUND = 3
@@ -139,14 +143,36 @@ export interface AscensionState {
   lastPlay: PlayResult | null
   /** index into ERAS; ERAS.length = first playable complete */
   era: number
-  /** era advances, logged at the round end where they happened */
+  /** era advances, logged with the round end whose crisis they survived */
   eraLog: EraAdvance[]
+  /** the current era's crisis, struck at the end of `round` and not yet resolved */
+  crisis: { round: number } | null
+  /** resolved crises in order; a failed one ends the run */
+  crises: CrisisOutcome[]
+}
+export type CrisisOutcome = CrisisEvaluation & { round: number }
+
+/** playing → (era requirements met at a round end) crisis → resolve →
+ *  playing in the next era, complete (after Medieval), or failed. */
+export type RunStatus = 'playing' | 'crisis' | 'failed' | 'complete'
+export function runStatus(s: AscensionState): RunStatus {
+  if (isComplete(s.era)) return 'complete'
+  if (s.crises.length && s.crises[s.crises.length - 1].result === 'failed') return 'failed'
+  return s.crisis ? 'crisis' : 'playing'
+}
+/** Throws unless cards may be played or discarded. */
+function assertPlaying(s: AscensionState): void {
+  const st = runStatus(s)
+  if (st === 'complete') throw new Error('first playable complete')
+  if (st === 'failed') throw new Error(`run over: ${s.crises[s.crises.length - 1].label} failed`)
+  if (st === 'crisis') throw new Error('resolve the crisis first')
 }
 
 /** Card indices refer to positions in `hand`. */
 export type AscensionAction =
   | { type: 'play'; cards: number[] }
   | { type: 'discard'; cards: number[] }
+  | { type: 'resolve' }
 
 export function newAscensionGame(seedText: string): AscensionState {
   const seed = hashSeed(seedText)
@@ -169,6 +195,8 @@ export function newAscensionGame(seedText: string): AscensionState {
     lastPlay: null,
     era: 0,
     eraLog: [],
+    crisis: null,
+    crises: [],
   }
   drawUp(s)
   return s
@@ -186,7 +214,7 @@ export function newAscensionGame(seedText: string): AscensionState {
  *  land bonus makes the same stat gains worth more in a world whose terrain
  *  favours them; civilizations add score only, never stats. */
 export function evaluatePlay(state: AscensionState, idxs: readonly number[]): PlayResult {
-  if (isComplete(state.era)) throw new Error('first playable complete')
+  assertPlaying(state)
   checkSelection(state.hand, idxs)
   const cards = idxs.map((i) => state.hand[i])
   const { category } = evaluateSelection(cards)
@@ -207,7 +235,18 @@ export function evaluatePlay(state: AscensionState, idxs: readonly number[]): Pl
 /** Pure transition. An illegal action throws before anything is built, so the
  *  input state is never changed. */
 export function applyAscensionAction(state: AscensionState, action: AscensionAction): AscensionState {
-  if (isComplete(state.era)) throw new Error('first playable complete')
+  if (action.type === 'resolve') {
+    if (runStatus(state) === 'playing') throw new Error('no crisis to resolve')
+    if (runStatus(state) !== 'crisis') assertPlaying(state)
+    const outcome: CrisisOutcome = { ...evaluateCrisis(state.era, state), round: state.crisis!.round }
+    const s = { ...state, crisis: null, crises: [...state.crises, outcome] }
+    if (outcome.result === 'survived') {
+      s.eraLog = [...s.eraLog, { from: ERAS[s.era].id, to: ERAS[s.era + 1]?.id ?? null, round: outcome.round, stats: { ...s.stats }, civilizations: s.civilizations.length }]
+      s.era += 1
+    }
+    return s
+  }
+  assertPlaying(state)
   if (action.type === 'play') {
     if (state.playsLeft <= 0) throw new Error('no plays left this round')
     const result = evaluatePlay(state, action.cards)
@@ -221,11 +260,8 @@ export function applyAscensionAction(state: AscensionState, action: AscensionAct
       // round-end checkpoint: at most one civilization emerges
       const civ = emergeCivilization(s.seed, s.round, s.regions, s.stats, s.civilizations)
       if (civ) s.civilizations = [...s.civilizations, civ]
-      // then at most one era advance (the last one completes the first playable)
-      if (canAdvance(s.era, s.stats, s.civilizations)) {
-        s.eraLog = [...s.eraLog, { from: ERAS[s.era].id, to: ERAS[s.era + 1]?.id ?? null, round: s.round, stats: { ...s.stats }, civilizations: s.civilizations.length }]
-        s.era += 1
-      }
+      // then, if the era's requirements hold, its crisis strikes (resolved by a separate action)
+      if (canAdvance(s.era, s.stats, s.civilizations)) s.crisis = { round: s.round }
       s.discardPile.push(...s.hand)
       s.hand = []
       s.round += 1

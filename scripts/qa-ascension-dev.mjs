@@ -198,30 +198,77 @@ try {
   // eras: play a balanced strategy through the UI to the end of the first playable
   const readStatsNow = () => p.locator('[data-testid="asc-stats"] [data-stat]').evaluateAll((els) => Object.fromEntries(els.map((e) => [e.dataset.stat, +e.dataset.value])))
   const SUIT_STAT = { '♥': 'vitality', '♦': 'prosperity', '♣': 'industry', '♠': 'knowledge' }
-  let plays = 0
-  while (!(await p.locator('[data-testid="asc-complete"]').count()) && plays < 120) {
-    const reqs = await reqState(), status = await p.locator('[data-testid="asc-era-status"]').innerText()
-    if (reqs.some((r) => r.met !== r.have >= r.need)) fail(`prototype: requirement met flag inconsistent: ${JSON.stringify(reqs)}`)
-    if (reqs.every((r) => r.met) !== status.startsWith('All requirements met')) fail(`prototype: era status "${status}" contradicts ${JSON.stringify(reqs)}`)
-    const add = await readStatsNow(), hand = await cards.allInnerTexts(), pick = []
-    while (pick.length < 5) {
-      const i = hand.map((_, j) => j).filter((j) => !pick.includes(j)).sort((x, y) => add[SUIT_STAT[hand[x].slice(-1)]] - add[SUIT_STAT[hand[y].slice(-1)]] || x - y)[0]
-      pick.push(i); add[SUIT_STAT[hand[i].slice(-1)]] += 1
+
+  // Fresh game: check crisis forecast block
+  const forecast = await p.locator('[data-testid="asc-crisis-forecast"]')
+  if (!(await forecast.count())) fail('prototype: crisis forecast missing at start')
+  const forecastText = await forecast.innerText()
+  if (!forecastText.includes('Harsh Winter')) fail(`prototype: expected "Harsh Winter" forecast, got "${forecastText}"`)
+  ok('prototype crisis forecast', 'fresh game shows "Harsh Winter"')
+
+  /** Play a balanced strategy through the UI (resolving each crisis after checking it) until the run ends. */
+  const playBalanced = async () => {
+    let plays = 0, crises = []
+    while (!(await p.locator('[data-testid="asc-complete"], [data-testid="asc-failed"]').count()) && plays < 120) {
+      const crisisPanel = p.locator('[data-testid="asc-crisis"]')
+      if (await crisisPanel.count()) {
+        if ((await cards.count()) || (await p.locator('[data-testid="asc-play"]').count())) fail('prototype: hand and Play must be gone during a crisis')
+        const text = await crisisPanel.innerText()
+        const sum = (side) => p.locator(`[data-testid="asc-crisis"] [data-testid="asc-factor"][data-side="${side}"]`).evaluateAll((els) => els.reduce((n, e) => n + +e.dataset.amount, 0))
+        const [, r, pr, verdict] = text.match(/resilience (\d+) vs pressure (\d+) → (survives|fails) by/) ?? []
+        if (!verdict || +r !== (await sum('mitigation')) || +pr !== (await sum('pressure'))) fail(`prototype: crisis verdict does not match its factors: "${text}"`)
+        const before = await p.locator('[data-testid="asc-crisis-log"] li').count()
+        await p.click('[data-testid="asc-resolve"]')
+        const entries = p.locator('[data-testid="asc-crisis-log"] li')
+        if ((await entries.count()) !== before + 1) fail('prototype: resolving must log exactly one crisis')
+        const result = await entries.last().getAttribute('data-result')
+        if (result !== (verdict === 'survives' ? 'survived' : 'failed')) fail(`prototype: logged ${result} but the verdict said ${verdict}`)
+        crises.push(`${text.match(/Crisis: ([^\n]+)/)[1]} ${result} ${r}/${pr}`)
+        continue
+      }
+      const reqs = await reqState(), status = await p.locator('[data-testid="asc-era-status"]').innerText()
+      if (reqs.some((q) => q.met !== q.have >= q.need)) fail(`prototype: requirement met flag inconsistent: ${JSON.stringify(reqs)}`)
+      if (reqs.every((q) => q.met) !== status.startsWith('All requirements met')) fail(`prototype: era status "${status}" contradicts ${JSON.stringify(reqs)}`)
+      if (!(await p.locator('[data-testid="asc-crisis-forecast"]').count())) fail('prototype: the coming crisis must be forecast while playing')
+      const add = await readStatsNow(), hand = await cards.allInnerTexts(), pick = []
+      while (pick.length < 5) {
+        const i = hand.map((_, j) => j).filter((j) => !pick.includes(j)).sort((x, y) => add[SUIT_STAT[hand[x].slice(-1)]] - add[SUIT_STAT[hand[y].slice(-1)]] || x - y)[0]
+        pick.push(i); add[SUIT_STAT[hand[i].slice(-1)]] += 1
+      }
+      for (const i of pick) await cards.nth(i).click()
+      await p.click('[data-testid="asc-play"]')
+      plays += 1
     }
-    for (const i of pick) await cards.nth(i).click()
-    await p.click('[data-testid="asc-play"]')
-    plays += 1
+    return { plays, crises }
   }
+  const worldKept = async (what) => {
+    if ((await cards.count()) || (await p.locator('[data-testid="asc-play"]').count())) fail(`prototype: hand and Play must be gone once ${what}`)
+    if (!(await p.locator('[data-testid="asc-civs"] li').count()) || (await p.locator('[data-testid="asc-world"] li[data-terrain]').count()) !== 12) fail(`prototype: world and civilizations must stay visible once ${what}`)
+  }
+
+  // qa-asc: a balanced run survives all three crises
+  const won = await playBalanced()
   const log = await p.locator('[data-testid="asc-era-log"] li').allInnerTexts()
-  if (!(await p.locator('[data-testid="asc-complete"]').count())) fail(`prototype: first playable not completed after ${plays} plays; log ${JSON.stringify(log)}`)
+  if (!(await p.locator('[data-testid="asc-complete"]').count())) fail(`prototype: qa-asc should complete; crises ${JSON.stringify(won.crises)}`)
   if (log.length !== 3 || !log[0].includes('Tribal → Ancient') || !log[1].includes('Ancient → Medieval') || !log[2].includes('Medieval completed')) fail(`prototype: era history wrong: ${JSON.stringify(log)}`)
   const doneText = await p.locator('[data-testid="asc-complete"]').innerText()
-  const lastRound = log[2].match(/End of round (\d+)/)[1]
-  if (!doneText.includes('First playable complete') || !doneText.includes(`end of round ${lastRound}`)) fail(`prototype: completion block wrong: "${doneText}"`)
-  if ((await cards.count()) || (await p.locator('[data-testid="asc-play"]').count())) fail('prototype: hand and Play must be gone once complete')
-  if ((await p.locator('[data-testid="asc-civs"] li').count()) < 3 || (await p.locator('[data-testid="asc-world"] li[data-terrain]').count()) !== 12) fail('prototype: world and civilizations must stay visible after completion')
+  if (!doneText.includes('First playable complete') || !doneText.includes(`end of round ${log[2].match(/End of round (\d+)/)[1]}`)) fail(`prototype: completion block wrong: "${doneText}"`)
+  await worldKept('complete')
   await p.screenshot({ path: 'shots/ascension-dev-complete.png', fullPage: true })
-  ok('prototype eras', `${plays} balanced plays: ${log.map((l) => l.split(' with ')[0]).join(' | ')}; "First playable complete", world kept`)
+  ok('prototype crises survived', `${won.plays} balanced plays; ${won.crises.join(' | ')}; "First playable complete", world kept`)
+
+  // crisis-11: the same balanced strategy loses the Harsh Winter by one point
+  await p.click('[data-testid="asc-exit"]')
+  await p.click('[data-testid="ascension-entry"]')
+  await p.fill('#asc-seed', 'crisis-11')
+  await p.click('[data-testid="asc-start"]')
+  const lost = await playBalanced()
+  const failedText = (await p.locator('[data-testid="asc-failed"]').count()) ? await p.locator('[data-testid="asc-failed"]').innerText() : ''
+  if (!failedText.includes('Run over') || !failedText.includes('Harsh Winter') || !failedText.includes('resilience 27 vs pressure 28')) fail(`prototype: crisis-11 should end in the Harsh Winter (27 vs 28): "${failedText}" ${JSON.stringify(lost.crises)}`)
+  if (await p.locator('[data-testid="asc-era-log"] li').count()) fail('prototype: a failed crisis must not advance the era')
+  await worldKept('failed')
+  await p.screenshot({ path: 'shots/ascension-dev-failed.png', fullPage: true })
+  ok('prototype crisis failed', `${lost.plays} plays; ${lost.crises.join(' | ')}; "Run over", world kept`)
 
   // back to Classic; Ascension wrote nothing
   await p.click('[data-testid="asc-exit"]')
