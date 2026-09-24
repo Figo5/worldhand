@@ -2,7 +2,8 @@
 // the way a player double-clicks it — no dev server, no preview server.
 //
 // Covers: load + localStorage availability on file://, wide (1280x800) and
-// mobile (480x800), keyboard card navigation, a full run to game-over, reload
+// mobile (480x800), the inlined 3D globe, keyboard card navigation, the
+// World Chronicle menu item, a full run to game-over, reload
 // persistence, a real shop purchase, and portable save export -> import on a
 // second "device" (a fresh browser context with empty storage).
 //
@@ -90,6 +91,10 @@ async function advancePanels(page) {
   const { ctx, page, errors } = await newPage(1280, 800)
   await startWorld(page, 'portable-qa-wide')
 
+  // the globe is a dynamic import; this build must inline it and mount it offline
+  await page.waitForSelector('[data-testid="planet3d-canvas"]', { timeout: 15000 })
+  ok('globe', 'the lazily imported 3D globe mounts from the single file')
+
   // keyboard: focus first card, arrow to the next, toggle with Enter/Space
   await page.locator('.hand-cards .pcard-btn').first().focus()
   await page.keyboard.press('ArrowRight')
@@ -112,6 +117,12 @@ async function advancePanels(page) {
   if ((await page.locator('.pcard-btn.sel').count()) !== 5) throw new Error('6th card: selection should stay at 5')
   while (await page.locator('.pcard-btn.sel').count()) await page.locator('.pcard-btn.sel').first().click()
   ok('rejected action', 'a 6th card shows "at most 5 cards" and the table stays mounted')
+
+  // the run menu's World Chronicle item opens the chronicle drawer
+  await page.locator('[data-testid="menu-btn"]').click()
+  await page.locator('[data-testid="menu-pop"] button:has-text("World Chronicle")').click()
+  if (!(await page.locator('details.chronicle').evaluate((d) => d.open))) throw new Error('World Chronicle menu item did not open the chronicle')
+  ok('chronicle', 'the World Chronicle menu item opens the drawer')
 
   // shop: reach the first market and buy the cheapest affordable offer
   let guard = 0
