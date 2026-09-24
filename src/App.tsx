@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import {
   newGame, applyAction, preview,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, TOTAL_REGIONS,
@@ -11,8 +11,23 @@ import {
 import { cardName, SUIT_NAMES } from './engine/poker'
 import type { Suit } from './engine/poker'
 import { saveGame, loadGame, loadGameDetailed, clearSave, listLegacySaves, exportSave, importSave } from './ui/save'
-import Planet3D from './components/Planet3D'
+import type { Planet3DProps } from './components/Planet3D'
 import AscensionApp from './ui/AscensionApp'
+
+/** The globe pulls in three.js, most of the bundle, so it is its own chunk:
+ *  the title screen and the hand render without it (the portable build
+ *  inlines it). If the chunk cannot load, e.g. in a tab left open across a
+ *  deploy, the game stays playable from the region legend. */
+const loadPlanet3D = () => import('./components/Planet3D').catch(() => ({ default: GlobeUnavailable }))
+const Planet3D = lazy<ComponentType<Planet3DProps>>(loadPlanet3D)
+
+function GlobeUnavailable(_: Planet3DProps) {
+  return (
+    <div className="planet3d-wrap globe-note" role="note">
+      The 3D globe could not be loaded. Every region is listed below.
+    </div>
+  )
+}
 
 const SUIT_GLYPH: Record<Suit, string> = { S: '♠', H: '♥', D: '♦', C: '♣' }
 
@@ -135,6 +150,9 @@ export default function App() {
   useEffect(() => {
     if (state) saveGame(state)
   }, [state])
+
+  // Fetch the globe chunk while the player is still on the title screen.
+  useEffect(() => { void loadPlanet3D() }, [])
 
   // The engine throws on an illegal action. It must run HERE, not inside a
   // setState updater: React runs updaters during render, where a throw escapes
@@ -829,7 +847,9 @@ function PlanetPanel({
       <div className={detailOpen ? 'planet-context-line' : 'planet-context-line collapsed'} data-testid="planet-context-line">
         Development {totalDev}/{devPotential} across {living.length} living regions — the planet grows with it. Drag the globe or use the region legend below; matching regions glow gold during a live preview.
       </div>
-      <Planet3D regions={regions} focus={focus} onFocus={onFocus} previewSpec={previewSpec} matchingIds={matchingIds} previewActive={previewActive} />
+      <Suspense fallback={<div className="planet3d-wrap" aria-busy="true" aria-label="Loading the 3D globe" />}>
+        <Planet3D regions={regions} focus={focus} onFocus={onFocus} previewSpec={previewSpec} matchingIds={matchingIds} previewActive={previewActive} />
+      </Suspense>
       <div className="region-legend" data-testid="region-legend" role="group" aria-label="All 12 regions — select one to inspect it on the globe">
         {regions.map((r) => {
           const isFocus = focus === r.id

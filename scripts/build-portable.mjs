@@ -29,10 +29,11 @@ await build({
     // No separate asset files: anything small enough becomes a data URI, and
     // the JS/CSS below are inlined by hand.
     assetsInlineLimit: Number.MAX_SAFE_INTEGER,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         format: 'iife',
-        inlineDynamicImports: true,
+        // One chunk: dynamic imports (the lazily loaded 3D globe) are inlined.
+        codeSplitting: false,
         entryFileNames: 'app.js',
         assetFileNames: 'app.[ext]',
       },
