@@ -105,6 +105,14 @@ function countUpcoming(tab: ShopTab, s: GameState): number {
   }
 }
 
+/** The menu's World Chronicle entry: open the drawer and move focus to it. */
+function openChronicle(d: HTMLDetailsElement | null) {
+  if (!d) return
+  d.open = true
+  d.scrollIntoView({ block: 'nearest' })
+  d.querySelector('summary')?.focus()
+}
+
 /** Arrow-key navigation across the hand: focus follows Left/Right/Up/Down
  *  between the card buttons; Enter/Space toggles via the buttons themselves. */
 function handleHandKeys(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -135,6 +143,7 @@ export default function App() {
   // Portable save transfer (offline build: no backend, no account) — the file
   // picker is driven by a real button so it stays keyboard-reachable.
   const importRef = useRef<HTMLInputElement>(null)
+  const chronicleRef = useRef<HTMLDetailsElement>(null)
 
   useEffect(() => {
     const res = loadGameDetailed()
@@ -334,7 +343,7 @@ export default function App() {
           <span className="rail-sub" aria-label="Flourishing">FLOURISHING {state.flourishing}</span>
         </div>
         <div className="rail-chips">
-          <span className={`rail-chip ${state.lives <= 1 ? 'chip-danger' : ''}`} title="Lives — EVERY missed epoch target (all 3 epochs) costs 1; 0 ends the run">
+          <span className={`rail-chip ${state.lives <= 1 ? 'chip-danger' : ''}`} title="Lives — every missed epoch target costs 1; 0 ends the run">
             <span className="chip-label">Lives</span><strong>{state.lives}/{SURVIVAL_START}</strong>
           </span>
           <span className="rail-chip" title="Plays left this epoch (4 per epoch)">
@@ -364,7 +373,7 @@ export default function App() {
             <div className="menu-pop" data-testid="menu-pop" role="menu" aria-label="Run menu">
               <button role="menuitem" onClick={() => { saveGame(state); setMenuOpen(false) }}>Save now <span className="menu-note">checkpoint — autosave already runs</span></button>
               <button role="menuitem" onClick={() => { const s = loadGame(); if (s) { setState(s); setMenuOpen(false) } }}>Load last save</button>
-              <button role="menuitem" onClick={() => { setMenuOpen(false) }}>World Chronicle</button>
+              <button role="menuitem" onClick={() => { setMenuOpen(false); openChronicle(chronicleRef.current) }}>World Chronicle</button>
               <button role="menuitem" className="menu-quit" onClick={() => { setMenuOpen(false); setState(null) }} title="Quit to menu — your save is kept and can be reloaded">Quit to menu</button>
             </div>
           )}
@@ -570,7 +579,7 @@ export default function App() {
       )}
 
       {/* World Chronicle: a collapsible drawer, not a permanent panel wall */}
-      <details className="chronicle" open={over}>
+      <details className="chronicle" open={over} ref={chronicleRef}>
         <summary data-testid="chronicle-summary">World Chronicle</summary>
         <ul>
           {state.log.slice(-12).map((l, i) => (
@@ -830,7 +839,6 @@ function PlanetPanel({
   const focused = focus !== null ? regions[focus] : null
   const living = regions.filter((r) => !r.dormant)
   const totalDev = living.reduce((n, r) => n + r.development, 0)
-  const devPotential = living.length * STABILITY_MAX
   return (
     <section className="panel planet" aria-label="Planet map">
       <div className="planet-ctx" data-testid="planet-ctx">
@@ -845,7 +853,7 @@ function PlanetPanel({
         </button>
       </div>
       <div className={detailOpen ? 'planet-context-line' : 'planet-context-line collapsed'} data-testid="planet-context-line">
-        Development {totalDev}/{devPotential} across {living.length} living regions — the planet grows with it. Drag the globe or use the region legend below; matching regions glow gold during a live preview.
+        Development {totalDev} across {living.length} living regions — the planet grows with it. Drag the globe or use the region legend below; matching regions glow gold during a live preview.
       </div>
       <Suspense fallback={<div className="planet3d-wrap" aria-busy="true" aria-label="Loading the 3D globe" />}>
         <Planet3D regions={regions} focus={focus} onFocus={onFocus} previewSpec={previewSpec} matchingIds={matchingIds} previewActive={previewActive} />
