@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   newGame, applyAction, preview, buildPlan,
-  SEEDS_PER_GROWTH, MARKET_ITEMS, epochTarget,
+  MARKET_ITEMS, epochTarget,
   STABILITY_BASE, SURVIVAL_START, validateState,
   type GameState, type PlanEffect,
 } from '../src/engine/worldhand'
@@ -133,8 +133,6 @@ describe('FIX 1: Mycorrhiza decay — living-region decay is ZERO with the law, 
 // ---------------------------------------------------------------------------
 
 describe('FIX 2: no Seed wallet ceiling — a play under the per-play cap banks its full nominal earn', () => {
-  const nominal = (growth: number) => Math.ceil(growth * SEEDS_PER_GROWTH)
-
   it('a play under the per-play cap banks the full nominal earn (no credited/overflow split)', () => {
     let s = newGame('fix2-plan')
     s.epoch = 20 // high target so early-advance never fires
@@ -144,8 +142,8 @@ describe('FIX 2: no Seed wallet ceiling — a play under the per-play cap banks 
     const pv = preview(s)
     const fx = seedsFx(pv)
     expect(fx.amount).toBe(16)
-    expect(fx.credited).toBeUndefined()
-    expect(fx.overflow).toBeUndefined()
+    expect(fx).not.toHaveProperty('credited')
+    expect(fx).not.toHaveProperty('overflow')
     expect(pv.summary).toContain('Gains 16 Seeds')
     expect(pv.summary).not.toContain('overflow')
     expect(pv.summary).not.toContain('Credited')
@@ -244,8 +242,8 @@ describe('FIX 2: no Seed wallet ceiling — a play under the per-play cap banks 
     expect(plan.summary).toMatch(/Gains 3 Seeds/)
     const fx = seedsFx(plan)
     expect(fx.amount).toBe(3)
-    expect(fx.credited).toBeUndefined()
-    expect(fx.overflow).toBeUndefined()
+    expect(fx).not.toHaveProperty('credited')
+    expect(fx).not.toHaveProperty('overflow')
   })
 })
 

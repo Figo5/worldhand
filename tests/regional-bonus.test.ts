@@ -23,7 +23,7 @@ import {
   MARKET_ITEMS, SAVE_VERSION, epochTarget,
   type GameState, type Region,
 } from '../src/engine/worldhand'
-import type { Card, Suit as PSuit } from '../engine/poker'
+import type { Card, Suit as PSuit } from '../src/engine/poker'
 
 const C = (r: number, s: PSuit): Card => ({ r: r as Card['r'], s })
 

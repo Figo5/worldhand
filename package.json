@@ -1,10 +1,11 @@
 {
   "name": "worldhand",
   "version": "0.1.0",
+  "private": true,
   "description": "A deterministic seeded planet-building roguelike played with an 8-card hand",
-  "main": "index.html",
   "scripts": {
     "test": "vitest run --root . --dir .",
+    "typecheck": "tsc && tsc -p tests",
     "build": "tsc && vite build",
     "dev": "vite --port 5177 --strictPort",
     "preview": "vite preview --port 5177 --strictPort",
@@ -14,6 +15,9 @@
   "author": "",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

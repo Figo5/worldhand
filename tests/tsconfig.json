@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true
+  },
+  "include": ["**/*.ts"],
+  // Reads the engine sources with node:fs, and the project has no @types/node.
+  "exclude": ["engine-boundaries.test.ts"]
+}
