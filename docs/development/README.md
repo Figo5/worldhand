@@ -5,6 +5,7 @@
 - [Interface design brief](design-brief.md)
 - [Rejected non-match-penalty experiment](experiments/non-match-penalty-d02b14c/)
 - [Ascension first-playable audit (rules v7)](ascension-audit.md) and its [raw output](experiments/ascension-audit/audit-1000.txt)
+- [Ascension core-loop correction (rules v8)](ascension-core-loop.md): before/after [audit](experiments/ascension-core-loop/audit-1000.txt) and [design comparison](experiments/ascension-core-loop/designs-300.txt)
 
 These documents span earlier rulesets. Their measurements, counts, paths and
 verdicts describe the revision named in each report, not necessarily current main.
@@ -36,7 +37,8 @@ npm run build
 npm run build:portable
 node scripts/qa-portable.mjs                  # browser QA of the file:// artifact
 node scripts/qa-ascension-dev.mjs             # Ascension prototype: dev server only; absent from both builds
-node --import ./scripts/ts-resolve.mjs scripts/ascension-audit.mjs 1000   # Ascension balance/loop audit (~3.5 min)
+node --import ./scripts/ts-resolve.mjs scripts/ascension-audit.mjs 1000   # Ascension v7 vs v8 loop audit (~13 min)
+node --import ./scripts/ts-resolve.mjs scripts/ascension-designs.mjs 300 '<designs json>'   # compare candidate rule designs
 node scripts/playtest-v8.mjs                  # v8 bounded-economy rules, in the browser
 npx vite --port 5177 --host 127.0.0.1 & node scripts/qa.mjs   # dev-server layout check
 node --import ./scripts/ts-resolve.mjs scripts/difficulty-measure.mjs   # balance harness
