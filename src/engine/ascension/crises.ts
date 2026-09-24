@@ -210,6 +210,8 @@ export interface CrisisMods {
   strainPct: number
   allyResilience: number
   rivalPressure: number
+  /** rivalries press every crisis, not only conflicts (Omen: restless peoples) */
+  rivalsEverywhere: boolean
   /** extra labelled factors from legendaries */
   extraPressures: Factor[]
   extraMitigations: Factor[]
@@ -261,7 +263,7 @@ export function evaluateCrisis(id: CrisisId, w: World, mods: CrisisMods): Crisis
   const mitigations = c.mitigations.map((f) => factor(f, w, mods, reserves))
   const rivals = w.relations.filter((r) => r.relation === 'rival').length
   const allies = w.relations.filter((r) => r.relation === 'ally').length
-  if (c.conflict) pressures.push({ label: 'Rivalries', amount: rivals * mods.rivalPressure, detail: `${rivals} rival pair${rivals === 1 ? '' : 's'} × ${mods.rivalPressure}` })
+  if (c.conflict || mods.rivalsEverywhere) pressures.push({ label: 'Rivalries', amount: rivals * mods.rivalPressure, detail: `${rivals} rival pair${rivals === 1 ? '' : 's'} × ${mods.rivalPressure}` })
   if (w.eraPressure) pressures.push({ label: 'Your own doing', amount: w.eraPressure, detail: 'added by risky cards this era' })
   pressures.push(...mods.extraPressures)
   mitigations.push({ label: 'Alliances', amount: allies * mods.allyResilience, detail: `${allies} allied pair${allies === 1 ? '' : 's'} × ${mods.allyResilience}` })

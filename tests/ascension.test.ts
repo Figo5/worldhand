@@ -68,7 +68,7 @@ function scripted(seedText: string, o: Partial<RunSetup> = {}) {
   return { s, actions }
 }
 const deepFreeze = <T,>(o: T): T => { if (o && typeof o === 'object') { Object.freeze(o); for (const v of Object.values(o)) deepFreeze(v) } return o }
-const mods = (o: Partial<CrisisMods> = {}): CrisisMods => ({ reserveRate: 100, pressurePct: 0, strainPct: 0, allyResilience: 3, rivalPressure: 5, extraPressures: [], extraMitigations: [], ...o })
+const mods = (o: Partial<CrisisMods> = {}): CrisisMods => ({ reserveRate: 100, pressurePct: 0, strainPct: 0, allyResilience: 3, rivalPressure: 5, rivalsEverywhere: false, extraPressures: [], extraMitigations: [], ...o })
 
 describe('Ascension v10: a new run', () => {
   it('is rules version 10 with the documented opening', () => {
@@ -601,12 +601,17 @@ describe('Ascension v10: Omens', () => {
     const harsh = Array.from({ length: 100 }, (_, i) => generateRegions(hashSeed(`h${i}`), 'pangaea', true).filter((r) => r.terrain === 'tundra' || r.terrain === 'desert').length).reduce((a, b) => a + b, 0)
     const mild = Array.from({ length: 100 }, (_, i) => generateRegions(hashSeed(`h${i}`)).filter((r) => r.terrain === 'tundra' || r.terrain === 'desert').length).reduce((a, b) => a + b, 0)
     expect(harsh).toBeGreaterThan(mild)
-    expect(runMods(at(3)).crisis.pressurePct).toBe(10)
+    expect(runMods(at(3)).crisis.rivalsEverywhere).toBe(true)
+    expect(runMods(at(3)).crisis.allyResilience).toBe(2)
+    expect(runMods(at(2)).crisis.rivalsEverywhere).toBe(false)
     expect(runMods(at(4)).marketSlots).toBe(4)
-    expect(startingResolve(5)).toBe(2)
-    expect(at(5).resolve).toBe(2)
+    expect(runMods(at(5)).crisis.pressurePct).toBe(5)
     expect(runMods(at(6)).crisis.strainPct).toBe(50)
-    expect(at(7).handsLeft).toBe(ERAS[0].hands - 1)
+    expect(startingResolve(7)).toBe(2)
+    expect(at(7).resolve).toBe(2)
+    expect(at(6).resolve).toBe(3)
+    expect(runMods(at(8), 3).handsBonus).toBe(0)
+    expect(runMods(at(8), 4).handsBonus).toBe(-1)
     const night = structuredClone(at(8))
     night.era = FINAL_ERA
     night.crises = [{ ...face(at(8)).crises[0], result: 'failed', prevented: false }]
