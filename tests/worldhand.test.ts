@@ -4,10 +4,10 @@ import {
   applyPlanEffects, epochTarget, SEEDS_PER_GROWTH, LAW_SLOTS,
   SURVIVAL_START, MARKET_ITEMS, validateState, worldScore,
   PLAYS_PER_EPOCH, DISCARDS_PER_EPOCH, HAND_SIZE, TOTAL_REGIONS,
-  STABILITY_BASE, STABILITY_MAX, START_REGIONS, JOKER_SLOTS,
+  STABILITY_BASE, START_REGIONS, JOKER_SLOTS,
 } from '../src/engine/worldhand'
 import { CATEGORY_MULT } from '../src/engine/poker'
-import type { GameState } from '../src/engine/worldhand'
+import type { GameState, Joker, Law } from '../src/engine/worldhand'
 import type { Card, Suit as PSuit } from '../src/engine/poker'
 
 const C = (r: number, s: PSuit): Card => ({ r: r as Card['r'], s })
@@ -88,7 +88,6 @@ describe('no per-suit world actions — a play is just a poker hand', () => {
     expect(withField.lastResolution!.effects.every((e) => e.kind === 'flourishing' || e.kind === 'seeds')).toBe(true)
   })
   it('plans carry no suit action: effects are exactly flourishing + auto-seeds', () => {
-    const s0 = newGame('no-suit-plan')
     for (const suit of ['S', 'H', 'D', 'C'] as const) {
       const plan = buildPlan([C(10, suit)], [0], [])
       expect(plan.valid).toBe(true)
@@ -207,13 +206,13 @@ describe('Growth = chips x mult + laws (preview == commit)', () => {
     expect(flush.growth).toBeGreaterThan(high.growth)
   })
   it('flat Growth laws add to every play; mult laws multiply the poker base', () => {
-    const laws3 = [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade', growthFlat: 3 }]
+    const laws3: Law[] = [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade', growthFlat: 3 }]
     const base = buildPlan([C(10, 'H')], [0], [])
     const flat = buildPlan([C(10, 'H')], [0], laws3)
     expect(base.growth).toBe(10)
     expect(flat.growth).toBe(13)
     expect(flat.growthParts.laws).toBe(3)
-    const lawsMult = [{ id: 'open-canals', title: 'Open Canals', desc: '', cost: 14, kind: 'upgrade', growthMult: 1.2 }]
+    const lawsMult: Law[] = [{ id: 'open-canals', title: 'Open Canals', desc: '', cost: 14, kind: 'upgrade', growthMult: 1.2 }]
     const mult = buildPlan([C(10, 'H')], [0], lawsMult)
     expect(mult.growth).toBe(12) // round(10 x 1.2)
     expect(mult.growthParts.laws).toBe(2)
@@ -231,7 +230,7 @@ describe('Growth = chips x mult + laws (preview == commit)', () => {
       [C(14, 'S'), C(2, 'H'), C(3, 'D'), C(4, 'C'), C(5, 'S')], // wheel straight
     ]
     for (const hand of hands) {
-      for (const laws of [[], [{ id: 'x', title: 'X', desc: '', cost: 1, kind: 'upgrade', growthMult: 1.2, growthFlat: 3 }]]) {
+      for (const laws of [[], [{ id: 'x', title: 'X', desc: '', cost: 1, kind: 'upgrade', growthMult: 1.2, growthFlat: 3 }]] as Law[][]) {
         const plan = buildPlan(hand, hand.map((_, i) => i), laws)
         expect(plan.valid).toBe(true)
         expect(plan.chips).toBe(plan.rankSum)
@@ -264,7 +263,6 @@ describe('Growth = chips x mult + laws (preview == commit)', () => {
     expect(s2.flourishing).toBe(before.f + pv.growth)
   })
   it('every banked Growth carries one flourishing effect equal to the plan growth', () => {
-    const s0 = newGame('growth-bank')
     for (const suit of ['S', 'H', 'D', 'C'] as const) {
       const plan = buildPlan([C(10, suit)], [0], [])
       expect(plan.effects.filter((e) => e.kind === 'flourishing')).toHaveLength(1)
@@ -682,7 +680,7 @@ describe('World Score + World Projects (the goal: make the world as good as you 
 
 describe('Balatro-hard: Jokers, Planet cards, Consumables, Vouchers, World Level', () => {
   it('a Pair Joker multiplies Growth when a Pair is played, and not otherwise', () => {
-    const jokers = [{ id: 'joker-pair', title: 'Pair Joker', desc: '', cost: 8, condition: 'pair', mult: 0.5 }]
+    const jokers: Joker[] = [{ id: 'joker-pair', title: 'Pair Joker', desc: '', cost: 8, condition: 'pair', mult: 0.5 }]
     const pair = buildPlan([C(9, 'S'), C(9, 'H')], [0, 1], [], [], [], { jokers })
     expect(pair.growth).toBe(Math.round(18 * 1.5 * 1.5)) // 18 chips × 1.5 mult × 1.5 joker
     const high = buildPlan([C(9, 'S'), C(5, 'H')], [0, 1], [], [], [], { jokers })
@@ -711,7 +709,7 @@ describe('Balatro-hard: Jokers, Planet cards, Consumables, Vouchers, World Level
   })
 
   it('a Voucher adds to all joker mult', () => {
-    const jokers = [{ id: 'joker-any', title: 'All-In Joker', desc: '', cost: 10, condition: 'any', mult: 0.25 }]
+    const jokers: Joker[] = [{ id: 'joker-any', title: 'All-In Joker', desc: '', cost: 10, condition: 'any', mult: 0.25 }]
     const vouchers = [{ id: 'voucher-joker', title: 'Voucher: Joker Power', desc: '', cost: 14, jokerMult: 0.5 }]
     const plan = buildPlan([C(10, 'H')], [0], [], [], [], { jokers, vouchers })
     expect(plan.growth).toBe(Math.round(10 * 1.75)) // 10 × (1 + 0.25 + 0.5)
@@ -746,7 +744,7 @@ describe('Balatro-hard: Jokers, Planet cards, Consumables, Vouchers, World Level
   })
 
   it('a firing joker is reported in jokerMult and jokerContribs (parts no longer reconcile to growth)', () => {
-    const jokers = [{ id: 'joker-pair', title: 'Pair Joker', desc: '', cost: 8, condition: 'pair', mult: 0.5 }]
+    const jokers: Joker[] = [{ id: 'joker-pair', title: 'Pair Joker', desc: '', cost: 8, condition: 'pair', mult: 0.5 }]
     const plan = buildPlan([C(9, 'S'), C(9, 'H')], [0, 1], [], [], [], { jokers })
     expect(plan.jokerMult).toBe(1.5)
     expect(plan.jokerContribs).toHaveLength(1)
@@ -877,8 +875,7 @@ describe('market: Seeds, laws, upgrades, expansions, card additions', () => {
     expect(s.laws.filter((l) => l.id === item.id)).toHaveLength(1)
   })
   it('flat Growth upgrades apply exactly once per play (no double-apply)', () => {
-    const s0 = newGame('flat-apply')
-    const laws = [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade', growthFlat: 3 }]
+    const laws: Law[] = [{ id: 'canopy-choir', title: 'Canopy Choir', desc: '', cost: 10, kind: 'upgrade', growthFlat: 3 }]
     const plan = buildPlan([C(10, 'H')], [0], laws)
     expect(plan.growth).toBe(13) // 10 + 3, not 10 + 2x3
   })

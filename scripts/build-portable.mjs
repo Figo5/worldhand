@@ -29,10 +29,20 @@ await build({
     // No separate asset files: anything small enough becomes a data URI, and
     // the JS/CSS below are inlined by hand.
     assetsInlineLimit: Number.MAX_SAFE_INTEGER,
-    rollupOptions: {
+    // One file by design (~800 kB), so Vite's 500 kB chunk warning is noise.
+    chunkSizeWarningLimit: 1000,
+    rolldownOptions: {
+      // Vite wraps dynamic imports in a preload helper that reads import.meta
+      // to resolve chunk URLs. IIFE output has no import.meta, but this build
+      // has no other chunks, so the helper never resolves one (qa-portable.mjs
+      // checks that the inlined globe mounts).
+      onwarn(warning, warn) {
+        if (warning.code !== 'EMPTY_IMPORT_META') warn(warning)
+      },
       output: {
         format: 'iife',
-        inlineDynamicImports: true,
+        // One chunk: dynamic imports (the lazily loaded 3D globe) are inlined.
+        codeSplitting: false,
         entryFileNames: 'app.js',
         assetFileNames: 'app.[ext]',
       },

@@ -328,8 +328,12 @@ try {
   const { ctx, p, errors } = await page()
   await freshTitle(p, server.resolvedUrls.local[0])
   await expectNoEntry(p, 'production preview')
+  // the globe is a separate chunk in this build: it must load and mount
+  await p.fill('#seed', 'qa-production-globe')
+  await p.click('text=Begin New World')
+  await p.waitForSelector('[data-testid="planet3d-canvas"]', { timeout: 30000 })
   if (errors.length) fail('production preview console errors: ' + errors.join(' | '))
-  ok('production build in a browser', 'title shows Classic only, no Ascension entry')
+  ok('production build in a browser', 'title shows Classic only, no Ascension entry; the globe chunk loads and mounts')
   await ctx.close()
   await server.close()
 }

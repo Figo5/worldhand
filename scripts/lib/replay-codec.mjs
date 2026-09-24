@@ -18,6 +18,7 @@ const BY_ID_CODE = Object.fromEntries(Object.entries(BY_ID).map(([t, [c, key]]) 
 
 export const ACTION_TYPES = ['toggleCard', 'discard', ...Object.keys(SIMPLE), ...Object.keys(BY_ID)]
 
+/** @param {import('../../src/engine/worldhand.ts').Action} a @returns {string} */
 export function encodeAction(a) {
   if (a.type === 'toggleCard') return `t${a.cardIdx}`
   if (a.type === 'discard') return `d${a.cardIdxs.join('.')}`
@@ -26,6 +27,7 @@ export function encodeAction(a) {
   throw new Error(`cannot encode action ${JSON.stringify(a)}`)
 }
 
+/** @param {string} code @returns {import('../../src/engine/worldhand.ts').Action} */
 export function decodeAction(code) {
   const colon = code.indexOf(':')
   if (colon >= 0) {
