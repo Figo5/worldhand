@@ -33,7 +33,8 @@ export type FactorSpec =
   | { kind: 'civCount'; label: string; per: number }
   | { kind: 'development'; label: string; div: number }
   | { kind: 'lowest'; label: string; per: number }
-  | { kind: 'spread'; label: string; per: number }
+  /** (highest − lowest stat − free) × per */
+  | { kind: 'spread'; label: string; per: number; free?: number }
   /** Reserves counted this many extra times (they are always counted once) */
   | { kind: 'savings'; label: string; extra: number }
 
@@ -81,7 +82,7 @@ export const CRISES: Record<CrisisId, CrisisDef> = {
     id: 'flood', label: 'Great Flood', kind: 'ecology', conflict: false,
     theme: 'The rivers rise and the sea follows; only works and high ground hold.',
     watch: 'Tests Industry (levees) and Prosperity (rebuilding). Coasts and plains flood; mountains, forests and Mariners help.',
-    pressures: [P('The flood', 22), { kind: 'terrain', label: 'Low shores', terrains: ['coast'], per: 2 }, { kind: 'terrain', label: 'Flood plains', terrains: ['plains'], per: 1 }],
+    pressures: [P('The flood', 24), { kind: 'terrain', label: 'Low shores', terrains: ['coast'], per: 2 }, { kind: 'terrain', label: 'Flood plains', terrains: ['plains'], per: 1 }],
     mitigations: [{ kind: 'stat', label: 'Levees', stat: 'industry', per: 2 }, { kind: 'stat', label: 'Rebuilding', stat: 'prosperity', div: 2 }, { kind: 'terrain', label: 'High ground', terrains: ['mountains', 'forest'], per: 1 }, { kind: 'civ', label: 'Mariners', archetype: 'mariners', perTier: 5 }],
     scar: [{ kind: 'stat', stat: 'prosperity', share: 1 }, { kind: 'terraform', from: ['coast', 'plains'], to: 'wasteland' }],
     scarText: 'Prosperity falls by the shortfall and a coast or plain with no civilization is drowned into wasteland.',
@@ -107,9 +108,9 @@ export const CRISES: Record<CrisisId, CrisisDef> = {
   invasion: {
     id: 'invasion', label: 'Invasion', kind: 'conflict', conflict: true,
     theme: 'Raiders strike a realm that has grown rich; arms, mountains and allies hold them off.',
-    watch: 'Tests Industry. All development draws raiders, and so does Prosperity above Industry; mountains, forests, civilizations and Empire Builders defend.',
+    watch: 'Tests Industry (and Prosperity hires mercenaries). All development draws raiders, and so does Prosperity above Industry; mountains, forests, civilizations and Empire Builders defend.',
     pressures: [P('The invasion', 48), { kind: 'terrain', label: 'Open land', terrains: ['plains', 'desert', 'coast'], per: 1 }, { kind: 'development', label: 'Riches to plunder', div: 6 }, { kind: 'strain', label: 'Undefended wealth', over: 'prosperity', under: 'industry' }],
-    mitigations: [{ kind: 'stat', label: 'Arms and walls', stat: 'industry', per: 2 }, { kind: 'terrain', label: 'Mountain passes', terrains: ['mountains'], per: 3 }, { kind: 'terrain', label: 'Forest cover', terrains: ['forest'], per: 2 }, { kind: 'civTiers', label: 'Levies', per: 2 }, { kind: 'civ', label: 'Empire Builders', archetype: 'empireBuilders', perTier: 5 }],
+    mitigations: [{ kind: 'stat', label: 'Arms and walls', stat: 'industry', per: 2 }, { kind: 'stat', label: 'Mercenaries', stat: 'prosperity', div: 3 }, { kind: 'terrain', label: 'Mountain passes', terrains: ['mountains'], per: 3 }, { kind: 'terrain', label: 'Forest cover', terrains: ['forest'], per: 2 }, { kind: 'civTiers', label: 'Levies', per: 2 }, { kind: 'civ', label: 'Empire Builders', archetype: 'empireBuilders', perTier: 5 }],
     scar: [{ kind: 'stat', stat: 'prosperity', share: 1 }, { kind: 'civTier', target: 'onTerrain', terrains: ['plains', 'desert', 'coast'] }],
     scarText: 'Prosperity falls by the shortfall and a civilization on open land is sacked (loses a tier).',
   },
@@ -135,7 +136,7 @@ export const CRISES: Record<CrisisId, CrisisDef> = {
     id: 'crash', label: 'Market Crash', kind: 'economy', conflict: false,
     theme: 'Paper fortunes vanish overnight; only real work and savings remain.',
     watch: 'Tests Industry and your Reserves (they count double). Prosperity and Prosperity above Industry inflate the bubble; Merchants are exposed.',
-    pressures: [P('The crash', 72), { kind: 'stat', label: 'Speculation', stat: 'prosperity', div: 2 }, { kind: 'strain', label: 'Debt', over: 'prosperity', under: 'industry', per: 2 }, { kind: 'civ', label: 'Exposed merchants', archetype: 'merchants', perTier: 3 }],
+    pressures: [P('The crash', 78), { kind: 'stat', label: 'Speculation', stat: 'prosperity', div: 2 }, { kind: 'strain', label: 'Debt', over: 'prosperity', under: 'industry', per: 2 }, { kind: 'civ', label: 'Exposed merchants', archetype: 'merchants', perTier: 3 }],
     mitigations: [{ kind: 'stat', label: 'Real production', stat: 'industry', per: 2 }, { kind: 'stat', label: 'Economists', stat: 'knowledge', div: 2 }, { kind: 'savings', label: 'Savings (Reserves again)', extra: 1 }],
     scar: [{ kind: 'stat', stat: 'prosperity', share: 1 }, { kind: 'influence', amount: 3 }],
     scarText: 'Prosperity falls by the shortfall and 3 Influence is lost.',
@@ -144,7 +145,7 @@ export const CRISES: Record<CrisisId, CrisisDef> = {
     id: 'revolution', label: 'Revolution', kind: 'conflict', conflict: true,
     theme: 'The neglected rise against the favoured.',
     watch: 'Tests your weakest stat (it counts double), with Prosperity (bread and circuses). The gap between your highest and lowest stats and rivalries fuel it; alliances calm it.',
-    pressures: [P('The revolution', 44), { kind: 'spread', label: 'Inequality', per: 2 }],
+    pressures: [P('The revolution', 40), { kind: 'spread', label: 'Inequality', per: 2 }],
     mitigations: [{ kind: 'lowest', label: 'The neglected are heard', per: 2 }, { kind: 'stat', label: 'Bread and circuses', stat: 'prosperity', div: 2 }],
     scar: [{ kind: 'stat', stat: 'highest', share: 1 }, { kind: 'civTier', target: 'strongest' }],
     scarText: 'Your highest stat falls by the shortfall and the greatest civilization loses a tier.',
@@ -152,9 +153,9 @@ export const CRISES: Record<CrisisId, CrisisDef> = {
   machines: {
     id: 'machines', label: 'Machine Awakening', kind: 'technology', conflict: false,
     theme: 'The thinking machines wake, and ask what their makers are for.',
-    watch: 'Tests Vitality (humanity) and Knowledge. Industry and Knowledge above Vitality empower the machines; Technocrats and Mystics hold the line.',
+    watch: 'Tests Vitality (humanity), Knowledge and Prosperity (safety nets). Industry and Knowledge above Vitality empower the machines; Technocrats and Mystics hold the line.',
     pressures: [P('The machines', 80), { kind: 'stat', label: 'Automation', stat: 'industry', div: 4 }, { kind: 'strain', label: 'Minds outrun hearts', over: 'knowledge', under: 'vitality', per: 2 }],
-    mitigations: [{ kind: 'stat', label: 'Humanity', stat: 'vitality', per: 2 }, { kind: 'stat', label: 'Alignment', stat: 'knowledge', div: 2 }, { kind: 'civ', label: 'Technocrats', archetype: 'technocrats', perTier: 6 }, { kind: 'civ', label: 'Mystics', archetype: 'mystics', perTier: 4 }],
+    mitigations: [{ kind: 'stat', label: 'Humanity', stat: 'vitality', per: 2 }, { kind: 'stat', label: 'Alignment', stat: 'knowledge', div: 2 }, { kind: 'stat', label: 'Safety nets', stat: 'prosperity', div: 3 }, { kind: 'civ', label: 'Technocrats', archetype: 'technocrats', perTier: 6 }, { kind: 'civ', label: 'Mystics', archetype: 'mystics', perTier: 4 }],
     scar: [{ kind: 'stat', stat: 'knowledge', share: 1 }, { kind: 'civTier', target: 'strongest' }],
     scarText: 'Knowledge falls by the shortfall and the greatest civilization loses a tier.',
   },
@@ -170,8 +171,8 @@ export const CRISES: Record<CrisisId, CrisisDef> = {
   filter: {
     id: 'filter', label: 'The Great Filter', kind: 'cosmic', conflict: false,
     theme: 'The silence of the stars is a test: few worlds are whole enough to pass it.',
-    watch: 'Tests everything: all development and every civilization tier. Lopsided worlds and wasteland fail it.',
-    pressures: [P('The filter', 104), { kind: 'spread', label: 'A lopsided world', per: 1 }, { kind: 'terrain', label: 'Wasteland', terrains: ['wasteland'], per: 5 }],
+    watch: 'Tests everything: all development and every civilization tier. A world whose highest stat leads its lowest by more than 12 pays for every point beyond; wasteland hurts too.',
+    pressures: [P('The filter', 98), { kind: 'spread', label: 'A lopsided world', per: 1, free: 12 }, { kind: 'terrain', label: 'Wasteland', terrains: ['wasteland'], per: 5 }],
     mitigations: [{ kind: 'development', label: 'A developed world', div: 2 }, { kind: 'civTiers', label: 'Civilizations', per: 2 }],
     scar: [{ kind: 'stat', stat: 'highest', share: 1 }],
     scarText: 'The world does not ascend.',
@@ -247,8 +248,8 @@ function factor(f: FactorSpec, w: World, mods: CrisisMods, reserves: number): Fa
     case 'development': { const d = totalOf(s); return { label: f.label, amount: Math.floor(d / f.div), detail: `development ${d} ÷ ${f.div}` } }
     case 'lowest': { const lo = Math.min(...WORLD_STATS.map((k) => s[k])); return { label: f.label, amount: lo * f.per, detail: `lowest stat ${lo} × ${f.per}` } }
     case 'spread': {
-      const v = WORLD_STATS.map((k) => s[k]), d = Math.max(...v) - Math.min(...v)
-      return { label: f.label, amount: Math.round(d * f.per * (1 + mods.strainPct / 100)), detail: `highest − lowest stat = ${d}` }
+      const v = WORLD_STATS.map((k) => s[k]), d = Math.max(...v) - Math.min(...v), over = Math.max(0, d - (f.free ?? 0))
+      return { label: f.label, amount: Math.round(over * f.per * (1 + mods.strainPct / 100)), detail: `highest − lowest stat = ${d}${f.free ? ` (the first ${f.free} are free)` : ''}` }
     }
     case 'savings': return { label: f.label, amount: reserves * f.extra, detail: `Reserves ${reserves} × ${f.extra}` }
   }

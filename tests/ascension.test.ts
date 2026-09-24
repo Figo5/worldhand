@@ -4,9 +4,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   newRun, applyAction, replay, runStatus, forecast, ownedCards, eraEndInfluence, treasury, isTriumph,
-  ASCENSION_RULES_VERSION, MIN_DECK, TRIUMPH_BONUS, FAIL_INFLUENCE,
+  ASCENSION_RULES_VERSION, MIN_DECK, TRIUMPH_BONUS, FAIL_INFLUENCE, HAND_INFLUENCE,
 } from '../src/engine/ascension/ascension'
-import { evaluatePlay, evaluateDiscard, classify, scoringPositions, HAND_TABLE, cardChips } from '../src/engine/ascension/scoring'
+import { evaluatePlay, evaluateDiscard, classify, scoringPositions, HAND_TABLE, cardChips, LAND_CHIPS } from '../src/engine/ascension/scoring'
 import { ERAS, FINAL_ERA } from '../src/engine/ascension/eras'
 import { CRISIS_ORDER, evaluateCrisis, type CrisisMods } from '../src/engine/ascension/crises'
 import { WORLD_CARDS, DECREES, CARD_BY_ID, DECREE_BY_ID, CONTENT_VERSION } from '../src/engine/ascension/content'
@@ -148,6 +148,9 @@ describe('Ascension v10: hands and scoring', () => {
     // the World Tree: hearts are wild for Flushes
     expect(classify([C(2, 'S'), C(7, 'S'), C(4, 'H'), C(9, 'S'), C(11, 'H')], noMods)).toBe('high')
     expect(classify([C(2, 'S'), C(7, 'S'), C(4, 'H'), C(9, 'S'), C(11, 'H')], { ...noMods, wildSuit: 'H' })).toBe('flush')
+    expect(classify([C(2, 'S'), C(7, 'S'), C(4, 'H'), C(9, 'H'), C(11, 'H')], { ...noMods, wildSuit: 'H' })).toBe('high') // only two natural cards
+    expect(classify([C(2, 'H'), C(7, 'H'), C(4, 'H'), C(9, 'H'), C(11, 'H')], { ...noMods, wildSuit: 'H' })).toBe('flush')
+
   })
 
   it('only the cards that make the hand score', () => {
@@ -165,7 +168,7 @@ describe('Ascension v10: hands and scoring', () => {
     const aff = landAffinity(s.regions)
     expect(r.category).toBe('pair')
     expect(r.scoring).toEqual([0, 1])
-    expect(r.chips).toBe(HAND_TABLE.pair.chips + 18 + aff.vitality + aff.industry)
+    expect(r.chips).toBe(HAND_TABLE.pair.chips + 18 + LAND_CHIPS * (aff.vitality + aff.industry))
     expect(r.mult).toBe(HAND_TABLE.pair.mult)
     // Hunters and Gatherers: a pair gives its stats again
     expect(r.statDeltas).toEqual({ vitality: 2, prosperity: 0, industry: 2, knowledge: 0 })
@@ -256,7 +259,7 @@ describe('Ascension v10: eras, crises and graded outcomes', () => {
     else expect(out.influence).toBe(FAIL_INFLUENCE)
     const spent = spendHands(s)
     expect(runStatus(spent)).toBe('crisis')
-    expect(eraEndInfluence(spent)).toBe(eraEndInfluence(s) - ERAS[0].hands)
+    expect(eraEndInfluence(spent)).toBe(eraEndInfluence(s) - HAND_INFLUENCE * ERAS[0].hands)
   })
 
   it('a failed crisis costs a Resolve and leaves its scar, but the run goes on', () => {
@@ -541,25 +544,26 @@ describe('Ascension v10: legendaries in play', () => {
     expect(forecast(h).pressure).toBeGreaterThan(forecast(base).pressure)
     const o = withLegend('oraclesEye')
     expect(runMods(o).discardsBonus).toBe(2)
-    expect(applyAction(o, { type: 'discard', cards: [0] }).eraReserves).toBe(1)
+    expect(applyAction(o, { type: 'discard', cards: [0] }).eraReserves).toBe(2)
   })
 
-  it('the Titan Forge tempers clubs permanently; the Everflame triples small hands', () => {
+  it('the Titan Forge tempers scoring cards permanently; the Everflame doubles small hands', () => {
     let s = withLegend('titanForge')
     s = withHand(s, [inst(9, 'C', 7001), inst(9, 'D', 7002), inst(2, 'S', 7003), inst(3, 'S', 7004), inst(4, 'S', 7005), inst(5, 'H', 7006), inst(6, 'H', 7007), inst(7, 'H', 7008)])
     const t = play(s, [0, 1])
-    expect(ownedCards(t).find((c) => c.id === 7001)!.bonus).toBe(2)
-    expect(ownedCards(t).find((c) => c.id === 7002)!.bonus).toBe(0)
+    expect(ownedCards(t).find((c) => c.id === 7001)!.bonus).toBe(8)
+    expect(ownedCards(t).find((c) => c.id === 7002)!.bonus).toBe(8)
+    expect(ownedCards(t).find((c) => c.id === 7003)!.bonus).toBe(0)
     let e = withLegend('everflame')
     e = withHand(e, [inst(9, 'C', 7001), inst(9, 'D', 7002), inst(2, 'S', 7003), inst(3, 'S', 7004), inst(4, 'S', 7005), inst(5, 'H', 7006), inst(6, 'H', 7007), inst(7, 'H', 7008)])
-    expect(evaluatePlay(e, [0, 1]).xmult).toBe(3)
+    expect(evaluatePlay(e, [0, 1]).xmult).toBe(2)
   })
 
   it('the Eternal Dragon devours the weakest civilization of three and grows; Gaia heals the harshest land', () => {
     const s = withLegend('eternalDragon')
     s.stats = { vitality: 300, prosperity: 300, industry: 300, knowledge: 300 }
     const c = (id: number, home: number, tier: number, archetype: Civilization['archetype']): Civilization => ({ id, archetype, name: `c${id}`, home, tier, emergedEra: 0, emergedPlay: 0, reason: { stat: 'vitality', readiness: 0, needed: 0, terrain: 'forest', regionFit: 0 } })
-    s.civilizations = [c(0, 0, 2, 'nomads'), c(1, 3, 1, 'scholars'), c(2, 6, 2, 'merchants')]
+    s.civilizations = [c(0, 0, 2, 'nomads'), c(1, 3, 1, 'scholars'), c(2, 6, 2, 'merchants')] // devours the Settlement
     const t = face(s)
     expect(t.civilizations.map((x) => x.id)).toEqual([0, 2])
     expect(t.fallen.map((x) => x.id)).toEqual([1])
@@ -577,7 +581,7 @@ describe('Ascension v10: legendaries in play', () => {
     expect(forecast(s).mitigations.find((f) => f.label === 'The Monolith')!.amount).toBe(40)
     const k = withLegend('cosmicLibrary')
     k.stats.knowledge = 21
-    expect(forecast(k).mitigations.find((f) => f.label === 'The Cosmic Library')!.amount).toBe(10)
+    expect(forecast(k).mitigations.find((f) => f.label === 'The Cosmic Library')!.amount).toBe(7)
   })
 
   it('no legendary combination produces a non-finite or runaway score', () => {

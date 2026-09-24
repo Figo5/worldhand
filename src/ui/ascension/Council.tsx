@@ -1,7 +1,7 @@
 // The Council between eras: the crisis's outcome, a free legendary (after
 // some eras), the market, the deck, and the road ahead. Presentation only.
 import { useMemo, useState } from 'react'
-import { forecast, ownedCards, MIN_DECK } from '../../engine/ascension/ascension'
+import { forecast, ownedCards, MIN_DECK, HAND_INFLUENCE, TRIUMPH_BONUS } from '../../engine/ascension/ascension'
 import { ERAS } from '../../engine/ascension/eras'
 import { CRISES } from '../../engine/ascension/crises'
 import { CARD_BY_ID, DECREE_BY_ID, type DecreeDef } from '../../engine/ascension/content'
@@ -29,8 +29,8 @@ export function CrisisResult({ state }: { state: AscensionState }) {
       {c.prevented && <p className="gold" style={{ margin: '6px 0 0' }}>The Sleeping God woke and turned the crisis aside.</p>}
       {c.scars.length > 0 && <p className="bad" style={{ margin: '6px 0 0' }}>Scars: {c.scars.join(' ')}</p>}
       <p className="muted" style={{ margin: '6px 0 0' }}>
-        {c.influence > 0 ? <>+{c.influence} Influence{ok && c.handsLeft ? ` (${c.handsLeft} for unspent hands${c.triumph ? ', 3 for the triumph' : ''})` : ''}. </> : null}
-        Resolve <Pips n={state.resolve} of={MAX_RESOLVE} />
+        {c.influence > 0 ? <>+{c.influence} Influence{ok && c.handsLeft ? ` (${HAND_INFLUENCE * c.handsLeft} for unspent hands${c.triumph ? `, ${TRIUMPH_BONUS} for the triumph` : ''})` : ''}. </> : null}
+        Resolve <Pips n={state.resolve} of={Math.max(MAX_RESOLVE, state.resolve)} />
       </p>
     </div>
   )
@@ -65,7 +65,7 @@ export default function Council({ state, onAct }: { state: AscensionState; onAct
         <div className="era"><b>The Council</b><span>between {ERAS[state.era].label} and {nextEra.label}</span></div>
         <span className="spacer" />
         <span className="meter gold"><b data-testid="asc-influence">{state.influence}</b><span>influence</span></span>
-        <span className="meter"><Pips n={state.resolve} of={MAX_RESOLVE} /><span>resolve</span></span>
+        <span className="meter"><Pips n={state.resolve} of={Math.max(MAX_RESOLVE, state.resolve)} /><span>resolve</span></span>
         <span className="meter"><b>{fmt(state.score)}</b><span>score</span></span>
         <button className="gold-btn" data-testid="asc-leave" onClick={() => act({ type: 'leave' })}>Begin the {nextEra.label} age →</button>
       </header>

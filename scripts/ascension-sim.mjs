@@ -18,7 +18,19 @@ const TABLES = async () => ({
   ARCHETYPES: (await import('../src/engine/ascension/civilizations.ts')).ARCHETYPES,
   HAND_TABLE: (await import('../src/engine/ascension/scoring.ts')).HAND_TABLE,
   LEGENDARIES: (await import('../src/engine/ascension/legendaries.ts')).LEGENDARIES,
+  TERRAIN: (await import('../src/engine/ascension/world.ts')).TERRAIN,
 })
+/** Ablations: switch one system off to see whether it matters (harness-only). */
+const ABLATIONS = {
+  full: () => {},
+  'no-land': (t) => { for (const k of Object.keys(t.TERRAIN)) t.TERRAIN[k].stat = null },
+  'no-passives': (t) => { for (const a of Object.values(t.ARCHETYPES)) a.passive.apply = () => {} },
+  'no-reserves': (t) => { for (const e of t.ERAS) e.reserveRate = 1e12 },
+  'no-strain': (t) => { for (const c of Object.values(t.CRISES)) c.pressures = c.pressures.filter((f) => f.kind !== 'strain' && f.kind !== 'spread') },
+  'no-civ-in-crises': (t) => { for (const c of Object.values(t.CRISES)) c.mitigations = c.mitigations.filter((f) => !['civ', 'civTiers', 'civCount'].includes(f.kind)) },
+  'no-era-rules': (t) => { for (const e of t.ERAS) e.rule = 'none' },
+  'no-terrain-in-crises': (t) => { for (const c of Object.values(t.CRISES)) { c.pressures = c.pressures.filter((f) => f.kind !== 'terrain'); c.mitigations = c.mitigations.filter((f) => f.kind !== 'terrain') } },
+}
 export async function applyPatch(patch = {}) {
   const t = await TABLES()
   for (const [path, value] of Object.entries(patch)) {
@@ -34,13 +46,20 @@ export async function applyPatch(patch = {}) {
 if (!isMainThread) {
   const { bot, seeds, opts } = workerData
   await applyPatch(opts.patch)
+  if (opts.ablation) ABLATIONS[opts.ablation]?.(await TABLES())
   const { BOTS, POOLS, drive } = await import('./lib/asc-bots.mjs')
+  const pool = { ...POOLS[opts.pool ?? 'full'] }
+  if (opts.ablation === 'no-legendaries') pool.legendaries = []
+  if (opts.ablation === 'no-world-cards') { pool.cards = []; pool.decrees = [] }
+  const player = opts.ablation === 'no-council' ? { ...BOTS[bot], council: () => ({ type: 'leave' }) } : BOTS[bot]
   const { forecast } = await import('../src/engine/ascension/ascension.ts')
   const out = seeds.map((seedText) => {
-    const setup = { seedText, omen: opts.omen ?? 0, origin: opts.origin ?? 'pangaea', pool: POOLS[opts.pool ?? 'full'] }
+    const setup = { seedText, omen: opts.omen ?? 0, origin: opts.origin ?? 'pangaea', pool }
     const sizes = [], scoringN = [], discardsByEra = [0, 0, 0, 0, 0, 0], faced = [], cats = {}
     let influenceIn = 0, prevInfluence = 0
-    const s = drive(setup, BOTS[bot], (b, a, n) => {
+    const offers = []
+    const s = drive(setup, player, (b, a, n) => {
+      if (a.type === 'legendary' && b.council.legendaryChoice) offers.push({ offered: b.council.legendaryChoice, taken: a.pick === null ? null : b.council.legendaryChoice[a.pick] })
       if (a.type === 'play') { sizes.push(a.cards.length); scoringN.push(n.lastPlay.scoring.length); cats[n.lastPlay.category] = (cats[n.lastPlay.category] ?? 0) + 1 }
       if (a.type === 'discard') discardsByEra[b.era] += 1
       if (a.type === 'face') faced.push(b.handsLeft)
@@ -52,7 +71,7 @@ if (!isMainThread) {
       crises: s.crises.map((c) => [c.crisis, c.result, c.margin, c.prevented]), sizes, scoringN, discardsByEra, faced,
       stats: Object.values(s.stats), civs: s.civilizations.map((c) => [c.archetype, c.tier]), fallen: s.fallen.length,
       legendaries: s.legendaries.map((l) => l.id), cards: [...s.hand, ...s.drawPile, ...s.discardPile].filter((c) => c.kind).map((c) => c.kind),
-      influenceIn, cats, seedText,
+      influenceIn, cats, seedText, offers,
     }
   })
   parentPort.postMessage(out)
@@ -119,6 +138,13 @@ if (!isMainThread) {
   console.log('\n## Legendaries held at the end (share of runs): ' + Object.entries(legs).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${pct(v, runs)}`).join(', '))
   console.log('## Living civilizations at the end (share of runs): ' + Object.entries(arche).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${pct(v, runs)}`).join(', '))
   console.log('## World cards owned at the end (copies per run): ' + Object.entries(cardsOwned).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([k, v]) => `${k} ${(v / runs).toFixed(2)}`).join(', '))
+  const all = bots.flatMap((b) => table[b]), baseWin = all.filter((r) => r.won).length / all.length
+  console.log(`## Legendary lift (win rate of runs ending with it vs all runs, ${pct(all.filter((r) => r.won).length, all.length)}): ` + Object.keys(legs).sort().map((k) => { const h = all.filter((r) => r.legendaries.includes(k)); return `${k} ${pct(h.filter((r) => r.won).length, h.length)} (n=${h.length})` }).join(', '))
+  void baseWin
+  // randomized comparison (meaningful for the sampler, which picks at random): of runs offered X, won when taken vs not taken
+  const lift = {}
+  for (const r of all) for (const o of r.offers ?? []) for (const id of o.offered) { const x = (lift[id] ??= { t: 0, tw: 0, n: 0, nw: 0 }); if (o.taken === id) { x.t++; if (r.won) x.tw++ } else { x.n++; if (r.won) x.nw++ } }
+  console.log('## Legendary lift, offered-and-taken vs offered-and-declined (win %): ' + Object.keys(lift).sort().map((k) => { const x = lift[k]; return `${k} ${pct(x.tw, x.t)} vs ${pct(x.nw, x.n)} (${x.t}/${x.n})` }).join(', '))
   console.log('## Median civilizations (living/fallen), final stats high→low, Influence earned per run:')
   for (const bot of bots) {
     const rs = table[bot]

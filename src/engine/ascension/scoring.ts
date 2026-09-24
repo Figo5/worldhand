@@ -7,7 +7,7 @@
 //   scoring    only the cards that make the hand score (a Pair's two cards,
 //              a Flush's five...). Unscored cards are just spent.
 //   chips      hand base + each scoring card's value (+ tempered bonus)
-//              + land (one chip per region favouring the card's stat)
+//              + land (LAND_CHIPS per region favouring the card's stat)
 //   mult       hand base
 //   world      each scoring card grows its suit's stat by 1
 //   then       world cards (scored, then held), the era's rule,
@@ -39,6 +39,8 @@ export const HAND_TABLE: Record<HandCategory, { chips: number; mult: number }> =
   'quads': { chips: 60, mult: 7 },
   'straight-flush': { chips: 100, mult: 8 },
 }
+/** Chips each scoring card earns per region whose terrain favours its stat. */
+export const LAND_CHIPS = 2
 /** A card's chip value: 2–10 face value, J/Q/K 10, A 11. */
 export const cardChips = (r: Rank) => (r <= 10 ? r : r === 14 ? 11 : 10)
 export const cardLabel = (c: Card) => `${c.r === 14 ? 'A' : c.r === 13 ? 'K' : c.r === 12 ? 'Q' : c.r === 11 ? 'J' : String(c.r)}${SUIT_SYMBOL[c.s]}`
@@ -114,7 +116,8 @@ export function classify(cards: readonly Card[], m: Pick<RunMods, 'wildSuit' | '
   const groups = [...counts.values()].sort((a, b) => b - a)
   const five = cards.length === 5
   const natural = cards.filter((c) => c.s !== m.wildSuit)
-  const flush = five && (natural.length === 0 || natural.every((c) => c.s === natural[0].s))
+  // with a wild suit, at least three natural cards must share a suit (or all five are wild)
+  const flush = five && (natural.length >= 3 || natural.length === 0) && natural.every((c) => c.s === natural[0].s)
   const straight = five && straightOf(rs, m)
   if (flush && straight) return 'straight-flush'
   if (groups[0] === 4) return 'quads'
@@ -256,8 +259,8 @@ export function evaluatePlay(state: AscensionState, idxs: readonly number[]): Pl
   const growth = noStats()
   for (const c of scoring) growth[SUIT_STAT[c.s]] += 1
   ctx.add('cards', 'Scoring cards', { chips: value, stat: growth }, scoring.map((c) => cardLabel(c) + (c.bonus ? `+${c.bonus}` : '')).join(' '))
-  const land = scoring.reduce((n, c) => n + affinity[SUIT_STAT[c.s]], 0)
-  ctx.add('land', 'Land', { chips: land }, 'one chip per region favouring each scoring card’s stat')
+  const land = LAND_CHIPS * scoring.reduce((n, c) => n + affinity[SUIT_STAT[c.s]], 0)
+  ctx.add('land', 'Land', { chips: land }, `${LAND_CHIPS} chips per region favouring each scoring card’s stat`)
 
   // world cards: scored, then held
   const condCtx = (): CondCtx => ({ regions, civs, stats: ctx.stats, category, played: cards.length, scoring, lastHand: ctx.lastHand, crisis: state.crisisTrack[state.era] })
@@ -288,7 +291,7 @@ export function evaluatePlay(state: AscensionState, idxs: readonly number[]): Pl
   const tempered: { id: number; bonus: number }[] = []
   for (const inst of state.legendaries) {
     const t = LEGENDARIES[inst.id].tempered
-    if (t) for (const c of scoring) { const d = t(c); if (d) tempered.push({ id: c.id, bonus: Math.min(20, c.bonus + d) }) }
+    if (t) for (const c of scoring) { const d = t(c); if (d) tempered.push({ id: c.id, bonus: c.bonus + d }) }
   }
   const score = Math.floor(ctx.chips * ctx.mult * ctx.xmult)
   return {

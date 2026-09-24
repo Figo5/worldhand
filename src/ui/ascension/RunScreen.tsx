@@ -2,7 +2,7 @@
 // Presentation only — every number comes from the engine, and every preview
 // is the engine's own transition applied to a copy (one calculation path).
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { applyAction, forecast, eraEndInfluence, treasury, runStatus } from '../../engine/ascension/ascension'
+import { applyAction, forecast, eraEndInfluence, treasury, runStatus, HAND_INFLUENCE, TRIUMPH_BONUS } from '../../engine/ascension/ascension'
 import { evaluatePlay, evaluateDiscard, type Line, type PlayResult } from '../../engine/ascension/scoring'
 import { ERAS, FINAL_ERA } from '../../engine/ascension/eras'
 import { CRISES } from '../../engine/ascension/crises'
@@ -154,7 +154,7 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
         <div className="notice" role="alertdialog" aria-label="Confirm facing the crisis">
           {failing
             ? <>You would <b className="bad">fail by {-now.margin}</b>: lose 1 Resolve and take the scar.</>
-            : <>You would <b className="good">endure it by {now.margin}</b>{state.era < FINAL_ERA ? <> and gain about <b className="gold">{bank + (now.margin >= Math.ceil(now.pressure / 4) ? 3 : 0)} Influence</b> ({state.handsLeft} for unspent hands)</> : null}.</>}
+            : <>You would <b className="good">endure it by {now.margin}</b>{state.era < FINAL_ERA ? <> and gain about <b className="gold">{bank + (now.margin >= Math.ceil(now.pressure / 4) ? TRIUMPH_BONUS : 0)} Influence</b> ({HAND_INFLUENCE * state.handsLeft} for unspent hands)</> : null}.</>}
           {state.handsLeft > 0 && ' Unplayed hands are gone once you face it.'}
           <div className="row" style={{ marginTop: 6 }}>
             <button className="crisis-btn" data-testid="asc-face-confirm" onClick={() => act({ type: 'face' })}>Face it</button>
@@ -284,7 +284,7 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
         <span className="spacer" />
         <span className={`meter${state.handsLeft <= 1 ? ' low' : ''}`} title="Plays left this era"><b data-testid="asc-hands">{state.handsLeft}</b><span>hands /{handsTotal}</span></span>
         <span className="meter" title="Discards left this era"><b data-testid="asc-discards">{state.discardsLeft}</b><span>discards</span></span>
-        <span className="meter" title="Each failed crisis costs one Resolve. At 0 the world falls."><Pips n={state.resolve} of={MAX_RESOLVE} /><span>resolve</span></span>
+        <span className="meter" title="Each failed crisis costs one Resolve. At 0 the world falls."><Pips n={state.resolve} of={Math.max(MAX_RESOLVE, state.resolve)} /><span>resolve</span></span>
         <span className="meter gold" title="Influence: spent at the Council between eras"><b data-testid="asc-influence">{state.influence}</b><span>influence</span></span>
         <span className="meter" title="Total score. This era's score becomes Reserves against its crisis."><b data-testid="asc-score" key={state.score} className={state.score ? 'score-pop' : ''}>{fmt(state.score)}</b><span>score</span></span>
         <button className="ghost" onClick={onChronicle} data-testid="asc-open-chronicle">Chronicle</button>

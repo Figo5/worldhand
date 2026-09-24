@@ -184,11 +184,9 @@ function cutTier(s: AscensionState, civ: Civilization, cause: string): string {
 /** Apply a failed crisis's scar on a draft; returns what happened, in words. */
 function applyScar(s: AscensionState, specs: readonly ScarSpec[], shortfall: number, m: RunMods, cause: string): string[] {
   const out: string[] = []
-  const tree = s.legendaries.some((l) => l.id === 'worldTree')
   for (const spec of specs) {
     if (spec.kind === 'stat') {
       const k: WorldStat = spec.stat === 'highest' ? highestStat(s.stats) : spec.stat
-      if (tree && k === 'vitality') { out.push('The World Tree kept Vitality whole.'); continue }
       const loss = Math.min(s.stats[k], Math.round(shortfall * spec.share))
       if (loss > 0) { s.stats[k] -= loss; out.push(`${WORLD_STAT_LABEL[k]} −${loss}.`) }
     } else if (spec.kind === 'civTier') {
@@ -214,12 +212,14 @@ function applyScar(s: AscensionState, specs: readonly ScarSpec[], shortfall: num
 export function eraEndInfluence(s: AscensionState, m: RunMods = runMods(s)): number {
   const rel = relations(s.civilizations, borders(s.regions, m))
   const counts = { ally: rel.filter((r) => r.relation === 'ally').length, rival: rel.filter((r) => r.relation === 'rival').length }
-  return ERAS[s.era].reward + s.handsLeft
+  return ERAS[s.era].reward + HAND_INFLUENCE * s.handsLeft
     + s.civilizations.filter((c) => c.archetype === 'merchants').reduce((n, c) => n + c.tier, 0)
     + s.legendaries.reduce((n, l) => n + (LEGENDARIES[l.id].eraEnd?.(s, counts) ?? 0), 0)
 }
+/** Influence per hand left unspent when a crisis is faced and endured. */
+export const HAND_INFLUENCE = 2
 /** Treasury: every era's end pays +1 Influence per this much Prosperity, endured or not. */
-export const TREASURY_STEP = 10
+export const TREASURY_STEP = 8
 export const treasury = (s: AscensionState) => Math.floor(s.stats.prosperity / TREASURY_STEP)
 export const TRIUMPH_BONUS = 3
 export const FAIL_INFLUENCE = 2

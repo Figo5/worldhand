@@ -32,32 +32,32 @@ export interface EraDef {
 
 export const ERAS: readonly EraDef[] = [
   {
-    id: 'tribal', label: 'Tribal', hands: 7, discards: 4, reserveRate: 150, reward: 4, rule: 'gatherers', pool: ['winter', 'flood'],
+    id: 'tribal', label: 'Tribal', hands: 7, discards: 4, reserveRate: 160, reward: 4, rule: 'gatherers', pool: ['winter', 'flood'],
     ruleName: 'Hunters and Gatherers', ruleText: 'High Card and Pair hands give +1 more of each scoring card’s stat.',
     theme: 'Small bands learn the land. The first peoples settle where the world favours them.',
   },
   {
-    id: 'ancient', label: 'Ancient', hands: 8, discards: 4, reserveRate: 250, reward: 5, rule: 'writing', pool: ['plague', 'drought'],
+    id: 'ancient', label: 'Ancient', hands: 8, discards: 4, reserveRate: 280, reward: 5, rule: 'writing', pool: ['plague', 'drought'],
     ruleName: 'Writing', ruleText: 'Each ♠ scored +4 chips. Civilizations may grow into Kingdoms at the dawn of an era.',
     theme: 'Cities, scripts and granaries. What the world knows begins to outlive who knew it.',
   },
   {
-    id: 'medieval', label: 'Medieval', hands: 8, discards: 4, reserveRate: 350, reward: 5, rule: 'levies', pool: ['invasion', 'schism'],
+    id: 'medieval', label: 'Medieval', hands: 8, discards: 4, reserveRate: 440, reward: 5, rule: 'levies', pool: ['invasion', 'schism'],
     ruleName: 'Feudal Levies', ruleText: '+1 mult on every play for each living civilization.',
     theme: 'Castles and cathedrals. Every realm is a fortress, and every neighbour a question.',
   },
   {
-    id: 'industrial', label: 'Industrial', hands: 9, discards: 4, reserveRate: 400, reward: 6, rule: 'steam', pool: ['smog', 'crash', 'revolution'],
+    id: 'industrial', label: 'Industrial', hands: 9, discards: 4, reserveRate: 560, reward: 6, rule: 'steam', pool: ['smog', 'crash', 'revolution'],
     ruleName: 'Steam Power', ruleText: 'Each ♣ scored gives +1 more Industry. Kingdoms may grow into Empires.',
     theme: 'Coal and iron remake the land faster than any age before.',
   },
   {
-    id: 'information', label: 'Information', hands: 9, discards: 4, reserveRate: 700, reward: 6, rule: 'network', pool: ['machines', 'disinformation'],
+    id: 'information', label: 'Information', hands: 9, discards: 4, reserveRate: 1500, reward: 6, rule: 'network', pool: ['machines', 'disinformation'],
     ruleName: 'The Network', ruleText: '+2 mult on every play for each pair of allied or rival civilizations.',
     theme: 'Every mind is linked to every other, for better and for worse.',
   },
   {
-    id: 'stellar', label: 'Stellar', hands: 10, discards: 4, reserveRate: 800, reward: 0, rule: 'escape', pool: ['filter', 'voidstorm'],
+    id: 'stellar', label: 'Stellar', hands: 10, discards: 4, reserveRate: 1900, reward: 0, rule: 'escape', pool: ['filter', 'voidstorm'],
     ruleName: 'Escape Velocity', ruleText: 'Straights, Flushes and better score ×1.5.',
     theme: 'The world looks up. One last test stands between it and the stars.',
   },

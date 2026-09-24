@@ -84,6 +84,8 @@ const planned = (then, safe = 6, ahead = false) => (s, r, idx) => {
   return Math.min(m, safe) * 1e6 + (ahead ? Math.min(nextMarginAfter(s, r), 0) * 1e3 : 0) + then(s, r, idx)
 }
 const focusValue = (k) => (s, r) => statGain(r, k) * 1000 + r.score / 10
+/** focus on `k`, but keep its counterweight `w` within `gap` below it (strain is what kills focused worlds) */
+const duoValue = (k, w, gap = 4) => (s, r) => (s.stats[w] < s.stats[k] - gap ? statGain(r, w) * 1000 + statGain(r, k) * 300 : statGain(r, k) * 1000 + statGain(r, w) * 300) + r.score / 10
 const landStat = (s) => { const a = landAffinity(s.regions); return WORLD_STATS.reduce((b, k) => (a[k] > a[b] ? k : b)) }
 /** face with hands to spare only near the era's end, and only with a cushion (the hands left become Influence) */
 const faceWhenSafe = (cushion, within = 2) => (s) => (s.handsLeft <= within ? cushion : Infinity)
@@ -181,10 +183,18 @@ export const BOTS = {
   'lean-P': { family: 'focused', doc: 'forecast-aware; when safe, grows Prosperity', play: player({ value: planned(focusValue('prosperity'), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak, suit: 'D' }), council: councilPolicy('prosperity') },
   'lean-I': { family: 'focused', doc: 'forecast-aware; when safe, grows Industry', play: player({ value: planned(focusValue('industry'), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak, suit: 'C' }), council: councilPolicy('industry') },
   'lean-K': { family: 'focused', doc: 'forecast-aware; when safe, grows Knowledge', play: player({ value: planned(focusValue('knowledge'), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak, suit: 'S' }), council: councilPolicy('knowledge') },
+  'duo-IV': { family: 'focused', doc: 'forecast-aware; grows Industry while keeping Vitality within 4 of it (no forest-clearing strain)', play: player({ value: planned(duoValue('industry', 'vitality'), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak }), council: councilPolicy('industry') },
+  'duo-PK': { family: 'focused', doc: 'forecast-aware; grows Prosperity while keeping Knowledge within 4 of it (no trade-outruns-medicine strain)', play: player({ value: planned(duoValue('prosperity', 'knowledge'), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak }), council: councilPolicy('prosperity') },
+  'arc-I': { family: 'focused', doc: 'Industry (kept above strain) until the Information age, then rounds the world out for the final crisis', play: player({ value: planned((s, r, i) => (s.era >= 4 ? balancedValue(s, r) : duoValue('industry', 'vitality')(s, r, i)), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak }), council: councilPolicy('industry') },
+  'arc-P': { family: 'focused', doc: 'Prosperity (kept above strain) until the Information age, then rounds the world out', play: player({ value: planned((s, r, i) => (s.era >= 4 ? balancedValue(s, r) : duoValue('prosperity', 'knowledge')(s, r, i)), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak }), council: councilPolicy('prosperity') },
+  'arc-V': { family: 'focused', doc: 'Vitality until the Information age, then rounds the world out', play: player({ value: planned((s, r) => (s.era >= 4 ? balancedValue(s, r) : focusValue('vitality')(s, r)), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak, suit: 'H' }), council: councilPolicy('vitality') },
+  'arc-K': { family: 'focused', doc: 'Knowledge until the Information age, then rounds the world out', play: player({ value: planned((s, r) => (s.era >= 4 ? balancedValue(s, r) : focusValue('knowledge')(s, r)), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak, suit: 'S' }), council: councilPolicy('knowledge') },
   'focus-I': { family: 'naive', doc: 'naive: always the most Industry, ignores the forecast', play: player({ value: focusValue('industry'), weak: eraWeak, suit: 'C' }), council: councilPolicy('industry') },
   terrain: { family: 'focused', doc: 'forecast-aware; when safe, grows the stat its land favours', play: player({ value: planned((s, r) => focusValue(landStat(s))(s, r), 6, true), faceAt: faceWhenSafe(4), weak: eraWeak }), council: councilPolicy('terrain') },
   civ: { family: 'score', doc: 'forecast-aware; when safe, maximises civilization bonuses', play: player({ value: planned((s, r) => r.lines.filter((l) => l.source === 'civ').reduce((n, l) => n + (l.chips ?? 0) + 10 * (l.mult ?? 0), 0) * 10 + r.score / 10), faceAt: faceWhenSafe(4), weak: eraWeak }), council: councilPolicy('civ') },
   mediocre: { family: 'weak', doc: 'a middling player: the balanced heuristic, a Council that buys little, no discards', play: player({ value: balancedValue }), council: councilPolicy('balanced', { buys: false }) },
+  sampler: { family: 'balanced', doc: 'the planner, taking a random legendary at each choice (for unbiased legendary lift)', play: player({ value: planned(scoreOnly, 6, true), faceAt: faceWhenSafe(4), weak: eraWeak }), council: (s) => (s.council.legendaryChoice && s.legendaries.length < 4 ? { type: 'legendary', pick: new Rng(hashSeed(`lg:${s.seed}:${s.era}`)).int(0, s.council.legendaryChoice.length) } : councilPolicy('balanced')(s)) },
+  'sampler-poker': { family: 'score', doc: 'poker-dig play, taking a random legendary at each choice', play: player({ value: scoreOnly, weak: eraWeak }), council: (s) => (s.council.legendaryChoice && s.legendaries.length < 4 ? { type: 'legendary', pick: new Rng(hashSeed(`lg:${s.seed}:${s.era}`)).int(0, s.council.legendaryChoice.length) } : councilPolicy('score')(s)) },
   random: { family: 'weak', doc: 'seeded random plays and discards; random Council buys', play: randomPlay, council: randomCouncil },
 }
 
