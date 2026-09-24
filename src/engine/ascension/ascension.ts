@@ -4,7 +4,9 @@
 // discard 1–5 cards, score plays with the shared poker evaluator, grow four
 // world stats from the played suits, pay a land bonus for stat gains the
 // world's terrain favours, let civilizations emerge at round ends and add
-// their passive bonuses to later plays (civilizations.ts). Rounds of 4 plays / 3 discards roll over forever.
+// their passive bonuses to later plays (civilizations.ts). Advance through
+// three eras (Tribal, Ancient, Medieval) when their criteria are met. Rounds
+// of 4 plays / 3 discards roll over until Medieval is complete.
 // No saves, no content yet.
 //
 // Boundaries (enforced by tests/engine-boundaries.test.ts): this module never
@@ -16,12 +18,13 @@ import { hashSeed, type Seed } from '../rng'
 import { deck, evaluateSelection, categoryLabel, CATEGORY_MULT, type Card, type HandCategory, type Suit } from '../poker'
 import { stream } from '../core/streams'
 import { emergeCivilization, civilizationBonuses, type Civilization, type CivBonus } from './civilizations'
+import { ERAS, canAdvance, isComplete, type EraAdvance } from './eras'
 
 /** Rules generation of Ascension state. Independent of Classic's SAVE_VERSION.
  *  1 = seam skeleton (poker score only), 2 = suit-driven world stats,
  *  3 = procedural terrain + land bonus, 4 = civilization emergence,
- *  5 = civilization passives. */
-export const ASCENSION_RULES_VERSION = 5
+ *  5 = civilization passives, 6 = eras (Tribal, Ancient, Medieval) + first-playable completion. */
+export const ASCENSION_RULES_VERSION = 6
 export const HAND_SIZE = 8
 export const PLAYS_PER_ROUND = 4
 export const DISCARDS_PER_ROUND = 3
@@ -134,6 +137,10 @@ export interface AscensionState {
   civilizations: Civilization[]
   /** the last play's full result, including its world-stat deltas */
   lastPlay: PlayResult | null
+  /** index into ERAS; ERAS.length = first playable complete */
+  era: number
+  /** era advances, logged at the round end where they happened */
+  eraLog: EraAdvance[]
 }
 
 /** Card indices refer to positions in `hand`. */
@@ -160,6 +167,8 @@ export function newAscensionGame(seedText: string): AscensionState {
     stats: noStats(),
     civilizations: [],
     lastPlay: null,
+    era: 0,
+    eraLog: [],
   }
   drawUp(s)
   return s
@@ -177,6 +186,7 @@ export function newAscensionGame(seedText: string): AscensionState {
  *  land bonus makes the same stat gains worth more in a world whose terrain
  *  favours them; civilizations add score only, never stats. */
 export function evaluatePlay(state: AscensionState, idxs: readonly number[]): PlayResult {
+  if (isComplete(state.era)) throw new Error('first playable complete')
   checkSelection(state.hand, idxs)
   const cards = idxs.map((i) => state.hand[i])
   const { category } = evaluateSelection(cards)
@@ -197,6 +207,7 @@ export function evaluatePlay(state: AscensionState, idxs: readonly number[]): Pl
 /** Pure transition. An illegal action throws before anything is built, so the
  *  input state is never changed. */
 export function applyAscensionAction(state: AscensionState, action: AscensionAction): AscensionState {
+  if (isComplete(state.era)) throw new Error('first playable complete')
   if (action.type === 'play') {
     if (state.playsLeft <= 0) throw new Error('no plays left this round')
     const result = evaluatePlay(state, action.cards)
@@ -210,6 +221,11 @@ export function applyAscensionAction(state: AscensionState, action: AscensionAct
       // round-end checkpoint: at most one civilization emerges
       const civ = emergeCivilization(s.seed, s.round, s.regions, s.stats, s.civilizations)
       if (civ) s.civilizations = [...s.civilizations, civ]
+      // then at most one era advance (the last one completes the first playable)
+      if (canAdvance(s.era, s.stats, s.civilizations)) {
+        s.eraLog = [...s.eraLog, { from: ERAS[s.era].id, to: ERAS[s.era + 1]?.id ?? null, round: s.round, stats: { ...s.stats }, civilizations: s.civilizations.length }]
+        s.era += 1
+      }
       s.discardPile.push(...s.hand)
       s.hand = []
       s.round += 1

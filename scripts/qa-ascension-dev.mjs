@@ -127,6 +127,16 @@ try {
   await p.click('[data-testid="asc-clear"]')
   ok('prototype discard / clear / limit', 'discard spends a discard and leaves stats alone, clear empties the selection, a 6th card is refused')
 
+  // eras: a fresh world is Tribal and says what it still needs
+  const eraPanel = p.locator('[data-testid="asc-era"]')
+  const reqState = () => p.locator('[data-testid="asc-req"]').evaluateAll((els) => els.map((e) => ({ key: e.dataset.key, have: +e.dataset.have, need: +e.dataset.need, met: e.dataset.met === 'true' })))
+  if ((await eraPanel.getAttribute('data-era')) !== 'tribal') fail('prototype: a fresh world should be Tribal')
+  const fresh = await reqState()
+  if (JSON.stringify(fresh.map((r) => [r.key, r.have, r.need, r.met])) !== JSON.stringify([['civilizations', 0, 1, false], ['stats', 0, 2, false]])) fail(`prototype: fresh Tribal requirements wrong: ${JSON.stringify(fresh)}`)
+  const freshStatus = await p.locator('[data-testid="asc-era-status"]').innerText()
+  if (!freshStatus.includes('1 more civilization') || !freshStatus.includes('2 more stats to 15')) fail(`prototype: era status should name what is missing: "${freshStatus}"`)
+  ok('prototype era panel', `Tribal, 2 requirements; "${freshStatus}"`)
+
   for (let i = 0; i < 3; i++) { await cards.nth(0).click(); await p.click('[data-testid="asc-play"]') }
   if (!(await p.locator('[data-testid="asc-status"]').innerText()).includes('Round 2 · Plays 4 · Discards 3')) fail('prototype: round did not roll over')
   await p.screenshot({ path: 'shots/ascension-dev-round2.png' })
@@ -184,6 +194,34 @@ try {
   if (!(await p.locator('[data-testid="asc-last"]').innerText()).includes(`civ ${civBonus}`)) fail('prototype: last play does not show the civilization bonus')
   await p.screenshot({ path: 'shots/ascension-dev-civilization.png' })
   ok('prototype civilizations', `"${civText}" (home terrain ${homeTerrain}); next needs 12; preview "${civLine}" committed exactly (+${pvScore})`)
+
+  // eras: play a balanced strategy through the UI to the end of the first playable
+  const readStatsNow = () => p.locator('[data-testid="asc-stats"] [data-stat]').evaluateAll((els) => Object.fromEntries(els.map((e) => [e.dataset.stat, +e.dataset.value])))
+  const SUIT_STAT = { '♥': 'vitality', '♦': 'prosperity', '♣': 'industry', '♠': 'knowledge' }
+  let plays = 0
+  while (!(await p.locator('[data-testid="asc-complete"]').count()) && plays < 120) {
+    const reqs = await reqState(), status = await p.locator('[data-testid="asc-era-status"]').innerText()
+    if (reqs.some((r) => r.met !== r.have >= r.need)) fail(`prototype: requirement met flag inconsistent: ${JSON.stringify(reqs)}`)
+    if (reqs.every((r) => r.met) !== status.startsWith('All requirements met')) fail(`prototype: era status "${status}" contradicts ${JSON.stringify(reqs)}`)
+    const add = await readStatsNow(), hand = await cards.allInnerTexts(), pick = []
+    while (pick.length < 5) {
+      const i = hand.map((_, j) => j).filter((j) => !pick.includes(j)).sort((x, y) => add[SUIT_STAT[hand[x].slice(-1)]] - add[SUIT_STAT[hand[y].slice(-1)]] || x - y)[0]
+      pick.push(i); add[SUIT_STAT[hand[i].slice(-1)]] += 1
+    }
+    for (const i of pick) await cards.nth(i).click()
+    await p.click('[data-testid="asc-play"]')
+    plays += 1
+  }
+  const log = await p.locator('[data-testid="asc-era-log"] li').allInnerTexts()
+  if (!(await p.locator('[data-testid="asc-complete"]').count())) fail(`prototype: first playable not completed after ${plays} plays; log ${JSON.stringify(log)}`)
+  if (log.length !== 3 || !log[0].includes('Tribal → Ancient') || !log[1].includes('Ancient → Medieval') || !log[2].includes('Medieval completed')) fail(`prototype: era history wrong: ${JSON.stringify(log)}`)
+  const doneText = await p.locator('[data-testid="asc-complete"]').innerText()
+  const lastRound = log[2].match(/End of round (\d+)/)[1]
+  if (!doneText.includes('First playable complete') || !doneText.includes(`end of round ${lastRound}`)) fail(`prototype: completion block wrong: "${doneText}"`)
+  if ((await cards.count()) || (await p.locator('[data-testid="asc-play"]').count())) fail('prototype: hand and Play must be gone once complete')
+  if ((await p.locator('[data-testid="asc-civs"] li').count()) < 3 || (await p.locator('[data-testid="asc-world"] li[data-terrain]').count()) !== 12) fail('prototype: world and civilizations must stay visible after completion')
+  await p.screenshot({ path: 'shots/ascension-dev-complete.png', fullPage: true })
+  ok('prototype eras', `${plays} balanced plays: ${log.map((l) => l.split(' with ')[0]).join(' | ')}; "First playable complete", world kept`)
 
   // back to Classic; Ascension wrote nothing
   await p.click('[data-testid="asc-exit"]')
