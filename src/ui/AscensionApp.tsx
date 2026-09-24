@@ -4,7 +4,7 @@
 // Saves nothing; selection lives here, not in engine state.
 import { useMemo, useState } from 'react'
 import {
-  newAscensionGame, applyAscensionAction, evaluatePlay, landAffinity, WORLD_STATS, WORLD_STAT_LABEL, TERRAIN, runStatus,
+  newAscensionGame, applyAscensionAction, evaluatePlay, landAffinity, projectRoundEnd, WORLD_STATS, WORLD_STAT_LABEL, TERRAIN, runStatus,
   type AscensionAction, type AscensionState, type WorldStats,
 } from '../engine/ascension/ascension'
 import { ARCHETYPES, emergenceThreshold } from '../engine/ascension/civilizations'
@@ -13,6 +13,7 @@ import { CRISES, evaluateCrisis, type Factor } from '../engine/ascension/crises'
 import { cardName } from '../engine/poker'
 
 const eraLabel = (id: Era) => ERAS.find((e) => e.id === id)!.label
+const verdict = (c: { resilience: number; pressure: number }) => (c.resilience >= c.pressure ? `survive by ${c.resilience - c.pressure}` : `fail by ${c.pressure - c.resilience}`)
 /** "+2 Vitality · +1 Industry" (non-zero gains, in stat order) */
 const gains = (d: WorldStats) =>
   WORLD_STATS.filter((k) => d[k] !== 0).map((k) => `+${d[k]} ${WORLD_STAT_LABEL[k]}`).join(' · ')
@@ -66,6 +67,9 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
     if (!game || isComplete(game.era)) return null
     try { return evaluateCrisis(game.era, game) } catch { return null }
   }, [game])
+  /** what this round's end would bring as things stand, and after the previewed play */
+  const roundEnd = game && status === 'playing' ? projectRoundEnd(game) : null
+  const previewEnd = game && preview ? projectRoundEnd(game, Object.fromEntries(WORLD_STATS.map((k) => [k, game.stats[k] + preview.statDeltas[k]])) as WorldStats) : null
 
   const act = (a: AscensionAction) => {
     if (!game) return
@@ -157,9 +161,9 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
                   <div data-testid="asc-crisis-forecast">
                     <h3>Coming crisis</h3>
                     <p>{CRISES[game.era].label}: {CRISES[game.era].theme}</p>
-                    <p>It strikes at the round end where these requirements are met. If it struck now:</p>
-                    <FactorTable pressures={crisisEval.pressures} mitigations={crisisEval.mitigations} />
-                    <p>resilience {crisisEval.resilience} vs pressure {crisisEval.pressure} → would {crisisEval.result === 'survived' ? `survive by ${crisisEval.resilience - crisisEval.pressure}` : `fail by ${crisisEval.pressure - crisisEval.resilience}`}</p>
+                    <p>It strikes at the round end where these requirements are met. If this round ended now{roundEnd?.civ ? ` (${ARCHETYPES[roundEnd.civ.archetype].label} would emerge first)` : ''}{roundEnd?.strikes ? ', it would strike' : ''} and find:</p>
+                    {roundEnd?.crisis && <FactorTable pressures={roundEnd.crisis.pressures} mitigations={roundEnd.crisis.mitigations} />}
+                    {roundEnd?.crisis && <p data-testid="asc-forecast-verdict" data-margin={roundEnd.crisis.resilience - roundEnd.crisis.pressure}>resilience {roundEnd.crisis.resilience} vs pressure {roundEnd.crisis.pressure} → would {verdict(roundEnd.crisis)}</p>}
                   </div>
                 )}
               </>
@@ -210,6 +214,13 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
               Civilizations — next emerges at a round end once one reaches{' '}
               <span data-testid="asc-civ-next">{emergenceThreshold(game.civilizations.length)}</span> in its stat and has a free home on its terrain.
             </p>
+            {roundEnd && (
+              <p data-testid="asc-civ-projection" data-archetype={roundEnd.civ?.archetype ?? ''}>
+                {roundEnd.civ
+                  ? `As things stand, at this round end ${ARCHETYPES[roundEnd.civ.archetype].label} would emerge at R${roundEnd.civ.home} (${WORLD_STAT_LABEL[roundEnd.civ.reason.stat]} ${roundEnd.civ.reason.readiness} ≥ ${roundEnd.civ.reason.needed}).`
+                  : 'As things stand, no civilization would emerge at this round end.'}
+              </p>
+            )}
             {game.civilizations.length === 0 ? <p className="muted">None yet.</p> : (
               <ul>
                 {game.civilizations.map((c) => (
@@ -249,7 +260,15 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
                   ))}
                 </div>
               )}
-              {preview && <p data-testid="asc-preview-total" data-land={preview.landBonus} data-civ={preview.civBonus} data-score={preview.score}>Land bonus +{preview.landBonus} · Civilizations +{preview.civBonus} → play adds {preview.score}</p>}
+              {preview && <p data-testid="asc-preview-total" data-land={preview.landBonus} data-civ={preview.civBonus} data-score={preview.score}>Land bonus +{preview.landBonus}{preview.landBonus ? ` (${WORLD_STATS.filter((k) => preview.statDeltas[k] && affinity![k]).map((k) => `${preview.statDeltas[k]} ${WORLD_STAT_LABEL[k]} × ${affinity![k]}`).join(' + ')})` : ''} · Civilizations +{preview.civBonus} → play adds {preview.score}</p>}
+              {previewEnd?.crisis && (
+                <p data-testid="asc-preview-crisis" data-strikes={previewEnd.strikes} data-margin={previewEnd.crisis.resilience - previewEnd.crisis.pressure}>
+                  If the round ended after this play{game.playsLeft === 1 ? ' (it is the last of the round)' : ''}:{' '}
+                  {previewEnd.civ ? `${ARCHETYPES[previewEnd.civ.archetype].label} would emerge; ` : ''}
+                  {previewEnd.strikes ? `${ERAS[game.era].label}'s requirements are met, so the ${previewEnd.crisis.label} strikes` : `${ERAS[game.era].label}'s requirements are not yet met`}
+                  {' '}— {previewEnd.crisis.label}: resilience {previewEnd.crisis.resilience} vs pressure {previewEnd.crisis.pressure}, would {verdict(previewEnd.crisis)}.
+                </p>
+              )}
               <div className="row">
                 <button className="primary" data-testid="asc-play" disabled={!preview} onClick={() => act({ type: 'play', cards: selected })}>Play</button>
                 <button data-testid="asc-discard" disabled={selected.length === 0 || game.discardsLeft <= 0} onClick={() => act({ type: 'discard', cards: selected })}>Discard</button>

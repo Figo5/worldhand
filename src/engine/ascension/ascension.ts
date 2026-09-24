@@ -160,6 +160,18 @@ export function runStatus(s: AscensionState): RunStatus {
   if (s.crises.length && s.crises[s.crises.length - 1].result === 'failed') return 'failed'
   return s.crisis ? 'crisis' : 'playing'
 }
+/** What this round's end would bring if the world stood at `stats` then (default:
+ *  as it stands now): the civilization that would emerge, whether the era's
+ *  crisis would strike, and that crisis weighed against the world. The same
+ *  functions as the round-end checkpoint, so a preview of the round's last play
+ *  (stats = its stats after) is exactly what that play commits. Pure. */
+export function projectRoundEnd(state: AscensionState, stats: WorldStats = state.stats) {
+  const civ = emergeCivilization(state.seed, state.round, state.regions, stats, state.civilizations)
+  const civilizations = civ ? [...state.civilizations, civ] : state.civilizations
+  const world = { regions: state.regions, stats, civilizations }
+  return { civ, strikes: canAdvance(state.era, stats, civilizations), crisis: isComplete(state.era) ? null : evaluateCrisis(state.era, world) }
+}
+
 /** Throws unless cards may be played or discarded. */
 function assertPlaying(s: AscensionState): void {
   const st = runStatus(s)
