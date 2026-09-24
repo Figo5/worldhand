@@ -253,7 +253,7 @@ function face(state: AscensionState): AscensionState {
   s.crises.push(outcome)
   log(s, { t: 'crisis', era, crisis: ev.crisis, result, margin: ev.margin, triumph, prevented })
   for (const text of scars) log(s, { t: 'scar', era, text })
-  if (result === 'endured') {
+  if (result === 'endured' && era !== FINAL_ERA) {
     for (const inst of s.legendaries) { const text = LEGENDARIES[inst.id].endure?.(s, inst); if (text) log(s, { t: 'wonder', era, text }) }
   }
   s.handsLeft = 0

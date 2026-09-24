@@ -125,7 +125,7 @@ function handleHandKeys(e: React.KeyboardEvent<HTMLDivElement>) {
   e.preventDefault()
 }
 
-export default function App() {
+export default function App({ onMenu }: { onMenu?: () => void } = {}) {
   const [state, setState] = useState<GameState | null>(null)
   const [seedText, setSeedText] = useState('')
   const [error, setError] = useState('')
@@ -237,6 +237,7 @@ export default function App() {
     return (
       <main className="shell intro">
         <header className="intro-head">
+          {onMenu && <button className="mode-back" data-testid="classic-to-modes" onClick={onMenu}>← All modes</button>}
           <h1 className="game-title">Worldhand</h1>
           <p className="tagline">
             A deterministic planet-building card roguelike of escalating epochs. Each epoch you

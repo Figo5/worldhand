@@ -89,6 +89,7 @@ export const LEGENDARIES: Record<LegendaryId, LegendaryDef> = {
       const w = weakestCiv(s.civilizations)!
       s.civilizations = s.civilizations.filter((c) => c.id !== w.id)
       s.fallen = [...s.fallen, { ...w, tier: 0 }]
+      s.chronicle.push({ t: 'fall', era: s.era, civ: w.id, name: w.name, archetype: w.archetype, cause: 'devoured by the Eternal Dragon' })
       inst.counter += 1
       return `The Eternal Dragon devoured ${w.name}.`
     },

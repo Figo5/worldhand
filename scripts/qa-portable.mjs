@@ -16,7 +16,9 @@ import { tmpdir } from 'node:os'
 
 const ARTIFACT = resolve(import.meta.dirname, '..', 'dist-portable', 'worldhand.html')
 if (!existsSync(ARTIFACT)) throw new Error(`missing artifact ${ARTIFACT} — run npm run build:portable`)
-const URL_ = pathToFileURL(ARTIFACT).href
+const BASE_ = pathToFileURL(ARTIFACT).href
+// Classic is opened directly by its hash (the mode menu is checked below)
+const URL_ = BASE_ + '#classic'
 
 const browser = await chromium.launch()
 const results = []
@@ -235,6 +237,29 @@ async function advancePanels(page) {
   if (b.errors.length) throw new Error('console errors during import: ' + b.errors.join(' | '))
   ok('save import', 'transferred run matches the source device; junk file refused without damaging the local save')
   await a.ctx.close(); await b.ctx.close()
+}
+
+// ---- the mode menu and Ascension, offline from the same file -------------
+{
+  const { ctx, page, errors } = await newPage(1280, 800)
+  await page.goto(BASE_)
+  await page.waitForSelector('[data-testid="mode-menu"]')
+  await page.locator('[data-testid="mode-ascension"]').click()
+  await page.waitForSelector('[data-testid="asc-hub"]')
+  await page.locator('[data-testid="asc-new"]').click()
+  await page.fill('[data-testid="asc-seed"]', 'portable-ascension')
+  await page.locator('[data-testid="asc-begin"]').click()
+  await page.waitForSelector('[data-testid="asc-card"]')
+  await page.locator('[data-testid="asc-card"]').first().click()
+  await page.locator('[data-testid="asc-play"]').click()
+  await page.waitForFunction(() => document.querySelector('[data-testid="asc-hands"]')?.textContent === '6')
+  await page.waitForSelector('[data-testid="asc-globe"]')
+  await page.reload()
+  await page.waitForSelector('[data-testid="asc-topbar"]')
+  if ((await page.locator('[data-testid="asc-hands"]').textContent()) !== '6') throw new Error('the Ascension run did not resume after a reload')
+  if (errors.length) throw new Error('console errors in Ascension: ' + errors.join(' | '))
+  ok('Ascension offline', 'mode menu, a new world, a play, the globe, and resume after reload — from the single file')
+  await ctx.close()
 }
 
 await browser.close()

@@ -12,3 +12,4 @@ qa-*.png
 *.log
 .env
 .env.*
+.claude/
