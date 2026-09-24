@@ -6,6 +6,7 @@
 - [Rejected non-match-penalty experiment](experiments/non-match-penalty-d02b14c/)
 - [Ascension first-playable audit (rules v7)](ascension-audit.md) and its [raw output](experiments/ascension-audit/audit-1000.txt)
 - [Ascension core-loop correction (rules v8)](ascension-core-loop.md): before/after [audit](experiments/ascension-core-loop/audit-1000.txt) and [design comparison](experiments/ascension-core-loop/designs-300.txt)
+- [Repository analysis and modernization (2026-09-24)](modernization-2026-09-24.md): tooling changes and open findings
 
 These documents span earlier rulesets. Their measurements, counts, paths and
 verdicts describe the revision named in each report, not necessarily current main.
@@ -28,15 +29,16 @@ Run from the repository root. Browser checks use Playwright (a dev dependency);
 install its Chromium runtime with `npx playwright install chromium` if needed.
 Generated QA folders are ignored.
 
-Current and verified against the v8 rules (CI runs the first four, plus
+Current and verified against the v8 rules (CI runs the first five, plus
 `qa-ascension-dev.mjs`, on every push):
 
 ```sh
+npm run typecheck           # tsc for src/, then tests/ (tests/tsconfig.json)
 npm test                    # unit/contract tests + Classic replay fixtures
 npm run build
 npm run build:portable
 node scripts/qa-portable.mjs                  # browser QA of the file:// artifact
-node scripts/qa-ascension-dev.mjs             # Ascension prototype: dev server only; absent from both builds
+node scripts/qa-ascension-dev.mjs             # Ascension prototype: dev server only; absent from both builds; production globe chunk loads
 node --import ./scripts/ts-resolve.mjs scripts/ascension-audit.mjs 1000   # Ascension v7 vs v8 loop audit (~13 min)
 node --import ./scripts/ts-resolve.mjs scripts/ascension-designs.mjs 300 '<designs json>'   # compare candidate rule designs
 node scripts/playtest-v8.mjs                  # v8 bounded-economy rules, in the browser

@@ -21,7 +21,7 @@ targets; the detailed contracts and measured limitations live in the [rules](doc
 
 ## Run locally
 
-Use a current Node.js release supported by Vite 8 (Node.js 24 is a suitable choice):
+Use Node.js 24 (pinned in `.nvmrc`, so `nvm use` picks it up):
 
 ```sh
 git clone https://github.com/Figo5/worldhand.git
@@ -51,6 +51,8 @@ storage behavior for `file://` varies, so keep an exported backup of a valued ru
   displayed result tied to the actual transaction.
 - **React + Three.js:** React presents the hand, market and chronicle. The globe
   renders engine-owned region state; animation does not decide game outcomes.
+  It loads as a separate chunk, so the title screen and hand do not wait for
+  Three.js; the portable build inlines it.
 - **Versioned local saves:** schema 4 / engine rules 8. Incompatible saves are
   preserved as legacy data and rejected with an explanation. Imports are validated
   before replacing an existing run.
@@ -58,6 +60,7 @@ storage behavior for `file://` varies, so keep an exported backup of a valued ru
 ## Testing
 
 ```sh
+npm run typecheck      # app and tests
 npm test
 npm run build
 npm run build:portable
@@ -66,14 +69,14 @@ npx playwright install chromium
 node scripts/qa-portable.mjs
 ```
 
-Verified on 2026-09-23: **256 tests passed**, plus production and portable builds
-(Node.js 24 and 26). Coverage includes poker, deterministic transitions, preview/commit,
-bounded economy, save validation, death boundaries, and 40 recorded Classic replays
-that must reproduce exactly. GitHub Actions runs the tests, both builds and the
-portable browser checks on every push (`.github/workflows/ci.yml`). Builds report bundle-size
-and portable-bundling warnings; they complete successfully. The portable browser checks
-also passed: offline loading, keyboard play, shop purchases, a full run, reload
-persistence, mobile layout, and save export/import.
+Verified on 2026-09-24 in GitHub Actions (Node.js 24): the type-check of app and
+tests, **368 tests passed**, and production and portable builds without warnings.
+Coverage includes poker, deterministic transitions, preview/commit, bounded economy,
+save validation, death boundaries, the Ascension prototype, and 40 recorded Classic
+replays that must reproduce exactly. GitHub Actions runs all of this and the browser
+checks on every push (`.github/workflows/ci.yml`). The portable browser checks also
+passed: offline loading, the inlined 3D globe, keyboard play, the chronicle menu, shop
+purchases, a full run, reload persistence, mobile layout, and save export/import.
 
 ## Status and limitations
 
