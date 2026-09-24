@@ -22,7 +22,8 @@ type one to share it: the same seed always deals the same world and cards.
 3. **Watch peoples rise.** When a stat reaches a people's threshold and there
    is free land of its kind, a civilization appears on the globe.
 4. **Face the crisis.** The crisis panel shows exactly what facing it now
-   would do. Face it when you are ready: every unspent hand becomes Influence.
+   would do. Face it when you are ready: each unspent hand becomes Influence,
+   and up to two carry into the next era.
    When your hands run out, you must face it.
 5. **Endure or scar.** Endure and you move on. Fail and you lose one of three
    **Resolve**, and the crisis leaves a scar. At 0 Resolve the world falls.
@@ -86,9 +87,10 @@ A crisis weighs **pressure** against **resilience**:
   700, 800).
 
 Resilience ≥ pressure: **endured**. You gain the era's reward (4–6
-Influence), 1 per unspent hand, +3 for a **triumph** (margin at least a
+Influence), 1 per unspent hand (and up to two unspent hands carry into the
+next era), +3 for a **triumph** (margin at least a
 quarter of the pressure), your Merchants' tiers, and **Treasury**:
-1 per 10 Prosperity.
+1 per 8 Prosperity.
 
 Resilience < pressure: **failed**. You lose one Resolve and take the scar,
 which scales with the shortfall. A scar can lower stats, cut a civilization's

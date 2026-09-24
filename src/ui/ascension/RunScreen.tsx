@@ -2,7 +2,7 @@
 // Presentation only — every number comes from the engine, and every preview
 // is the engine's own transition applied to a copy (one calculation path).
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { applyAction, forecast, eraEndInfluence, treasury, runStatus, HAND_INFLUENCE, TRIUMPH_BONUS } from '../../engine/ascension/ascension'
+import { applyAction, forecast, eraEndInfluence, treasury, runStatus, HAND_INFLUENCE, HAND_CARRY, TRIUMPH_BONUS } from '../../engine/ascension/ascension'
 import { evaluatePlay, evaluateDiscard, type Line, type PlayResult } from '../../engine/ascension/scoring'
 import { ERAS, FINAL_ERA } from '../../engine/ascension/eras'
 import { CRISES } from '../../engine/ascension/crises'
@@ -155,7 +155,7 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
           {failing
             ? <>You would <b className="bad">fail by {-now.margin}</b>: lose 1 Resolve and take the scar.</>
             : <>You would <b className="good">endure it by {now.margin}</b>{state.era < FINAL_ERA ? <> and gain about <b className="gold">{bank + (now.margin >= Math.ceil(now.pressure / 4) ? TRIUMPH_BONUS : 0)} Influence</b> ({HAND_INFLUENCE * state.handsLeft} for unspent hands)</> : null}.</>}
-          {state.handsLeft > 0 && ' Unplayed hands are gone once you face it.'}
+          {state.handsLeft > 0 && (state.era < FINAL_ERA && !failing ? ` Up to ${HAND_CARRY} unspent hands carry into the next era; the rest are gone.` : ' Unplayed hands are gone once you face it.')}
           <div className="row" style={{ marginTop: 6 }}>
             <button className="crisis-btn" data-testid="asc-face-confirm" onClick={() => act({ type: 'face' })}>Face it</button>
             <button onClick={() => setConfirmFace(false)}>Not yet</button>

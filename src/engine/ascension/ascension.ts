@@ -217,7 +217,9 @@ export function eraEndInfluence(s: AscensionState, m: RunMods = runMods(s)): num
     + s.legendaries.reduce((n, l) => n + (LEGENDARIES[l.id].eraEnd?.(s, counts) ?? 0), 0)
 }
 /** Influence per hand left unspent when a crisis is faced and endured. */
-export const HAND_INFLUENCE = 2
+export const HAND_INFLUENCE = 1
+/** Hands left unspent when a crisis is endured that carry into the next era (at most). */
+export const HAND_CARRY = 2
 /** Treasury: every era's end pays +1 Influence per this much Prosperity, endured or not. */
 export const TREASURY_STEP = 8
 export const treasury = (s: AscensionState) => Math.floor(s.stats.prosperity / TREASURY_STEP)
@@ -242,6 +244,7 @@ function face(state: AscensionState): AscensionState {
   const scars: string[] = []
   if (result === 'endured') {
     influence = era === FINAL_ERA ? 0 : eraEndInfluence(s, m) + (triumph ? TRIUMPH_BONUS : 0)
+    if (era !== FINAL_ERA) s.next.hands += Math.min(HAND_CARRY, s.handsLeft)
   } else {
     s.resolve -= 1
     influence = FAIL_INFLUENCE

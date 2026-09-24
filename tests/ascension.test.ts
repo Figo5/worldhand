@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   newRun, applyAction, replay, runStatus, forecast, ownedCards, eraEndInfluence, treasury, isTriumph,
-  ASCENSION_RULES_VERSION, MIN_DECK, TRIUMPH_BONUS, FAIL_INFLUENCE, HAND_INFLUENCE,
+  ASCENSION_RULES_VERSION, MIN_DECK, TRIUMPH_BONUS, FAIL_INFLUENCE, HAND_INFLUENCE, HAND_CARRY,
 } from '../src/engine/ascension/ascension'
 import { evaluatePlay, evaluateDiscard, classify, scoringPositions, HAND_TABLE, cardChips, LAND_CHIPS } from '../src/engine/ascension/scoring'
 import { ERAS, FINAL_ERA } from '../src/engine/ascension/eras'
@@ -251,15 +251,17 @@ describe('Ascension v10: eras, crises and graded outcomes', () => {
     expect({ ...ev, result: f.result }).toEqual(f)
   })
 
-  it('facing with hands left banks them as Influence; the hands running out forces the crisis', () => {
-    const s = newRun(setup('early'))
+  it('facing with hands left banks them as Influence and carries up to two into the next era; the hands running out forces the crisis', () => {
+    const s = structuredClone(newRun(setup('early')))
+    s.stats = { vitality: 40, prosperity: 40, industry: 40, knowledge: 40 }
     const early = face(s)
     const out = early.crises[0]
     if (out.result === 'endured') expect(out.influence).toBe(eraEndInfluence(s) + (out.triumph ? TRIUMPH_BONUS : 0) + treasury(s))
     else expect(out.influence).toBe(FAIL_INFLUENCE)
+    if (out.result === 'endured') expect(leave(early).handsLeft).toBe(ERAS[1].hands + Math.min(HAND_CARRY, ERAS[0].hands))
     const spent = spendHands(s)
     expect(runStatus(spent)).toBe('crisis')
-    expect(eraEndInfluence(spent)).toBe(eraEndInfluence(s) - HAND_INFLUENCE * ERAS[0].hands)
+    expect(eraEndInfluence({ ...spent, civilizations: s.civilizations })).toBe(eraEndInfluence(s) - HAND_INFLUENCE * ERAS[0].hands)
   })
 
   it('a failed crisis costs a Resolve and leaves its scar, but the run goes on', () => {
