@@ -1,5 +1,7 @@
 # Ascension first-playable audit (rules version 7)
 
+> Historical: this measured rules v7. The fixes are in [ascension-core-loop.md](ascension-core-loop.md) (rules v8). The harness has since grown; its v7 rule set reproduces these numbers.
+
 This audit measures the current loop before any more content is added. The loop covers stats, terrain, civilizations, passives, eras, crises and completion.
 
 - **Measurement:** 1,000 seeds × 11 documented bots × 6 rule sets.

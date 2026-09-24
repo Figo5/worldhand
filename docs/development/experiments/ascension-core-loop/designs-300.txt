@@ -1,0 +1,109 @@
+300 seeds · complete% · Winter/Plague/Invasion survival % · median rounds · completed worlds' stats high→low (median) · median crisis margins · median rounds waited
+
+== v7 {"base":"v7"}
+  balanced     65%  71/92/100   r11  55/55/54/53     margins 5/14/38      waited 0/0/0
+  poker-max    63%  67/93/100   r11  58/56/54/52     margins 5/18/35      waited 0/0/0
+  random       58%  67/87/99    r19  61/57/54/51     margins 5/15/34      waited 0/0/0
+  patient      65%  71/92/100   r11  55/55/54/53     margins 5/14/38      waited 0/0/0
+  prepared     97%  98/100/100  r11  55/55/54/52     margins 14/18/39     waited 0/0/0
+  resolute    100%  100/100/100 r12  54/54/53/52     margins 19/22/40     waited 0/0/0
+  planner      99%  99/100/100  r11  59/56/54/52     margins 15/25/35     waited 0/0/0
+  lean-V       96%  98/100/100  r11  62/51/51/50     margins 16/20/25     waited 0/0/0
+  lean-I       93%  95/99/100   r11  61/51/51/50     margins 10/17/38     waited 0/0/0
+  lean-K       94%  96/100/100  r11  61/51/51/50     margins 10/23/26     waited 0/0/0
+
+== v8 {}
+  balanced     73%  88/94/89    r10  51/50/50/49     margins 10/16/7      waited 0/0/0
+  poker-max    72%  92/97/81    r10  53/51/49/47     margins 13/24/8      waited 0/0/0
+  random       50%  81/92/67    r17  56/53/50/46     margins 10/18/3      waited 0/0/0
+  patient      95%  100/100/96  r10  51/50/50/49     margins 10/16/8      waited 0/0/0
+  prepared     97%  100/100/97  r10  52/51/50/48     margins 17/20/10     waited 0/0/0
+  resolute    100%  100/100/100 r12  57/53/51/49     margins 25/25/13     waited 0/0/0
+  planner      97%  100/100/97  r11  57/54/51/47     margins 21/31/13     waited 0/0/0
+  lean-V       95%  100/100/96  r11  69/49/45/42     margins 21/23/5      waited 0/0/0
+  lean-I       97%  100/100/98  r13  79/42/42/41     margins 15/20/37     waited 0/0/0
+  lean-K       96%  100/100/97  r11  69/49/44/42     margins 16/27/5      waited 0/0/0
+
+== v8-no-reserves {"rules":{"reserveRate":null}}
+  balanced     17%  71/81/30    r10  51/50/50/49     margins 5/9/-4       waited 0/0/0
+  poker-max    17%  67/87/30    r10  53/51/49/47     margins 5/13/-5      waited 0/0/0
+  random       16%  67/79/31    r17  57/53/50/46     margins 5/10/-4      waited 0/0/0
+  patient      45%  96/99/47    r10  51/50/50/49     margins 5/10/-10     waited 0/0/2
+  prepared     70%  100/100/71  r11  55/51/50/48     margins 14/15/3      waited 0/0/0
+  resolute    100%  100/100/100 r13  62/51/49/47     margins 19/19/9      waited 0/0/0
+  planner      72%  100/100/72  r11  57/54/51/46     margins 15/21/2      waited 0/0/0
+  lean-V       67%  100/100/69  r11  61/52/47/44     margins 16/16/2      waited 0/0/0
+  lean-I       85%  100/100/88  r12  77/43/42/41     margins 10/14/23     waited 0/0/0
+  lean-K       69%  100/100/71  r11  60/52/47/44     margins 10/20/1      waited 0/0/0
+
+== v8-reserves-100 {"rules":{"reserveRate":100}}
+  balanced     89%  94/98/97    r10  51/50/50/49     margins 14/20/13     waited 0/0/0
+  poker-max    89%  98/99/92    r10  53/51/49/47     margins 17/30/14     waited 0/0/0
+  random       67%  87/96/80    r17  56/53/50/47     margins 12/21/8      waited 0/0/0
+  patient      97%  100/100/97  r10  51/50/50/49     margins 14/20/14     waited 0/0/0
+  prepared     98%  100/100/98  r10  51/50/50/49     margins 20/23/14     waited 0/0/0
+  resolute    100%  100/100/100 r12  55/53/51/49     margins 28/28/16     waited 0/0/0
+  planner      98%  100/100/98  r11  57/55/52/48     margins 25/36/19     waited 0/0/0
+  lean-V       97%  100/100/97  r12  75/45/42/42     margins 24/27/7      waited 0/0/0
+  lean-I       99%  100/100/99  r13  80/42/41/41     margins 18/23/42     waited 0/0/0
+  lean-K       98%  100/100/98  r12  76/44/43/42     margins 19/31/6      waited 0/0/0
+
+== v8-auto-trigger {"rules":{"graceRounds":0}}
+  balanced     73%  88/94/89    r10  51/50/50/49     margins 10/16/7      waited 0/0/0
+  poker-max    72%  92/97/81    r10  53/51/49/47     margins 13/24/8      waited 0/0/0
+  random       50%  81/92/67    r17  56/53/50/46     margins 10/18/3      waited 0/0/0
+  patient      73%  88/94/89    r10  51/50/50/49     margins 10/16/7      waited 0/0/0
+  prepared     95%  100/100/96  r10  52/51/50/48     margins 17/20/10     waited 0/0/0
+  resolute    100%  100/100/100 r12  57/53/51/49     margins 25/25/13     waited 0/0/0
+  planner      95%  100/100/95  r11  57/54/51/47     margins 21/31/13     waited 0/0/0
+  lean-V       92%  100/100/94  r11  70/49/44/42     margins 21/23/5      waited 0/0/0
+  lean-I       95%  99/100/97   r13  79/42/42/41     margins 15/20/36     waited 0/0/0
+  lean-K       93%  99/100/94   r12  70/49/44/42     margins 16/27/5      waited 0/0/0
+
+== v8-all-four-at-50 {"medieval":{"stats":4,"min":50,"development":null}}
+  balanced     75%  88/94/91    r11  55/55/54/53     margins 10/16/9      waited 0/0/0
+  poker-max    79%  92/97/88    r11  58/56/54/52     margins 13/24/12     waited 0/0/0
+  random       56%  81/92/75    r19  61/57/54/51     margins 10/18/6      waited 0/0/0
+  patient      97%  100/100/97  r11  55/55/54/53     margins 10/16/10     waited 0/0/0
+  prepared     99%  100/100/100 r11  56/55/55/53     margins 17/20/11     waited 0/0/0
+  resolute    100%  100/100/100 r13  59/56/54/52     margins 25/25/13     waited 0/0/0
+  planner      99%  100/100/99  r12  63/59/56/52     margins 21/31/17     waited 0/0/0
+  lean-V       99%  100/100/100 r12  66/52/51/50     margins 21/23/7      waited 0/0/0
+  lean-I      100%  100/100/100 r11  62/51/51/50     margins 15/20/19     waited 0/0/0
+  lean-K       99%  100/100/100 r12  65/52/51/50     margins 16/27/7      waited 0/0/0
+
+== v8-three-at-50 {"medieval":{"stats":3,"min":50,"development":null}}
+  balanced     74%  88/94/89    r10  51/50/50/50     margins 10/16/7      waited 0/0/0
+  poker-max    76%  92/97/85    r11  58/55/53/51     margins 13/24/10     waited 0/0/0
+  random       52%  81/92/69    r18  57/54/51/49     margins 10/18/5      waited 0/0/0
+  patient      96%  100/100/96  r10  51/50/50/50     margins 10/16/9      waited 0/0/0
+  prepared     96%  100/100/100 r11  55/52/51/50     margins 17/20/10     waited 0/0/0
+  resolute    100%  100/100/100 r13  57/54/52/50     margins 25/25/13     waited 0/0/0
+  planner      98%  100/100/98  r11  57/55/52/48     margins 21/31/14     waited 0/0/0
+  lean-V       94%  100/100/100 r11  62/51/50/49     margins 21/23/8      waited 0/0/0
+  lean-I       99%  100/100/100 r11  61/51/50/49     margins 15/20/17     waited 0/0/0
+  lean-K       95%  100/100/100 r11  62/51/50/48     margins 16/27/8      waited 0/0/0
+
+== v8-v7-invasion {"invasionV7":true}
+  balanced     83%  88/94/100   r10  51/50/50/49     margins 10/16/46     waited 0/0/0
+  poker-max    89%  92/97/100   r10  53/51/49/47     margins 13/24/43     waited 0/0/0
+  random       75%  81/92/100   r17  56/53/50/46     margins 10/18/37     waited 0/0/0
+  patient     100%  100/100/100 r10  51/50/50/49     margins 10/16/47     waited 0/0/0
+  prepared     99%  100/100/100 r10  51/50/50/49     margins 17/20/46     waited 0/0/0
+  resolute    100%  100/100/100 r12  53/53/52/51     margins 25/25/49     waited 0/0/0
+  planner     100%  100/100/100 r11  56/53/51/48     margins 21/31/43     waited 0/0/0
+  lean-V       99%  100/100/100 r12  77/44/43/42     margins 21/23/6      waited 0/0/0
+  lean-I       99%  100/100/100 r13  80/42/41/41     margins 15/20/38     waited 0/0/0
+  lean-K       99%  100/100/100 r12  77/44/42/42     margins 16/27/7      waited 0/0/0
+
+== v8-plague-30 {"plagueBase":30}
+  balanced     77%  88/99/89    r10  51/50/50/49     margins 10/21/7      waited 0/0/0
+  poker-max    74%  92/99/81    r10  53/51/49/47     margins 13/29/8      waited 0/0/0
+  random       53%  81/97/67    r17  56/53/50/46     margins 10/23/3      waited 0/0/0
+  patient      96%  100/100/96  r10  51/50/50/49     margins 10/21/8      waited 0/0/0
+  prepared     97%  100/100/97  r10  52/51/50/49     margins 17/23/10     waited 0/0/0
+  resolute    100%  100/100/100 r12  56/52/51/49     margins 25/29/12     waited 0/0/0
+  planner      97%  100/100/97  r11  57/54/51/47     margins 21/35/13     waited 0/0/0
+  lean-V       96%  100/100/97  r11  69/49/44/42     margins 21/27/6      waited 0/0/0
+  lean-I       97%  100/100/97  r13  79/42/42/41     margins 15/24/37     waited 0/0/0
+  lean-K       96%  100/100/97  r12  71/49/44/42     margins 16/31/5      waited 0/0/0

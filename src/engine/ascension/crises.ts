@@ -2,14 +2,27 @@
 // Pure — no DOM, no clock, no RNG: a crisis's outcome follows from the world.
 //
 // Each era ends in one crisis. It weighs PRESSURE (the crisis itself, the
-// land's threats, and a strain from over-developing one stat past its
-// counterpart) against RESILIENCE (the stats it tests, sheltering land and
-// civilizations). resilience >= pressure: survived; otherwise the run fails.
+// land's threats, a strain from over-developing one stat past its
+// counterpart, and time: it gathers while a ready crisis is kept waiting) against
+// RESILIENCE (the stats it tests, sheltering land, civilizations, and the
+// reserves the era's score has built). resilience >= pressure: survived;
+// otherwise the run fails.
 import type { AscensionRegion, Terrain, WorldStats } from './ascension'
 import type { Archetype, Civilization } from './civilizations'
 
-/** The parts of the world a crisis looks at. */
-export interface World { regions: readonly AscensionRegion[]; stats: WorldStats; civilizations: readonly Civilization[] }
+/** The parts of the world a crisis looks at: the land, stats and civilizations,
+ *  the score earned this era, and the rounds the ready crisis has been kept waiting. */
+export interface World {
+  regions: readonly AscensionRegion[]; stats: WorldStats; civilizations: readonly Civilization[]
+  eraScore: number; waited: number
+}
+/** Rules every crisis shares (working numbers; research harnesses patch them).
+ *  - reserveRate: score earned this era per point of Reserves (Infinity: score never helps)
+ *  - gatherPerRound: pressure added for each round a ready crisis is kept waiting
+ *  - graceRounds: once ready, round ends the player may let pass before the
+ *    crisis strikes on its own (0: it strikes at once, as in rules v7) */
+export const CRISIS_RULES: { reserveRate: number; gatherPerRound: number; graceRounds: number } =
+  { reserveRate: 150, gatherPerRound: 4, graceRounds: 2 }
 /** One labelled contribution; `amount` 0 = does not apply to this world. */
 export interface Factor { label: string; amount: number; detail: string }
 export type CrisisId = 'winter' | 'plague' | 'invasion'
@@ -35,10 +48,13 @@ const civ = (label: string, amount: number, a: Archetype, w: World): Factor =>
 const strain = (label: string, over: number, under: number, overName: string, underName: string): Factor =>
   ({ label, amount: Math.max(0, over - under), detail: `${overName} ${over} vs ${underName} ${under}` })
 
-/** One crisis per era, in era order. `test` lists its pressures and mitigations. */
-export const CRISES: readonly { id: CrisisId; label: string; theme: string; test: (w: World) => { pressures: Factor[]; mitigations: Factor[] } }[] = [
+/** One crisis per era, in era order. `watch` says in a line what it tests and
+ *  what makes a world vulnerable (for players planning a build); `test` lists
+ *  its pressures and mitigations. */
+export const CRISES: readonly { id: CrisisId; label: string; theme: string; watch: string; test: (w: World) => { pressures: Factor[]; mitigations: Factor[] } }[] = [
   {
     id: 'winter', label: 'Harsh Winter', theme: 'A long winter tests the tribes’ food and the land that feeds them.',
+    watch: 'tests Vitality; hurt by cold land and by Industry above Vitality; Nature Keepers and Nomads help',
     test: (w) => ({
       pressures: [
         { label: 'The winter', amount: 15, detail: 'base' },
@@ -55,9 +71,10 @@ export const CRISES: readonly { id: CrisisId; label: string; theme: string; test
   },
   {
     id: 'plague', label: 'Plague', theme: 'Trade carries a plague between cities; learning and health contain it.',
+    watch: 'tests Knowledge (and Vitality); hurt by crowded coasts and plains, Merchants, and Prosperity above Knowledge; Scholars help',
     test: (w) => ({
       pressures: [
-        { label: 'The plague', amount: 30, detail: 'base' },
+        { label: 'The plague', amount: 35, detail: 'base' },
         perLand('Crowded ports and farms', 2, ['coast', 'plains'], w),
         strain('Trade outruns medicine', w.stats.prosperity, w.stats.knowledge, 'Prosperity', 'Knowledge'),
         civ('Merchants', 10, 'merchants', w),
@@ -71,14 +88,16 @@ export const CRISES: readonly { id: CrisisId; label: string; theme: string; test
     }),
   },
   {
-    id: 'invasion', label: 'Invasion', theme: 'Raiders strike a realm that has grown rich and wide.',
+    id: 'invasion', label: 'Invasion', theme: 'Raiders strike a realm that has grown rich; arms, mountains and allies hold them off.',
+    watch: 'tests Industry; every point of development draws raiders, and so does Prosperity above Industry; mountains, allies and Empire Builders help',
     test: (w) => {
-      const vals = Object.values(w.stats), hi = Math.max(...vals), lo = Math.min(...vals)
+      const dev = Object.values(w.stats).reduce((a, b) => a + b, 0)
       return {
         pressures: [
-          { label: 'The invasion', amount: 50, detail: 'base' },
+          { label: 'The invasion', amount: 40, detail: 'base' },
           perLand('Open land', 2, ['plains', 'desert', 'coast'], w),
-          strain('A lopsided realm', hi, lo, 'highest stat', 'lowest'),
+          { label: 'Riches to plunder', amount: Math.floor(dev / 4), detail: `development ${dev} ÷ 4` },
+          strain('Undefended wealth', w.stats.prosperity, w.stats.industry, 'Prosperity', 'Industry'),
         ],
         mitigations: [
           { label: 'Arms and walls', amount: w.stats.industry, detail: `Industry ${w.stats.industry}` },
@@ -96,6 +115,10 @@ export function evaluateCrisis(era: number, w: World): CrisisEvaluation {
   const c = CRISES[era]
   if (!c) throw new Error(`no crisis for era ${era}`)
   const { pressures, mitigations } = c.test(w)
+  const { reserveRate, gatherPerRound } = CRISIS_RULES
+  pressures.push({ label: 'Time to gather', amount: gatherPerRound * w.waited, detail: `kept waiting ${w.waited} round${w.waited === 1 ? '' : 's'} × ${gatherPerRound}` })
+  const reserves = Number.isFinite(reserveRate) ? Math.floor(Math.max(0, w.eraScore) / reserveRate) : 0
+  mitigations.push({ label: 'Reserves', amount: reserves, detail: `${w.eraScore} score this era ÷ ${reserveRate}` })
   const pressure = pressures.reduce((n, f) => n + f.amount, 0)
   const resilience = mitigations.reduce((n, f) => n + f.amount, 0)
   return { crisis: c.id, label: c.label, pressures, mitigations, pressure, resilience, result: resilience >= pressure ? 'survived' : 'failed' }
