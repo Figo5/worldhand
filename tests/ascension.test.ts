@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  newAscensionGame, applyAscensionAction, evaluatePlay, noStats, generateRegions, landAffinity, runStatus,
+  newAscensionGame, applyAscensionAction, evaluatePlay, noStats, generateRegions, landAffinity, runStatus, projectRoundEnd,
   ASCENSION_RULES_VERSION, HAND_SIZE, PLAYS_PER_ROUND, DISCARDS_PER_ROUND, WORLD_STATS, SUIT_STAT,
   TERRAIN, TERRAINS, REGION_ADJACENCY,
   type AscensionState, type AscensionAction, type WorldStats, type Terrain,
@@ -1137,5 +1137,34 @@ describe('Ascension crises', () => {
     expect(runStatus(last(run))).toBe('failed')
     expect(last(run).regions).toEqual(run[0].regions)
     expect(last(run).civilizations.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("the round-end projection the UI shows is exactly what the round's last play commits", () => {
+    let checked = 0, withCiv = 0, strikes = 0
+    for (const seed of ['project-0', 'project-1', 'project-2', 'project-3', 'project-4', 'project-5', 'project-6', 'project-7']) {
+      let s = newAscensionGame(seed)
+      for (const a of randomActions(seed, 600)) {
+        if (a.type === 'play' && s.playsLeft === 1) {
+          const p = evaluatePlay(s, a.cards)
+          const proj = projectRoundEnd(s, Object.fromEntries(WORLD_STATS.map((k) => [k, s.stats[k] + p.statDeltas[k]])) as WorldStats)
+          const next = applyAscensionAction(s, a)
+          expect(next.civilizations).toEqual(proj.civ ? [...s.civilizations, proj.civ] : s.civilizations)
+          expect(runStatus(next) === 'crisis').toBe(proj.strikes)
+          if (proj.strikes) expect(evaluateCrisis(next.era, next)).toEqual(proj.crisis)
+          checked += 1; if (proj.civ) withCiv += 1; if (proj.strikes) strikes += 1
+          s = next
+        } else s = applyAscensionAction(s, a)
+      }
+    }
+    expect([checked > 40, withCiv > 5, strikes >= 4]).toEqual([true, true, true])
+  })
+
+  it('projecting the round end changes nothing, and with no stats given it uses the world as it stands', () => {
+    const s = deepFreeze(newAscensionGame('project-pure'))
+    expect(projectRoundEnd(s)).toEqual(projectRoundEnd(s, s.stats))
+    expect(projectRoundEnd(s)).toMatchObject({ civ: null, strikes: false, crisis: evaluateCrisis(0, s) })
+    const rich = { ...noStats(), vitality: 20, prosperity: 20 }
+    expect(projectRoundEnd(s, rich).civ).not.toBeNull()
+    expect(projectRoundEnd(s, rich).strikes).toBe(true)
   })
 })

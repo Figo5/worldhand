@@ -207,6 +207,7 @@ try {
   ok('prototype crisis forecast', 'fresh game shows "Harsh Winter"')
 
   /** Play a balanced strategy through the UI (resolving each crisis after checking it) until the run ends. */
+  let previews = 0 // round-ending plays whose crisis preview was checked against what happened
   const playBalanced = async () => {
     let plays = 0, crises = []
     while (!(await p.locator('[data-testid="asc-complete"], [data-testid="asc-failed"]').count()) && plays < 120) {
@@ -236,7 +237,12 @@ try {
         pick.push(i); add[SUIT_STAT[hand[i].slice(-1)]] += 1
       }
       for (const i of pick) await cards.nth(i).click()
+      if (!(await p.locator('[data-testid="asc-civ-projection"]').count())) fail('prototype: the round-end civilization projection must be shown while playing')
+      const pv = p.locator('[data-testid="asc-preview-crisis"]')
+      const last = (await pv.innerText()).includes('last of the round'), strikes = (await pv.getAttribute('data-strikes')) === 'true'
       await p.click('[data-testid="asc-play"]')
+      if (last && (await p.locator('[data-testid="asc-crisis"]').count() > 0) !== strikes) fail(`prototype: the preview said the crisis ${strikes ? 'would' : 'would not'} strike at this round end`)
+      if (last) previews += 1
       plays += 1
     }
     return { plays, crises }
@@ -269,6 +275,7 @@ try {
   await worldKept('failed')
   await p.screenshot({ path: 'shots/ascension-dev-failed.png', fullPage: true })
   ok('prototype crisis failed', `${lost.plays} plays; ${lost.crises.join(' | ')}; "Run over", world kept`)
+  ok('prototype round-end preview', `${previews} round-ending plays: the preview's "crisis strikes" matched what happened every time`)
 
   // back to Classic; Ascension wrote nothing
   await p.click('[data-testid="asc-exit"]')

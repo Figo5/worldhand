@@ -1,0 +1,155 @@
+# Ascension first-playable audit — 1000 seeds, 11 bots, 6 rule sets, cap 60 rounds (218s)
+
+## Bots
+  poker-max    highest poker score (chips × mult); ignores the world
+  score-max    highest total immediate score (poker + land + civilization passives)
+  balanced     5 cards, always raising the currently lowest stat
+  terrain      focuses the stat its land favours most, plus what the era checklist asks for
+  prepared     balanced, but reads the crisis forecast: builds what it lacks and holds back the checkpoint until safe
+  civ-synergy  maximises civilization passive bonuses once it has civilizations; balanced before
+  focus-V      focuses Vitality (♥) plus what the era checklist asks for
+  focus-P      focuses Prosperity (♦) plus what the era checklist asks for
+  focus-I      focuses Industry (♣) plus what the era checklist asks for
+  focus-K      focuses Knowledge (♠) plus what the era checklist asks for
+  random       seeded random legal play/discard (weak baseline)
+
+## 1. Strategies (full rules)
+  bot          complete  winter  plague  invasion  rounds p10/med/p90  plays  score med  V/P/I/K at completion  civs  top failure reasons                                                                                  
+  poker-max    59.9%     66.3%   90.6%   99.7%     11/11/12            44     5046       56/55/55/55            6     winter: Cold land 33.5%; plague: Merchants 3.6%; plague: Crowded ports and farms 2.5%                
+  score-max    56.4%     64.7%   87.5%   99.6%     11/11/12            44     5104       55/55/56/56            6     winter: Cold land 34.6%; plague: Merchants 3.8%; plague: Crowded ports and farms 3.4%                
+  balanced     64.9%     69.8%   93.0%   100.0%    10/11/11            44     3623       54/54/54/54            6     winter: Cold land 30.2%; plague: Crowded ports and farms 2.6%; plague: Merchants 2.3%                
+  terrain      0.4%      50.8%   35.6%   2.2%      17/17/18            68     1737       95/83/55/95            6     winter: Cleared forests 47.1%; plague: Trade outruns medicine 32.7%; invasion: A lopsided realm 17.7%
+  prepared     97.6%     98.4%   99.9%   100.0%    10/11/11            44     3887       54/54/54/54            6     winter: Cold land 1.6%; plague: Merchants 0.1%                                                       
+  civ-synergy  52.6%     65.0%   83.1%   97.4%     11/12/14            48     4549       54/57/65/65            6     winter: Cold land 34.2%; plague: Merchants 6.3%; plague: Crowded ports and farms 3.2%                
+  focus-V      0.0%      97.7%   0.2%    0.0%      -/-/-               -      2096       -/-/-/-                -     plague: Trade outruns medicine 97.5%; winter: Cold land 2.3%; invasion: A lopsided realm 0.2%        
+  focus-P      0.0%      0.0%    -       -         -/-/-               -      471        -/-/-/-                -     winter: Cleared forests 98.4%; winter: Cold land 1.6%                                                
+  focus-I      0.0%      0.0%    -       -         -/-/-               -      482        -/-/-/-                -     winter: Cleared forests 98.7%; winter: Cold land 1.3%                                                
+  focus-K      8.7%      96.8%   100.0%  9.0%      17/18/19            72     6457       98/82/53/98            6     invasion: A lopsided realm 88.1%; winter: Cold land 3.2%                                             
+  random       55.7%     64.7%   86.7%   99.3%     17/19/20            76     3172       56/55/54/55            6     winter: Cold land 34.6%; plague: Merchants 3.8%; plague: Crowded ports and farms 3.2%                
+  stuck at the cap: prepared 7
+
+## 2. Ablations: completion rate (and median rounds to complete) per rule set
+  bot          full        no-terrain-bonus  no-passives  no-strain   no-civ-in-crises  no-crises  
+  poker-max    59.9% (11)  59.9% (11)        59.9% (11)   69.5% (11)  13.2% (11)        100.0% (11)
+  score-max    56.4% (11)  59.4% (11)        55.7% (11)   65.6% (11)  12.8% (11)        100.0% (11)
+  balanced     64.9% (11)  64.9% (11)        64.9% (11)   68.3% (11)  20.0% (11)        100.0% (11)
+  terrain      0.4% (17)   0.0% (-)          0.4% (17)    19.4% (18)  0.0% (-)          100.0% (18)
+  prepared     97.6% (11)  97.6% (11)        97.6% (11)   98.6% (11)  21.2% (11)        0.0% (-)   
+  civ-synergy  52.6% (12)  56.2% (12)        59.6% (11)   67.1% (12)  12.0% (12)        100.0% (12)
+  focus-V      0.0% (-)    0.0% (-)          0.0% (-)     3.5% (19)   0.0% (-)          100.0% (18)
+  focus-P      0.0% (-)    0.0% (-)          0.0% (-)     0.2% (20)   0.0% (-)          100.0% (18)
+  focus-I      0.0% (-)    0.0% (-)          0.0% (-)     0.8% (19)   0.0% (-)          100.0% (18)
+  focus-K      8.7% (18)   8.7% (18)         8.7% (18)    96.8% (18)  0.0% (-)          100.0% (18)
+  random       55.7% (19)  56.2% (19)        56.9% (19)   66.8% (19)  8.9% (18)         100.0% (19)
+
+  median final score per rule set (all runs)
+  bot          full  no-terrain-bonus  no-passives  no-strain  no-civ-in-crises  no-crises
+  poker-max    5046  4393              4357         5172       1663              5355     
+  score-max    5104  4467              4316         5241       1709              5489     
+  balanced     3623  3016              2962         3657       3288              3866     
+  terrain      1737  1689              1486         1744       684               6461     
+  prepared     3887  3239              3150         3901       17699             10171    
+  civ-synergy  4549  4016              4243         4887       1332              5269     
+  focus-V      2096  1689              1781         2109       2017              6370     
+  focus-P      471   365               446          472        471               6238     
+  focus-I      482   379               455          483        482               6562     
+  focus-K      6457  5403              5123         6457       6276              6467     
+  random       3172  2548              2611         3276       941               3420     
+
+  crisis survival (winter/plague/invasion, % of those who faced it) per rule set
+  bot          full        no-terrain-bonus  no-passives  no-strain   no-civ-in-crises  no-crises  
+  poker-max    66/91/100   66/91/100         66/91/100    72/96/100   49/99/27          100/100/100
+  score-max    65/87/100   66/90/100         65/87/99     71/93/100   49/96/27          100/100/100
+  balanced     70/93/100   70/93/100         70/93/100    73/94/100   51/100/40         100/100/100
+  terrain      51/36/2     98/0/0            51/36/2      51/38/100   42/27/0           100/100/100
+  prepared     98/100/100  98/100/100        98/100/100   99/100/100  94/100/100        100/-/-    
+  civ-synergy  65/83/97    66/88/98          66/90/100    72/94/100   46/95/27          100/100/100
+  focus-V      98/0/0      98/0/0            98/0/0       98/4/100    72/0/0            100/100/100
+  focus-P      0/-/-       0/-/-             0/-/-        1/25/100    0/-/-             100/100/100
+  focus-I      0/-/-       0/-/-             0/-/-        1/100/100   0/-/-             100/100/100
+  focus-K      97/100/9    97/100/9          97/100/9     97/100/100  73/100/0          100/100/100
+  random       65/87/99    65/87/99          66/87/99     71/94/100   47/97/20          100/100/100
+
+  civilization diversity: median civilizations at the end, and distinct archetype sets among completers
+  bot          full            no-terrain-bonus  no-passives     no-strain       no-civ-in-crises  no-crises     
+  poker-max    5 civ, 13 sets  5 civ, 13 sets    5 civ, 13 sets  6 civ, 13 sets  3 civ, 9 sets     6 civ, 13 sets
+  score-max    5 civ, 12 sets  5 civ, 13 sets    5 civ, 12 sets  6 civ, 12 sets  3 civ, 9 sets     6 civ, 12 sets
+  balanced     6 civ, 14 sets  6 civ, 14 sets    6 civ, 14 sets  6 civ, 14 sets  4 civ, 8 sets     6 civ, 15 sets
+  terrain      3 civ, 1 sets   4 civ, 0 sets     3 civ, 1 sets   3 civ, 8 sets   3 civ, 0 sets     6 civ, 14 sets
+  prepared     6 civ, 13 sets  6 civ, 13 sets    6 civ, 13 sets  6 civ, 13 sets  6 civ, 7 sets     4 civ, 0 sets 
+  civ-synergy  5 civ, 10 sets  5 civ, 11 sets    5 civ, 12 sets  6 civ, 13 sets  2 civ, 6 sets     6 civ, 13 sets
+  focus-V      4 civ, 0 sets   4 civ, 0 sets     4 civ, 0 sets   4 civ, 5 sets   4 civ, 0 sets     6 civ, 12 sets
+  focus-P      2 civ, 0 sets   2 civ, 0 sets     2 civ, 0 sets   2 civ, 2 sets   2 civ, 0 sets     6 civ, 12 sets
+  focus-I      2 civ, 0 sets   2 civ, 0 sets     2 civ, 0 sets   2 civ, 7 sets   2 civ, 0 sets     6 civ, 14 sets
+  focus-K      6 civ, 6 sets   6 civ, 6 sets     6 civ, 6 sets   6 civ, 12 sets  6 civ, 0 sets     6 civ, 12 sets
+  random       5 civ, 13 sets  5 civ, 12 sets    5 civ, 12 sets  6 civ, 13 sets  3 civ, 8 sets     6 civ, 13 sets
+
+## 3. Structure (full rules; "pooled" = the competent bots poker-max, score-max, balanced, prepared, civ-synergy)
+  completion by land (pooled; n = runs):
+    cold regions (tundra+mountains): 0-2: 82.5% (n 595) · 3-4: 77.8% (n 1955) · 5-6: 58.1% (n 1890) · 7-8: 37.3% (n 520) · 9-12: 22.5% (n 40)
+    open regions (plains+desert+coast): 0-2: 63.3% (n 600) · 3-4: 61.6% (n 1900) · 5-6: 69.5% (n 1830) · 7-12: 73.6% (n 670)
+    crowded regions (coast+plains): 0-1: 65.6% (n 780) · 2-3: 65.6% (n 2455) · 4-5: 67.5% (n 1440) · 6-12: 67.7% (n 325)
+  balanced: completion by cold regions 0-2 89.1% (n 119) · 3-4 81.3% (n 391) · 5-6 54.0% (n 378) · 7-8 20.2% (n 104) · 9-12 0.0% (n 8)
+  prepared: completion by cold regions 0-2 98.3% (n 119) · 3-4 99.5% (n 391) · 5-6 97.9% (n 378) · 7-8 89.4% (n 104) · 9-12 87.5% (n 8)
+  score-max: completion by cold regions 0-2 76.5% (n 119) · 3-4 70.3% (n 391) · 5-6 45.5% (n 378) · 7-8 24.0% (n 104) · 9-12 12.5% (n 8)
+  civilization present at the Harsh Winter → survival rate (pooled; with vs without):
+    natureKeepers   with 98.4% (n 1661) · without 60.1% (n 3339)
+    nomads          with 93.5% (n 2333) · without 54.8% (n 2667)
+    merchants       with 62.8% (n 1928) · without 79.2% (n 3072)
+    empireBuilders  with 58.5% (n 2534) · without 87.6% (n 2466)
+    scholars        with 61.1% (n 1682) · without 78.8% (n 3318)
+    technocrats     with 28.0% (n 214) · without 74.8% (n 4786)
+  completion when the land offers an archetype no home at all vs when it does (pooled; causal: terrain decides this):
+    natureKeepers   impossible 41.8% (n 110) · possible 66.8% (n 4890)
+    nomads          impossible 68.0% (n 25) · possible 66.3% (n 4975)
+    merchants       impossible 71.3% (n 150) · possible 66.1% (n 4850)
+    empireBuilders  impossible 81.4% (n 145) · possible 65.8% (n 4855)
+    scholars        impossible 40.7% (n 140) · possible 67.0% (n 4860)
+    technocrats     impossible 68.6% (n 35) · possible 66.3% (n 4965)
+  completion when each civilization is present at the end vs absent (pooled; correlational):
+    natureKeepers   with 90.3% (n 3618) · without 3.3% (n 1382)
+    nomads          with 87.5% (n 3732) · without 3.9% (n 1268)
+    merchants       with 74.9% (n 4165) · without 23.2% (n 835)
+    empireBuilders  with 70.1% (n 4556) · without 26.6% (n 444)
+    scholars        with 82.3% (n 3859) · without 12.1% (n 1141)
+    technocrats     with 91.6% (n 3429) · without 11.0% (n 1571)
+  among survivors of each crisis (pooled): the stat profile, and how often the strain was zero
+    Harsh Winter  n 3642: median V/P/I/K 16/15/15/15; strain 0 in 77.4%; margin p10/med/p90 2/10/20
+    Plague        n 3335: median V/P/I/K 31/31/31/31; strain 0 in 72.0%; margin p10/med/p90 7/18/32
+    Invasion      n 3314: median V/P/I/K 55/55/55/55; strain 0 in 25.7%; margin p10/med/p90 27/38/47
+  most common civilization sets at completion (pooled):
+    [EB Me NK No Sc Te] 80.9% · [EB NK No Sc Te] 5.0% · [EB Me NK No Sc] 3.6% · [EB Me NK No Te] 3.3% · [Me NK No Sc Te] 2.5% · [EB Me No Sc Te] 1.4%
+
+## 4. Decision value (sampled play states; "X changes the best play" = the best play without X is not a best-score play)
+  states from  n      poker-best = score-best  terrain changes best  passives change best (with civs)  crisis-best ≠ score-best (all / when at risk)  score cost of the crisis-best play (med, at risk)  era-progress-best ≠ score-best  score-best play uses < 5 cards
+  balanced     6716   82.4%                    7.9%                  16.2%                             77.4% / 80.3%                                  21                                                 47.2%                           0.0%                          
+  score-max    6432   82.3%                    7.2%                  15.2%                             78.9% / 79.6%                                  25                                                 52.7%                           0.0%                          
+  prepared     9085   82.9%                    7.7%                  14.6%                             72.0% / 68.0%                                  21                                                 39.1%                           0.0%                          
+  random       15084  81.8%                    8.0%                  16.7%                             79.5% / 79.5%                                  26                                                 53.5%                           0.0%                          
+
+## 5. Crisis fairness (full rules)
+  seeds no bot completes: 4/1000 (audit-329, audit-393, audit-874, audit-918)
+  prepared (forecast-reading) completes 97.6%; its failures: 3× winter (Cold land, margin -4), 5× winter (Cold land, margin -2), 3× winter (Cold land, margin -10), 2× winter (Cold land, margin -6), 1× winter (Cold land, margin -8), 1× plague (Merchants, margin -1), 1× winter (Cold land, margin -1), 1× winter (Cold land, margin -12)
+  Harsh Winter  n 5000: forecast shown before the triggering play ≠ outcome in 13.0% (the play itself flips it 6.0%; the round-end emergence flips it 7.0%, turning survival into failure 0.0%); struck because a civilization emerged: 0.0%
+                with the round-end projection: "if this round ended now" before the triggering play ≠ outcome 9.1%; the triggering play's preview ≠ outcome 0.0%
+  Plague        n 3638: forecast shown before the triggering play ≠ outcome in 4.4% (the play itself flips it 3.0%; the round-end emergence flips it 1.5%, turning survival into failure 0.3% — by merchants 12); struck because a civilization emerged: 0.0%
+                with the round-end projection: "if this round ended now" before the triggering play ≠ outcome 3.8%; the triggering play's preview ≠ outcome 0.0%
+  Invasion      n 3332: forecast shown before the triggering play ≠ outcome in 0.2% (the play itself flips it 0.2%; the round-end emergence flips it 0.0%, turning survival into failure 0.0%); struck because a civilization emerged: 0.0%
+                with the round-end projection: "if this round ended now" before the triggering play ≠ outcome 0.2%; the triggering play's preview ≠ outcome 0.0%
+  Harsh Winter  survival by bot: poker-max 66% · score-max 65% · balanced 70% · terrain 51% · prepared 98% · civ-synergy 65% · focus-V 98% · focus-P 0% · focus-I 0% · focus-K 97% · random 65%
+  Plague        survival by bot: poker-max 91% · score-max 87% · balanced 93% · terrain 36% · prepared 100% · civ-synergy 83% · focus-V 0% · focus-K 100% · random 87%
+  Invasion      survival by bot: poker-max 100% · score-max 100% · balanced 100% · terrain 2% · prepared 100% · civ-synergy 97% · focus-V 0% · focus-K 9% · random 99%
+
+## 6. Pacing (full rules, completed runs)
+  bot          Tribal rounds  Ancient rounds  Medieval rounds  plays/run  civs at Winter/Plague/Invasion  longest quiet stretch (rounds, med/p90)
+  poker-max    3/3/3          3/4/4           4/4/5            44         2/5/6                           2/3                                    
+  score-max    3/3/3          3/4/4           4/5/5            44         2/5/6                           2/3                                    
+  balanced     3/3/3          3/3/3           4/5/5            44         2/5/6                           1/3                                    
+  terrain      2/2/2          5/5/5           10/10/11         68         2/4/6                           2/5                                    
+  prepared     3/3/4          3/3/4           4/4/5            44         2/5/6                           2/3                                    
+  civ-synergy  3/3/3          3/4/4           4/5/7            48         2/5/6                           1/4                                    
+  focus-V      -/-/-          -/-/-           -/-/-            -          -/-/-                           3/4                                    
+  focus-P      -/-/-          -/-/-           -/-/-            -          -/-/-                           0/0                                    
+  focus-I      -/-/-          -/-/-           -/-/-            -          -/-/-                           0/0                                    
+  focus-K      2/2/3          5/5/6           10/10/11         72         2/4/6                           5/6                                    
+  random       4/5/6          5/6/7           7/8/9            76         2/5/6                           3/6                                    
