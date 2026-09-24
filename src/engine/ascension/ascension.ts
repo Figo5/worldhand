@@ -4,13 +4,15 @@
 // discard 1–5 cards, score plays with the shared poker evaluator, grow four
 // world stats from the played suits, pay a land bonus for stat gains the
 // world's terrain favours, let civilizations emerge at round ends and add
-// their passive bonuses to later plays (civilizations.ts). When an era's
-// requirements are met at a round end (eras.ts) its crisis becomes ready
-// (crises.ts): the player plays on and faces it with a `resolve` action when
-// they choose, until it strikes on its own a few round ends later. Facing it
-// weighs the world (and the era's score, as reserves) against it; survival
-// advances one era (after Medieval: first playable complete), failure ends
-// the run. Rounds of 4 plays / 3 discards roll over meanwhile.
+// their passive bonuses to later plays (civilizations.ts). Each era has a
+// budget of cards (eras.ts ERA_BUDGET): every card played costs 1, a discard
+// costs 2, unspent cards carry over. When an era's requirements are met at a
+// round end its crisis becomes ready (crises.ts): the player plays on and
+// faces it with a `resolve` action when they choose; when the budget runs out
+// it strikes (or, with the requirements unmet, the era lapses and the run is
+// over). Facing it weighs the world (and the era's score, as reserves)
+// against it; survival advances one era (after Medieval: first playable
+// complete), failure ends the run. Rounds of 4 plays / 3 discards roll over.
 // No saves, no content yet.
 //
 // Boundaries (enforced by tests/engine-boundaries.test.ts): this module never
@@ -22,7 +24,7 @@ import { hashSeed, type Seed } from '../rng'
 import { deck, evaluateSelection, categoryLabel, CATEGORY_MULT, type Card, type HandCategory, type Suit } from '../poker'
 import { stream } from '../core/streams'
 import { emergeCivilization, civilizationBonuses, type Civilization, type CivBonus } from './civilizations'
-import { ERAS, canAdvance, isComplete, type EraAdvance } from './eras'
+import { ERAS, ERA_BUDGET, canAdvance, isComplete, type EraAdvance } from './eras'
 import { evaluateCrisis, CRISIS_RULES, type CrisisEvaluation, type World } from './crises'
 
 /** Rules generation of Ascension state. Independent of Classic's SAVE_VERSION.
@@ -30,8 +32,9 @@ import { evaluateCrisis, CRISIS_RULES, type CrisisEvaluation, type World } from 
  *  3 = procedural terrain + land bonus, 4 = civilization emergence,
  *  5 = civilization passives, 6 = eras (Tribal, Ancient, Medieval) + first-playable completion,
  *  7 = era crises, 8 = ready crises faced by choice, reserves from score,
- *  wealth-driven Invasion. */
-export const ASCENSION_RULES_VERSION = 8
+ *  wealth-driven Invasion, 9 = a card budget per era (scarcity), forests
+ *  defend the Invasion. */
+export const ASCENSION_RULES_VERSION = 9
 export const HAND_SIZE = 8
 export const PLAYS_PER_ROUND = 4
 export const DISCARDS_PER_ROUND = 3
@@ -152,6 +155,10 @@ export interface AscensionState {
   crisis: { round: number } | null
   /** resolved crises in order; a failed one ends the run */
   crises: CrisisOutcome[]
+  /** what is left of this era's budget (ERA_BUDGET.unit; unused when 'none') */
+  budget: number
+  /** the era ran out of budget before its requirements were met: the run is over */
+  lapsed: boolean
 }
 /** A resolved crisis: `round` = the round whose end made it ready, `faced` = the round it was faced in. */
 export type CrisisOutcome = CrisisEvaluation & { round: number; faced: number }
@@ -163,9 +170,24 @@ export type CrisisOutcome = CrisisEvaluation & { round: number; faced: number }
 export type RunStatus = 'playing' | 'ready' | 'crisis' | 'failed' | 'complete'
 export function runStatus(s: AscensionState): RunStatus {
   if (isComplete(s.era)) return 'complete'
-  if (s.crises.length && s.crises[s.crises.length - 1].result === 'failed') return 'failed'
+  if (s.lapsed || (s.crises.length && s.crises[s.crises.length - 1].result === 'failed')) return 'failed'
   if (!s.crisis) return 'playing'
+  if (ERA_BUDGET.unit !== 'none') return s.budget <= 0 ? 'crisis' : 'ready'
   return s.round > s.crisis.round + CRISIS_RULES.graceRounds ? 'crisis' : 'ready'
+}
+/** What an action costs from the era budget (0 when there is none). */
+export function actionCost(action: AscensionAction): number {
+  const { unit, discardCost } = ERA_BUDGET
+  if (unit === 'none' || unit === 'rounds') return 0
+  if (action.type === 'discard') return unit === 'plays' ? 0 : discardCost
+  if (action.type === 'play') return unit === 'cards' ? (Array.isArray(action.cards) ? action.cards.length : 0) : 1
+  return 0
+}
+/** The era's budget has run out: its crisis strikes if the requirements are met, else the era lapses. Mutates `s`. */
+function spendOut(s: AscensionState): void {
+  if (ERA_BUDGET.unit === 'none' || s.budget > 0 || s.crisis) return
+  if (canAdvance(s.era, s.stats, s.civilizations)) s.crisis = { round: s.round }
+  else s.lapsed = true
 }
 /** The score this era began with (and the round it began in). */
 const eraStart = (s: AscensionState) => (s.eraLog.length ? s.eraLog[s.eraLog.length - 1] : { round: 1, score: 0 })
@@ -173,28 +195,36 @@ const eraStart = (s: AscensionState) => (s.eraLog.length ? s.eraLog[s.eraLog.len
  *  that leaves these stats and score). */
 export function crisisWorld(s: AscensionState, stats: WorldStats = s.stats, score = s.score): World {
   const start = eraStart(s)
-  return { regions: s.regions, stats, civilizations: s.civilizations, eraScore: score - start.score, waited: s.crisis ? s.round - s.crisis.round - 1 : 0 }
+  return { regions: s.regions, stats, civilizations: s.civilizations, eraScore: score - start.score - CRISIS_RULES.upkeep * (s.round - start.round), waited: s.crisis ? s.round - s.crisis.round - 1 : 0 }
 }
 /** What this round's end would bring if the round ended with these stats and
- *  score (default: as things stand): the civilization that would emerge,
+ *  score and era budget left (default: as things stand): the civilization that would emerge,
  *  whether the era's crisis would then be ready, whether it would strike on its
  *  own, and the crisis as it would stand right after that round end. The same
  *  functions as the round-end checkpoint, so a preview of the round's last play
  *  is exactly what that play commits. Pure. */
-export function projectRoundEnd(state: AscensionState, stats: WorldStats = state.stats, score = state.score) {
+export function projectRoundEnd(state: AscensionState, stats: WorldStats = state.stats, score = state.score, budget = state.budget) {
   const civ = emergeCivilization(state.seed, state.round, state.regions, stats, state.civilizations)
   const civilizations = civ ? [...state.civilizations, civ] : state.civilizations
   const ready = state.crisis !== null || canAdvance(state.era, stats, civilizations)
   const readyRound = state.crisis ? state.crisis.round : state.round
   const world = { ...crisisWorld(state, stats, score), civilizations, waited: ready ? state.round - readyRound : 0 }
-  return { civ, ready, forced: ready && state.round + 1 > readyRound + CRISIS_RULES.graceRounds, crisis: isComplete(state.era) ? null : evaluateCrisis(state.era, world) }
+  const budgetAfter = budget - (ERA_BUDGET.unit === 'rounds' ? 1 : 0)
+  const spent = ERA_BUDGET.unit !== 'none' && budgetAfter <= 0
+  return {
+    civ, ready,
+    forced: ready && (ERA_BUDGET.unit === 'none' ? state.round + 1 > readyRound + CRISIS_RULES.graceRounds : spent),
+    /** the era's budget would run out with its requirements unmet: the run would be over */
+    lapses: !ready && spent,
+    crisis: isComplete(state.era) ? null : evaluateCrisis(state.era, world),
+  }
 }
 
 /** Throws unless cards may be played or discarded. */
 function assertPlaying(s: AscensionState): void {
   const st = runStatus(s)
   if (st === 'complete') throw new Error('first playable complete')
-  if (st === 'failed') throw new Error(`run over: ${s.crises[s.crises.length - 1].label} failed`)
+  if (st === 'failed') throw new Error(s.lapsed ? `run over: the ${ERAS[s.era].label} era ran out of ${ERA_BUDGET.unit}` : `run over: ${s.crises[s.crises.length - 1].label} failed`)
   if (st === 'crisis') throw new Error('resolve the crisis first')
 }
 
@@ -227,6 +257,8 @@ export function newAscensionGame(seedText: string): AscensionState {
     eraLog: [],
     crisis: null,
     crises: [],
+    budget: ERA_BUDGET.perEra[0] ?? 0,
+    lapsed: false,
   }
   drawUp(s)
   return s
@@ -274,10 +306,13 @@ export function applyAscensionAction(state: AscensionState, action: AscensionAct
     if (outcome.result === 'survived') {
       s.eraLog = [...s.eraLog, { from: ERAS[s.era].id, to: ERAS[s.era + 1]?.id ?? null, round: s.round, stats: { ...s.stats }, civilizations: s.civilizations.length, score: s.score }]
       s.era += 1
+      s.budget = (ERA_BUDGET.carryOver ? s.budget : 0) + (ERA_BUDGET.perEra[s.era] ?? 0)
     }
     return s
   }
   assertPlaying(state)
+  const cost = actionCost(action)
+  if (ERA_BUDGET.unit !== 'none' && cost > state.budget) throw new Error(`not enough ${ERA_BUDGET.unit} left: this costs ${cost}, ${state.budget} left`)
   if (action.type === 'play') {
     if (state.playsLeft <= 0) throw new Error('no plays left this round')
     const result = evaluatePlay(state, action.cards)
@@ -287,6 +322,7 @@ export function applyAscensionAction(state: AscensionState, action: AscensionAct
     for (const k of WORLD_STATS) s.stats[k] += result.statDeltas[k]
     s.lastPlay = result
     s.playsLeft -= 1
+    s.budget -= cost
     if (s.playsLeft === 0) {
       // round-end checkpoint: at most one civilization emerges
       const civ = emergeCivilization(s.seed, s.round, s.regions, s.stats, s.civilizations)
@@ -298,7 +334,9 @@ export function applyAscensionAction(state: AscensionState, action: AscensionAct
       s.round += 1
       s.playsLeft = PLAYS_PER_ROUND
       s.discardsLeft = DISCARDS_PER_ROUND
+      if (ERA_BUDGET.unit === 'rounds') s.budget -= 1
     }
+    spendOut(s)
     drawUp(s)
     return s
   }
@@ -307,6 +345,8 @@ export function applyAscensionAction(state: AscensionState, action: AscensionAct
     checkSelection(state.hand, action.cards)
     const s = moveToDiscard(state, action.cards)
     s.discardsLeft -= 1
+    s.budget -= cost
+    spendOut(s)
     drawUp(s)
     return s
   }

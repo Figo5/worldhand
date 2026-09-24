@@ -4,11 +4,11 @@
 // Saves nothing; selection lives here, not in engine state.
 import { useMemo, useState } from 'react'
 import {
-  newAscensionGame, applyAscensionAction, evaluatePlay, landAffinity, projectRoundEnd, crisisWorld, WORLD_STATS, WORLD_STAT_LABEL, TERRAIN, runStatus,
+  newAscensionGame, applyAscensionAction, evaluatePlay, landAffinity, projectRoundEnd, crisisWorld, actionCost, WORLD_STATS, WORLD_STAT_LABEL, TERRAIN, runStatus,
   type AscensionAction, type AscensionState, type WorldStats,
 } from '../engine/ascension/ascension'
 import { ARCHETYPES, emergenceThreshold } from '../engine/ascension/civilizations'
-import { ERAS, eraRequirements, isComplete, type Era } from '../engine/ascension/eras'
+import { ERAS, ERA_BUDGET, canAdvance, eraRequirements, isComplete, requirementShortfall, type Era } from '../engine/ascension/eras'
 import { CRISES, CRISIS_RULES, evaluateCrisis, type Factor } from '../engine/ascension/crises'
 import { cardName } from '../engine/poker'
 
@@ -70,10 +70,17 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
   /** what this round's end would bring as things stand, and after the previewed play */
   const roundEnd = game && canPlay ? projectRoundEnd(game) : null
   const statsAfter = game && preview ? Object.fromEntries(WORLD_STATS.map((k) => [k, game.stats[k] + preview.statDeltas[k]])) as WorldStats : null
-  const previewEnd = game && preview && statsAfter ? projectRoundEnd(game, statsAfter, game.score + preview.score) : null
+  const previewEnd = game && preview && statsAfter ? projectRoundEnd(game, statsAfter, game.score + preview.score, game.budget - actionCost({ type: 'play', cards: selected })) : null
   const previewFace = game && preview && statsAfter && status === 'ready' ? evaluateCrisis(game.era, crisisWorld(game, statsAfter, game.score + preview.score)) : null
   const eraScore = game && status !== 'failed' && !isComplete(game.era) ? crisisWorld(game).eraScore : 0
-  const deadline = game?.crisis ? game.crisis.round + CRISIS_RULES.graceRounds : 0
+  const unit = ERA_BUDGET.unit
+  const budgeted = unit !== 'none'
+  const playCost = game && selected.length ? actionCost({ type: 'play', cards: selected }) : 0
+  const discardCost = actionCost({ type: 'discard', cards: [0] })
+  /** if this play spends the last of the budget: does the crisis strike (requirements met) or does the era lapse? */
+  const spendsOut = game && preview && statsAfter && budgeted && game.budget - playCost <= 0
+    ? (game.crisis || canAdvance(game.era, statsAfter, game.playsLeft === 1 && previewEnd?.civ ? [...game.civilizations, previewEnd.civ] : game.civilizations) ? 'strikes' : 'lapses')
+    : null
 
   const act = (a: AscensionAction) => {
     if (!game) return
@@ -96,7 +103,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
     <main className="shell intro" data-testid="ascension-app">
       <header className="intro-head">
         <h1 className="game-title">Ascension prototype</h1>
-        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, the land pays a bonus for the stats its terrain favours, civilizations emerge at round ends and add passive bonuses. Each of three eras (Tribal, Ancient, Medieval) ends in a crisis: meeting the era's requirements makes it ready, you choose when to face it, and it weighs your world and the era's score (as reserves) against it. Nothing is saved.</p>
+        <p className="muted">Development build only. Seeded world and deal; played suits grow four world stats, the land pays a bonus for the stats its terrain favours, civilizations emerge at round ends and add passive bonuses. Each of three eras (Tribal, Ancient, Medieval) has a budget of cards to play and ends in a crisis: meeting the era's requirements makes it ready, you choose when to face it (it strikes when the cards run out), and it weighs your world and the era's score (as reserves) against it. Nothing is saved.</p>
         <button data-testid="asc-exit" onClick={onExit}>Back to Classic</button>
       </header>
 
@@ -113,7 +120,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
       ) : (
         <div className="card panel">
           <p data-testid="asc-status">
-            Seed {game.seedText} · Round {game.round} · Plays {game.playsLeft} · Discards {game.discardsLeft} · Score <strong data-testid="asc-score">{game.score}</strong>
+            Seed {game.seedText} · Round {game.round} · Plays {game.playsLeft} · Discards {game.discardsLeft}{budgeted && !isComplete(game.era) ? <> · <strong data-testid="asc-budget-left" data-budget={game.budget}>{game.budget} {unit} left this era</strong></> : null} · Score <strong data-testid="asc-score">{game.score}</strong>
           </p>
           <p data-testid="asc-stats">
             {WORLD_STATS.map((k, i) => (
@@ -124,8 +131,14 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
             {status === 'failed' ? (
               <div data-testid="asc-failed">
                 <h2>Run over</h2>
-                <p>{last(game.crises).label} was not survived (faced in round {last(game.crises).faced}): resilience {last(game.crises).resilience} vs pressure {last(game.crises).pressure}.</p>
-                <FactorTable pressures={last(game.crises).pressures} mitigations={last(game.crises).mitigations} />
+                {game.lapsed ? (
+                  <p data-testid="asc-lapsed">The {ERAS[game.era].label} era ran out of {unit} before its requirements were met: {eraRequirements(game.era, game.stats, game.civilizations).filter((r) => !r.met).map((r) => `${r.label} ${r.have} / ${r.need}`).join(', ')}.</p>
+                ) : (
+                  <>
+                    <p>{last(game.crises).label} was not survived (faced in round {last(game.crises).faced}): resilience {last(game.crises).resilience} vs pressure {last(game.crises).pressure}.</p>
+                    <FactorTable pressures={last(game.crises).pressures} mitigations={last(game.crises).mitigations} />
+                  </>
+                )}
                 <p>The world is kept below for inspection.</p>
               </div>
             ) : isComplete(game.era) ? (
@@ -143,6 +156,21 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
                     </li>
                   ))}
                 </ul>
+                {budgeted && (
+                  <div data-testid="asc-budget">
+                    <p>
+                      This era has <strong>{game.budget} {unit}</strong> left to spend. {unit === 'cards' ? `Each card played costs 1; a discard costs ${discardCost}.` : `A play costs 1; a discard costs ${discardCost}.`}
+                      {ERA_BUDGET.carryOver ? ` Unspent ${unit} carry into the next era.` : ''} When they run out, the {CRISES[game.era].label} strikes if the requirements are met; otherwise the era lapses and the run is over.
+                    </p>
+                    <p data-testid="asc-budget-plan" data-shortfall={requirementShortfall(game.era, game.stats)} data-spare={game.budget - requirementShortfall(game.era, game.stats)}>
+                      {game.crisis
+                        ? `The requirements are met. Every ${unit === 'cards' ? 'card' : 'action'} you spend now preparing comes out of these ${game.budget}; face the crisis now and they carry into the next era.`
+                        : requirementShortfall(game.era, game.stats) > game.budget
+                          ? `Warning: the requirements still need about ${requirementShortfall(game.era, game.stats)} more stat points, more than the ${game.budget} ${unit} left. Spend on them only, or the era lapses.`
+                          : `The requirements still need about ${requirementShortfall(game.era, game.stats)} more stat points${eraRequirements(game.era, game.stats, game.civilizations).some((r) => r.key === 'civilizations' && !r.met) ? ' (and civilizations)' : ''}, which leaves about ${game.budget - requirementShortfall(game.era, game.stats)} ${unit} to prepare for the crisis or bank.`}
+                    </p>
+                  </div>
+                )}
                 <p data-testid="asc-reserves" data-era-score={eraScore} data-reserves={Math.floor(Math.max(0, eraScore) / CRISIS_RULES.reserveRate)}>
                   Score matters: every {CRISIS_RULES.reserveRate} points scored this era add 1 Reserve to its crisis. This era: {eraScore} score → Reserves +{Math.floor(Math.max(0, eraScore) / CRISIS_RULES.reserveRate)}.
                 </p>
@@ -154,7 +182,7 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
                         : `Not yet: ${reqs.filter((r) => !r.met).map((r) => r.key === 'stats'
                           ? `${r.need - r.have} more stat${r.need - r.have > 1 ? 's' : ''} to ${ERAS[game.era].needs.min} (${WORLD_STATS.filter((k) => game.stats[k] < ERAS[game.era].needs.min).map((k) => `${WORLD_STAT_LABEL[k]} ${game.stats[k]}`).join(', ')})`
                           : r.key === 'development' ? `${r.need - r.have} more development` : `${r.need - r.have} more civilization${r.need - r.have > 1 ? 's' : ''}`).join('; ')}.`}
-                      {' '}Once ready you choose when to face it; each round end you let it wait adds +{CRISIS_RULES.gatherPerRound} pressure, and after {CRISIS_RULES.graceRounds} it strikes on its own.
+                      {' '}Once ready you choose when to face it{budgeted ? `; it strikes on its own when this era's ${unit} run out.` : `; each round end you let it wait adds +${CRISIS_RULES.gatherPerRound} pressure, and after ${CRISIS_RULES.graceRounds} it strikes on its own.`}
                     </p>
                     {roundEnd?.crisis && (
                       <div data-testid="asc-crisis-forecast">
@@ -173,8 +201,10 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
                     <p>{ERAS[game.era].label}'s requirements were met at the end of round {game.crisis!.round}. {CRISES[game.era].theme}</p>
                     <p data-testid="asc-crisis-timing">
                       {status === 'ready'
-                        ? `Face it now, or keep playing to prepare: each round end you let it wait adds +${CRISIS_RULES.gatherPerRound} pressure (waited so far: ${crisisWorld(game).waited}), and it strikes on its own at the end of round ${deadline}. Nothing else changes while you wait.`
-                        : `You let it wait ${crisisWorld(game).waited} round${crisisWorld(game).waited === 1 ? '' : 's'}; it struck on its own. No plays until it is faced.`}
+                        ? budgeted
+                          ? `Face it now, or keep playing to prepare: each card you play costs 1 of the ${game.budget} ${unit} left (a discard ${discardCost}); when they run out it strikes on its own. Facing now carries them into the next era.`
+                          : `Face it now, or keep playing to prepare: each round end you let it wait adds +${CRISIS_RULES.gatherPerRound} pressure (waited so far: ${crisisWorld(game).waited}), and it strikes on its own at the end of round ${game.crisis!.round + CRISIS_RULES.graceRounds}. Nothing else changes while you wait.`
+                        : budgeted ? `This era's ${unit} ran out; it strikes. No plays until it is faced.` : `You let it wait ${crisisWorld(game).waited} round${crisisWorld(game).waited === 1 ? '' : 's'}; it struck on its own. No plays until it is faced.`}
                     </p>
                     <p>If faced now it would find:</p>
                     <FactorTable pressures={faceNow.pressures} mitigations={faceNow.mitigations} />
@@ -277,6 +307,13 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
                 </div>
               )}
               {preview && <p data-testid="asc-preview-total" data-land={preview.landBonus} data-civ={preview.civBonus} data-score={preview.score}>Land bonus +{preview.landBonus}{preview.landBonus ? ` (${WORLD_STATS.filter((k) => preview.statDeltas[k] && affinity![k]).map((k) => `${preview.statDeltas[k]} ${WORLD_STAT_LABEL[k]} × ${affinity![k]}`).join(' + ')})` : ''} · Civilizations +{preview.civBonus} → play adds {preview.score} (Reserves {Math.floor(Math.max(0, eraScore) / CRISIS_RULES.reserveRate)} → {Math.floor(Math.max(0, eraScore + preview.score) / CRISIS_RULES.reserveRate)})</p>}
+              {preview && budgeted && (
+                <p data-testid="asc-preview-cost" data-cost={playCost} data-after={game.budget - playCost} data-ends={spendsOut ?? ''}>
+                  {playCost > game.budget
+                    ? `Not enough ${unit} left: this play costs ${playCost}, ${game.budget} left.`
+                    : `This play costs ${playCost} ${unit === 'cards' ? (playCost === 1 ? 'card' : 'cards') : unit}: ${game.budget} → ${game.budget - playCost} left.${spendsOut === 'strikes' ? ` It spends the last of them: the ${CRISES[game.era].label} strikes.` : spendsOut === 'lapses' ? ' It spends the last of them with the requirements unmet: the era would lapse and the run end.' : ''}`}
+                </p>
+              )}
               {previewFace && (
                 <p data-testid="asc-preview-face" data-margin={previewFace.resilience - previewFace.pressure}>
                   Faced right after this play, the {previewFace.label} would find resilience {previewFace.resilience} vs pressure {previewFace.pressure}: would {verdict(previewFace)}.
@@ -286,13 +323,13 @@ export default function AscensionApp({ onExit }: { onExit: () => void }) {
                 <p data-testid="asc-preview-crisis" data-ready={previewEnd.ready} data-forced={previewEnd.forced} data-margin={previewEnd.crisis.resilience - previewEnd.crisis.pressure}>
                   If the round ended after this play{game.playsLeft === 1 ? ' (it is the last of the round)' : ''}:{' '}
                   {previewEnd.civ ? `${ARCHETYPES[previewEnd.civ.archetype].label} would emerge; ` : ''}
-                  {previewEnd.forced ? `the ${previewEnd.crisis.label} would strike on its own` : game.crisis ? `the ${previewEnd.crisis.label} would have waited one more round` : previewEnd.ready ? `${ERAS[game.era].label}'s requirements are met, so the ${previewEnd.crisis.label} becomes ready` : `${ERAS[game.era].label}'s requirements are not yet met`}
+                  {previewEnd.forced ? `the ${previewEnd.crisis.label} would strike on its own` : game.crisis ? `the ${previewEnd.crisis.label} would still be ready` : previewEnd.ready ? `${ERAS[game.era].label}'s requirements are met, so the ${previewEnd.crisis.label} becomes ready` : `${ERAS[game.era].label}'s requirements are not yet met`}
                   {' '}— faced then: resilience {previewEnd.crisis.resilience} vs pressure {previewEnd.crisis.pressure}, would {verdict(previewEnd.crisis)}.
                 </p>
               )}
               <div className="row">
-                <button className="primary" data-testid="asc-play" disabled={!preview} onClick={() => act({ type: 'play', cards: selected })}>Play</button>
-                <button data-testid="asc-discard" disabled={selected.length === 0 || game.discardsLeft <= 0} onClick={() => act({ type: 'discard', cards: selected })}>Discard</button>
+                <button className="primary" data-testid="asc-play" disabled={!preview || (budgeted && playCost > game.budget)} onClick={() => act({ type: 'play', cards: selected })}>Play{budgeted && preview ? ` (costs ${playCost})` : ''}</button>
+                <button data-testid="asc-discard" disabled={selected.length === 0 || game.discardsLeft <= 0 || (budgeted && discardCost > game.budget)} onClick={() => act({ type: 'discard', cards: selected })}>Discard{budgeted && discardCost ? ` (costs ${discardCost})` : ''}</button>
                 <button data-testid="asc-clear" disabled={selected.length === 0} onClick={() => { setSelected([]); setError('') }}>Clear</button>
               </div>
             </>

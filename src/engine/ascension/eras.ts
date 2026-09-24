@@ -29,6 +29,29 @@ export interface EraAdvance { from: Era; to: Era | null; round: number; stats: W
 
 export const isComplete = (era: number) => era >= ERAS.length
 
+/** Scarcity: what each era has a fixed amount of, and how much.
+ *  - unit: 'none' (no budget), 'plays', 'actions' (plays and discards),
+ *    'cards' (cards played; a discard costs `discardCost`), or 'rounds'
+ *  - perEra: granted at the start of each era, in era order
+ *  - discardCost: what a discard costs ('actions' and 'cards')
+ *  - carryOver: unspent budget carries into the next era
+ *  When it runs out the era ends: its crisis strikes if the requirements are
+ *  met, otherwise the era lapses and the run is over. The crisis can be faced
+ *  as soon as it is ready. */
+export const ERA_BUDGET: { unit: 'none' | 'plays' | 'actions' | 'cards' | 'rounds'; perEra: number[]; discardCost: number; carryOver: boolean } =
+  { unit: 'cards', perEra: [70, 70, 90], discardCost: 2, carryOver: true }
+
+/** Stat points the world still needs to meet era `era`'s requirements (the
+ *  development shortfall included; civilizations aside) — about how many
+ *  cards are spoken for before any is free for preparation. */
+export function requirementShortfall(era: number, stats: WorldStats): number {
+  if (isComplete(era)) return 0
+  const { stats: n, min, development = 0 } = ERAS[era].needs
+  const vals = Object.values(stats)
+  const gaps = vals.map((v) => Math.max(0, min - v)).sort((a, b) => a - b).slice(0, n).reduce((a, b) => a + b, 0)
+  return Math.max(gaps, development - vals.reduce((a, b) => a + b, 0))
+}
+
 /** What the world still needs to leave era `era` (none once complete). */
 export function eraRequirements(era: number, stats: WorldStats, civs: readonly Civilization[]): Requirement[] {
   if (isComplete(era)) return []

@@ -3,7 +3,7 @@
 //
 // Each era ends in one crisis. It weighs PRESSURE (the crisis itself, the
 // land's threats, a strain from over-developing one stat past its
-// counterpart, and time: it gathers while a ready crisis is kept waiting) against
+// counterpart) against
 // RESILIENCE (the stats it tests, sheltering land, civilizations, and the
 // reserves the era's score has built). resilience >= pressure: survived;
 // otherwise the run fails.
@@ -20,9 +20,12 @@ export interface World {
  *  - reserveRate: score earned this era per point of Reserves (Infinity: score never helps)
  *  - gatherPerRound: pressure added for each round a ready crisis is kept waiting
  *  - graceRounds: once ready, round ends the player may let pass before the
- *    crisis strikes on its own (0: it strikes at once, as in rules v7) */
-export const CRISIS_RULES: { reserveRate: number; gatherPerRound: number; graceRounds: number } =
-  { reserveRate: 150, gatherPerRound: 4, graceRounds: 2 }
+ *    crisis strikes on its own (0: it strikes at once, as in rules v7)
+ *  - upkeep: score each round of the era costs before the rest becomes Reserves
+ *  With an era budget (eras.ts ERA_BUDGET) the budget is the deadline: the
+ *  grace and the waiting cost apply only without one. */
+export const CRISIS_RULES: { reserveRate: number; gatherPerRound: number; graceRounds: number; upkeep: number } =
+  { reserveRate: 150, gatherPerRound: 0, graceRounds: 2, upkeep: 0 }
 /** One labelled contribution; `amount` 0 = does not apply to this world. */
 export interface Factor { label: string; amount: number; detail: string }
 export type CrisisId = 'winter' | 'plague' | 'invasion'
@@ -89,13 +92,13 @@ export const CRISES: readonly { id: CrisisId; label: string; theme: string; watc
   },
   {
     id: 'invasion', label: 'Invasion', theme: 'Raiders strike a realm that has grown rich; arms, mountains and allies hold them off.',
-    watch: 'tests Industry; every point of development draws raiders, and so does Prosperity above Industry; mountains, allies and Empire Builders help',
+    watch: 'tests Industry; every point of development draws raiders, and so does Prosperity above Industry; mountains, forests, allies and Empire Builders help',
     test: (w) => {
       const dev = Object.values(w.stats).reduce((a, b) => a + b, 0)
       return {
         pressures: [
-          { label: 'The invasion', amount: 40, detail: 'base' },
-          perLand('Open land', 2, ['plains', 'desert', 'coast'], w),
+          { label: 'The invasion', amount: 43, detail: 'base' },
+          perLand('Open land', 1, ['plains', 'desert', 'coast'], w),
           { label: 'Riches to plunder', amount: Math.floor(dev / 4), detail: `development ${dev} ÷ 4` },
           strain('Undefended wealth', w.stats.prosperity, w.stats.industry, 'Prosperity', 'Industry'),
         ],
@@ -103,6 +106,7 @@ export const CRISES: readonly { id: CrisisId; label: string; theme: string; watc
           { label: 'Arms and walls', amount: w.stats.industry, detail: `Industry ${w.stats.industry}` },
           { label: 'Allied civilizations', amount: 5 * w.civilizations.length, detail: `${w.civilizations.length} × 5` },
           perLand('Mountain passes', 3, ['mountains'], w),
+          perLand('Forest cover', 2, ['forest'], w),
           civ('Empire Builders', 10, 'empireBuilders', w),
         ],
       }
@@ -116,7 +120,7 @@ export function evaluateCrisis(era: number, w: World): CrisisEvaluation {
   if (!c) throw new Error(`no crisis for era ${era}`)
   const { pressures, mitigations } = c.test(w)
   const { reserveRate, gatherPerRound } = CRISIS_RULES
-  pressures.push({ label: 'Time to gather', amount: gatherPerRound * w.waited, detail: `kept waiting ${w.waited} round${w.waited === 1 ? '' : 's'} × ${gatherPerRound}` })
+  if (gatherPerRound) pressures.push({ label: 'Time to gather', amount: gatherPerRound * w.waited, detail: `kept waiting ${w.waited} round${w.waited === 1 ? '' : 's'} × ${gatherPerRound}` })
   const reserves = Number.isFinite(reserveRate) ? Math.floor(Math.max(0, w.eraScore) / reserveRate) : 0
   mitigations.push({ label: 'Reserves', amount: reserves, detail: `${w.eraScore} score this era ÷ ${reserveRate}` })
   const pressure = pressures.reduce((n, f) => n + f.amount, 0)

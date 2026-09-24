@@ -5,12 +5,13 @@
 //
 // Run: node --import ./scripts/ts-resolve.mjs scripts/ascension-designs.mjs [seeds=300] '<designs json>' [bots,comma,separated]
 // A design is { base?: 'v7' | 'v8', rules?: {reserveRate, gatherPerRound, graceRounds}, medieval?: {civilizations, stats, min, development},
-//               plagueBase?: n, invasionV7?: true } — reserveRate null means no reserves. Example:
+//               plagueBase?: n, invasionV7?: true, budget?: {unit, perEra, discardCost, carryOver} } — reserveRate null means no reserves. Example:
 //   node --import ./scripts/ts-resolve.mjs scripts/ascension-designs.mjs 300 '{"v8":{},"all-four":{"medieval":{"stats":4,"min":50,"development":null}}}' balanced,prepared,lean-I
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads'
 import { availableParallelism } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { BOTS, RULESETS, drive, compose, withRules, withMedieval, withInvasion, withBase, invasionV7 } from './lib/ascension-bots.mjs'
+import { BOTS, RULESETS, drive, compose, patch, withRules, withMedieval, withInvasion, withBase, invasionV7 } from './lib/ascension-bots.mjs'
+import { ERA_BUDGET } from '../src/engine/ascension/eras.ts'
 import { runStatus } from '../src/engine/ascension/ascension.ts'
 
 const design = (d) => compose(...[
@@ -19,14 +20,19 @@ const design = (d) => compose(...[
   d.medieval && withMedieval(Object.fromEntries(Object.entries(d.medieval).map(([k, v]) => [k, v ?? undefined]))),
   d.plagueBase && withBase(1, d.plagueBase),
   d.invasionV7 && withInvasion(invasionV7),
+  d.budget && (() => patch(ERA_BUDGET, d.budget)),
 ].filter(Boolean))
 
 if (!isMainThread) {
   const { d, bot, seeds } = workerData
   const undo = design(d)()
   parentPort.postMessage(seeds.map((seed) => {
-    const s = drive(seed, BOTS[bot].policy)
-    return [runStatus(s), s.round, s.crises.map((c) => c.result[0]).join(''), Object.values(s.stats), s.crises.map((c) => c.resilience - c.pressure), s.crises.map((c) => c.faced - c.round - 1)]
+    const plays = [0, 0, 0], cards = [], left = []
+    const s = drive(seed, BOTS[bot].policy, (b, a, n) => {
+      if (a.type === 'play') { plays[b.era] += 1; cards.push(a.cards.length) }
+      if (a.type === 'resolve') left.push(b.budget)
+    })
+    return [runStatus(s), s.round, s.crises.map((c) => c.result[0]).join(''), Object.values(s.stats), s.crises.map((c) => c.resilience - c.pressure), s.crises.map((c) => c.faced - c.round - 1), plays, cards.reduce((a, b) => a + b, 0) / Math.max(1, cards.length), left, s.lapsed]
   }))
   undo()
 } else {
@@ -49,7 +55,7 @@ if (!isMainThread) {
   const table = {}
   jobs.forEach((j, i) => ((table[j.name] ??= {})[j.bot] ??= []).push(...out[i]))
   const med = (a) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[(b.length - 1) >> 1] : '-' }
-  console.log(`${N} seeds · complete% · Winter/Plague/Invasion survival % · median rounds · completed worlds' stats high→low (median) · median crisis margins · median rounds waited`)
+  console.log(`${N} seeds · complete% · lapsed% · Winter/Plague/Invasion survival % · median rounds · completed worlds' stats high→low (median) · median crisis margins · median plays per era · mean cards per play · median budget left when facing each crisis`)
   for (const name of Object.keys(designs)) {
     console.log(`\n== ${name} ${JSON.stringify(designs[name])}`)
     for (const bot of bots) {
@@ -57,7 +63,8 @@ if (!isMainThread) {
       const at = (k, i) => med(rs.filter((r) => r[k].length > i).map((r) => r[k][i]))
       const surv = [0, 1, 2].map((i) => { const f = rs.filter((r) => r[2].length > i); return f.length ? Math.round((100 * f.filter((r) => r[2][i] === 's').length) / f.length) : '-' }).join('/')
       const shape = [0, 1, 2, 3].map((k) => med(d.map((r) => [...r[3]].sort((x, y) => y - x)[k]))).join('/')
-      console.log(`  ${bot.padEnd(11)} ${String(Math.round((100 * d.length) / rs.length)).padStart(3)}%  ${surv.padEnd(11)} r${String(med(d.map((r) => r[1] - 1))).padEnd(3)} ${shape.padEnd(15)} margins ${[0, 1, 2].map((i) => at(4, i)).join('/').padEnd(12)} waited ${[0, 1, 2].map((i) => at(5, i)).join('/')}`)
+      const lapsed = Math.round((100 * rs.filter((r) => r[9]).length) / rs.length)
+      console.log(`  ${bot.padEnd(11)} ${String(Math.round((100 * d.length) / rs.length)).padStart(3)}% lap ${String(lapsed).padStart(2)}%  ${surv.padEnd(11)} r${String(med(d.map((r) => r[1] - 1))).padEnd(3)} ${shape.padEnd(15)} m ${[0, 1, 2].map((i) => at(4, i)).join('/').padEnd(12)} plays ${[0, 1, 2].map((i) => med(rs.filter((r) => r[2].length > i).map((r) => r[6][i]))).join('/').padEnd(9)} cards ${(rs.reduce((a, r) => a + r[7], 0) / rs.length).toFixed(1)} left ${[0, 1, 2].map((i) => at(8, i)).join('/')}`)
     }
   }
 }

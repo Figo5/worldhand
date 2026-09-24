@@ -208,7 +208,8 @@ try {
 
   /** Play a balanced strategy through the UI until the run ends: a crisis is checked, then faced as soon as it is ready. */
   let previews = 0 // round-ending plays whose "becomes ready" preview was checked against what happened
-  let readySeen = 0 // ready crises checked: the hand stayed playable and the waiting rule was stated
+  let readySeen = 0 // ready crises checked: the hand stayed playable and the budget rule was stated
+  let budgetChecks = 0 // plays whose previewed cost matched the committed budget change
   const playBalanced = async () => {
     let plays = 0, crises = []
     while (!(await p.locator('[data-testid="asc-complete"], [data-testid="asc-failed"]').count()) && plays < 120) {
@@ -218,7 +219,7 @@ try {
         if (ready) {
           if (!(await cards.count())) fail('prototype: the hand must stay playable while a crisis is ready')
           const timing = await p.locator('[data-testid="asc-crisis-timing"]').innerText()
-          if (!timing.includes('+4 pressure') || !/strikes on its own at the end of round \d+/.test(timing)) fail(`prototype: the ready crisis must state the cost of waiting and its deadline: "${timing}"`)
+          if (!/costs 1 of the \d+ cards left/.test(timing) || !timing.includes('when they run out it strikes on its own')) fail(`prototype: the ready crisis must state what preparing costs and its deadline: "${timing}"`)
           readySeen += 1
         } else if ((await cards.count()) || (await p.locator('[data-testid="asc-play"]').count())) fail('prototype: hand and Play must be gone once a crisis strikes')
         const text = await panel.innerText()
@@ -247,9 +248,17 @@ try {
       }
       for (const i of pick) await cards.nth(i).click()
       if (!(await p.locator('[data-testid="asc-civ-projection"]').count())) fail('prototype: the round-end civilization projection must be shown while playing')
+      const budgetBefore = Number(await p.locator('[data-testid="asc-budget-left"]').getAttribute('data-budget'))
+      const costLine = p.locator('[data-testid="asc-preview-cost"]')
+      const cost = Number(await costLine.getAttribute('data-cost'))
+      if (cost !== pick.length || Number(await costLine.getAttribute('data-after')) !== budgetBefore - cost) fail(`prototype: the play preview must state its cost (${pick.length} cards) and what is left`)
+      if (!(await p.locator('[data-testid="asc-budget-plan"]').count())) fail('prototype: the era panel must say what the budget leaves for preparation')
+      budgetChecks += 1
       const pv = p.locator('[data-testid="asc-preview-crisis"]')
       const last = (await pv.innerText()).includes('last of the round'), becomes = (await pv.getAttribute('data-ready')) === 'true'
       await p.click('[data-testid="asc-play"]')
+      const budgetAfter = await p.locator('[data-testid="asc-budget-left"]')
+      if ((await budgetAfter.count()) && !(await p.locator('[data-testid="asc-complete"]').count()) && Number(await budgetAfter.getAttribute('data-budget')) !== budgetBefore - cost) fail('prototype: the committed play must spend exactly its previewed cost')
       if (last && (await p.locator('[data-testid="asc-crisis-ready"], [data-testid="asc-crisis"]').count() > 0) !== becomes) fail(`prototype: the preview said the crisis ${becomes ? 'would' : 'would not'} become ready at this round end`)
       if (last) previews += 1
       plays += 1
@@ -279,16 +288,17 @@ try {
   await p.screenshot({ path: 'shots/ascension-dev-complete.png', fullPage: true })
   ok('prototype crises survived', `${won.plays} balanced plays; ${won.crises.join(' | ')}; "First playable complete", world kept`)
 
-  // crisis-4: the same balanced strategy loses the Invasion by two points
-  await newRun('crisis-4')
+  // crisis-32: the same balanced strategy loses the Plague by two points
+  await newRun('crisis-32')
   const lost = await playBalanced()
   const failedText = (await p.locator('[data-testid="asc-failed"]').count()) ? await p.locator('[data-testid="asc-failed"]').innerText() : ''
-  if (!failedText.includes('Run over') || !failedText.includes('Invasion') || !failedText.includes('resilience 98 vs pressure 100')) fail(`prototype: crisis-4 should end in the Invasion (98 vs 100): "${failedText}" ${JSON.stringify(lost.crises)}`)
-  if ((await p.locator('[data-testid="asc-era-log"] li').count()) !== 2) fail('prototype: a failed Invasion must leave exactly the two earlier advances')
+  if (!failedText.includes('Run over') || !failedText.includes('Plague') || !failedText.includes('resilience 51 vs pressure 53')) fail(`prototype: crisis-32 should end in the Plague (51 vs 53): "${failedText}" ${JSON.stringify(lost.crises)}`)
+  if ((await p.locator('[data-testid="asc-era-log"] li').count()) !== 1) fail('prototype: a failed Plague must leave exactly the Tribal advance')
   await worldKept('failed')
   await p.screenshot({ path: 'shots/ascension-dev-failed.png', fullPage: true })
   ok('prototype crisis failed', `${lost.plays} plays; ${lost.crises.join(' | ')}; "Run over", world kept`)
-  ok('prototype ready crises', `${readySeen} ready crises: hand still playable, "+4 pressure" and the deadline stated; ${previews} round-ending plays: the "becomes ready" preview matched every time`)
+  ok('prototype ready crises', `${readySeen} ready crises: hand still playable, the card cost of preparing and the deadline stated; ${previews} round-ending plays: the "becomes ready" preview matched every time`)
+  ok('prototype era budget', `${budgetChecks} plays: previewed card cost and cards left matched what the play spent`)
 
   // back to Classic; Ascension wrote nothing
   await p.click('[data-testid="asc-exit"]')

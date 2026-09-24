@@ -7,13 +7,13 @@
 // audits sampled decisions. Worker threads split the work; the output is
 // identical however many workers run.
 //
-// Run: node --import ./scripts/ts-resolve.mjs scripts/ascension-audit.mjs [seeds=1000] [--json out.json]
+// Run: node --import ./scripts/ts-resolve.mjs scripts/ascension-audit.mjs [seeds=1000] [--rules v8,A-plays,…] [--ablations full,…] [--json out.json]
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads'
 import { availableParallelism } from 'node:os'
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { BOTS, RULESETS, ABLATIONS, SUBSETS, ROUND_CAP, drive, outlook, compose } from './lib/ascension-bots.mjs'
-import { crisisWorld, evaluatePlay, runStatus, WORLD_STATS } from '../src/engine/ascension/ascension.ts'
+import { actionCost, crisisWorld, evaluatePlay, runStatus, WORLD_STATS } from '../src/engine/ascension/ascension.ts'
 import { CRISES, evaluateCrisis } from '../src/engine/ascension/crises.ts'
 import { ARCHETYPES, ARCHETYPE_ORDER } from '../src/engine/ascension/civilizations.ts'
 
@@ -21,14 +21,16 @@ const count = (regions, ts) => regions.filter((r) => ts.includes(r.terrain)).len
 
 /** One run, reduced to what the report needs. */
 function record(seed, bot) {
-  let plays = 0
+  let plays = 0, cards = 0
   const atReady = [] // the face-now forecast margin when each crisis became ready
+  const eraPlays = [0, 0, 0], leftAtFace = []
   const s = drive(seed, BOTS[bot].policy, (before, action, after) => {
-    if (action.type === 'play') plays += 1
+    if (action.type === 'play') { plays += 1; cards += action.cards.length; eraPlays[before.era] += 1 }
+    if (action.type === 'resolve') leftAtFace.push(before.budget)
     if (after.crisis && !before.crisis) { const e = evaluateCrisis(after.era, crisisWorld(after)); atReady.push(e.resilience - e.pressure) }
   })
   return {
-    seed, status: runStatus(s), round: s.round, plays, score: s.score, stats: s.stats,
+    seed, status: runStatus(s), round: s.round, plays, score: s.score, stats: s.stats, lapsed: s.lapsed, eraPlays, cardsPerPlay: cards / Math.max(1, plays), leftAtFace,
     civs: s.civilizations.map((c) => [c.archetype, c.emergedRound]),
     crises: s.crises.map((c, i) => ({
       id: c.crisis, ready: c.round, faced: c.faced, result: c.result, margin: c.resilience - c.pressure, atReady: atReady[i],
@@ -41,10 +43,10 @@ function record(seed, bot) {
 
 /** At every play state of a run: which plays win under which objective. */
 function decisions(seed, bot) {
-  const c = { states: 0, pokerIsScore: 0, terrainChanges: 0, withCivs: 0, passivesChange: 0, pokerIsLongTerm: 0, atRisk: 0, pokerIsLongTermAtRisk: 0, longTermCost: [] }
+  const c = { states: 0, pokerIsScore: 0, terrainChanges: 0, withCivs: 0, passivesChange: 0, pokerIsLongTerm: 0, atRisk: 0, pokerIsLongTermAtRisk: 0, longTermCost: [], threeWay: 0, smallBestScore: 0, smallBestPrep: 0 }
   drive(seed, BOTS[bot].policy, (s, action) => {
     if (action.type !== 'play' && action.type !== 'discard') return
-    const rs = SUBSETS.map((idx) => evaluatePlay(s, idx))
+    const rs = SUBSETS.map((idx) => ({ ...evaluatePlay(s, idx), idx }))
     const top = (f) => { const m = Math.max(...rs.map(f)); return rs.filter((r) => f(r) === m) }
     const maxScore = Math.max(...rs.map((r) => r.score))
     const agrees = (f) => top(f).some((r) => r.score === maxScore)
@@ -59,6 +61,15 @@ function decisions(seed, bot) {
     const same = pokerBest.some((r) => lt(r) === ltMax)
     if (same) c.pokerIsLongTerm += 1
     if (outlook(s) < 10) { c.atRisk += 1; if (same) c.pokerIsLongTermAtRisk += 1; c.longTermCost.push(Math.max(...pokerBest.map((r) => r.pokerScore)) - Math.max(...ltTop.map((r) => r.pokerScore))) }
+    // three different best plays: no play is best at two of poker score, immediate total, and crisis preparation
+    const key = (r) => r.idx.join(',')
+    const sets = [pokerBest, top((r) => r.score), ltTop].map((xs) => new Set(xs.map(key)))
+    if (![[0, 1], [0, 2], [1, 2]].some(([a, b]) => [...sets[a]].some((k) => sets[b].has(k)))) c.threeWay += 1
+    // hand size: judged per unit of era budget (1 per play without a card budget), is the best play smaller than 5 cards?
+    const per = (r) => Math.max(1, actionCost({ type: 'play', cards: r.idx }))
+    if (top((r) => r.score / per(r)).every((r) => r.idx.length < 5)) c.smallBestScore += 1
+    const now = outlook(s)
+    if (top((r) => (lt(r) - now) / per(r)).every((r) => r.idx.length < 5)) c.smallBestPrep += 1
   })
   return c
 }
@@ -74,10 +85,12 @@ if (!isMainThread) {
   const jsonOut = process.argv.includes('--json') ? process.argv[process.argv.indexOf('--json') + 1] : null
   const SEEDS = Array.from({ length: N }, (_, i) => `audit-${i}`)
   const chunk = (a, n) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n))
+  const arg = (name, all) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1].split(',') : all)
+  const RULES = arg('--rules', ['v7', 'v8']), ABLS = arg('--ablations', Object.keys(ABLATIONS))
   const jobs = []
-  for (const rules of Object.keys(RULESETS)) {
-    for (const ablation of Object.keys(ABLATIONS)) for (const bot of Object.keys(BOTS)) for (const seeds of chunk(SEEDS, 100)) jobs.push({ kind: 'runs', rules, ablation, bot, seeds })
-    for (const bot of ['balanced', 'score-max', 'planner', 'random']) for (const seeds of chunk(SEEDS.slice(0, Math.min(N, 200)), 20)) jobs.push({ kind: 'decisions', rules, ablation: 'full', bot, seeds })
+  for (const rules of RULES) {
+    for (const ablation of ABLS) for (const bot of Object.keys(BOTS)) for (const seeds of chunk(SEEDS, 100)) jobs.push({ kind: 'runs', rules, ablation, bot, seeds })
+    if (ABLS.includes('full')) for (const bot of ['balanced', 'score-max', 'planner', 'random']) for (const seeds of chunk(SEEDS.slice(0, Math.min(N, 200)), 20)) jobs.push({ kind: 'decisions', rules, ablation: 'full', bot, seeds })
   }
   const results = jobs.map(() => null)
   const t0 = Date.now()
@@ -104,7 +117,7 @@ if (!isMainThread) {
 
 // ---------------------------------------------------------------------------
 function report(N, runs, dec, secs) {
-  const RS = Object.keys(RULESETS)
+  const RS = Object.keys(runs)
   const pct = (n, d) => (d ? `${Math.round((100 * n) / d)}%` : '-')
   const q = (a, p) => { if (!a.length) return '-'; const b = [...a].sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(p * b.length))] }
   const med = (a) => q(a, 0.5)
@@ -113,9 +126,11 @@ function report(N, runs, dec, secs) {
   const table = (rows) => { const w = rows[0].map((_, i) => Math.max(...rows.map((r) => String(r[i]).length))); for (const r of rows) console.log('  ' + r.map((c, i) => String(c).padEnd(w[i])).join('  ')) }
   const surv = (rs, i) => { const f = rs.filter((r) => r.crises[i]); return f.length ? Math.round((100 * f.filter((r) => r.crises[i].result === 'survived').length) / f.length) : '-' }
   const why = (c) => Object.entries(c.factors).filter(([k, v]) => v < 0 && !['The winter', 'The plague', 'The invasion'].includes(k)).sort((a, b) => a[1] - b[1])[0]?.[0] ?? 'thin defences'
+  /** why a run failed: its lost crisis and top weakness, or the era it lapsed in */
+  const failure = (x) => (x.lapsed ? `${['Tribal', 'Ancient', 'Medieval'][x.crises.filter((c) => c.result === 'survived').length]} lapsed` : `${x.crises[x.crises.length - 1].id}: ${why(x.crises[x.crises.length - 1])}`)
   const spread = (st) => { const v = Object.values(st).sort((a, b) => b - a); return v[0] - v[3] }
 
-  console.log(`# Ascension core-loop audit — ${N} seeds, ${Object.keys(BOTS).length} bots, rule sets ${RS.join(' vs ')}, ${Object.keys(ABLATIONS).length} ablations, cap ${ROUND_CAP} rounds (${secs.toFixed(0)}s)\n`)
+  console.log(`# Ascension core-loop audit — ${N} seeds, ${Object.keys(BOTS).length} bots, rule sets ${RS.join(' vs ')}, ablations ${Object.keys(runs[RS[0]]).join(', ')}, cap ${ROUND_CAP} rounds (${secs.toFixed(0)}s)\n`)
   for (const r of RS) console.log(`  ${r}: ${RULESETS[r].doc}`)
   console.log('\n## Bots'); for (const [n, b] of Object.entries(BOTS)) console.log(`  ${n.padEnd(12)} [${b.family}] ${b.doc}`)
 
@@ -123,7 +138,7 @@ function report(N, runs, dec, secs) {
   table([['bot', 'family', ...RS.flatMap((r) => [`${r} complete`, `${r} W/P/I %`, `${r} rounds`, `${r} top failure`])],
     ...Object.entries(BOTS).map(([bot, b]) => [bot, b.family, ...RS.flatMap((r) => {
       const rs = runs[r].full[bot], w = {}
-      for (const x of rs) if (x.status === 'failed') { const c = x.crises[x.crises.length - 1]; const k = `${c.id}: ${why(c)}`; w[k] = (w[k] ?? 0) + 1 }
+      for (const x of rs) if (x.status === 'failed') { const k = failure(x); w[k] = (w[k] ?? 0) + 1 }
       const topW = Object.entries(w).sort((a, b) => b[1] - a[1])[0]
       return [rate(rs), [0, 1, 2].map((i) => surv(rs, i)).join('/'), med(done(rs).map((x) => x.round - 1)), topW ? `${topW[0]} (${pct(topW[1], rs.length)})` : '-']
     })])])
@@ -138,15 +153,24 @@ function report(N, runs, dec, secs) {
 
   console.log('\n## 3. Ablations: completion rate (score contribution = full vs no-reserves; v7 has no reserves)')
   for (const r of RS) {
+    const abl = Object.keys(runs[r])
+    if (abl.length < 2) continue
     console.log(`  ${r}`)
-    table([['bot', ...Object.keys(ABLATIONS)], ...Object.keys(BOTS).map((bot) => [bot, ...Object.keys(ABLATIONS).map((a) => rate(runs[r][a][bot]))])])
+    table([['bot', ...abl], ...Object.keys(BOTS).map((bot) => [bot, ...abl.map((a) => rate(runs[r][a][bot]))])])
   }
+
+  console.log('\n## 3b. Scarcity (full rules): lapsed % · median plays per era (T/A/M) · mean cards per play · median budget left when facing each crisis')
+  table([['bot', ...RS], ...Object.keys(BOTS).map((bot) => [bot, ...RS.map((r) => {
+    const rs = runs[r].full[bot]
+    const pe = (i) => med(rs.filter((x) => x.crises.length > i || (x.status !== 'failed' && i === 0)).map((x) => x.eraPlays[i]))
+    return `${pct(rs.filter((x) => x.lapsed).length, rs.length)} · ${pe(0)}/${pe(1)}/${pe(2)} · ${(rs.reduce((a, x) => a + x.cardsPerPlay, 0) / rs.length).toFixed(1)} · ${[0, 1, 2].map((i) => med(rs.filter((x) => x.leftAtFace.length > i).map((x) => x.leftAtFace[i]))).join('/')}`
+  })])])
 
   console.log('\n## 4. Crisis failure distribution (share of all runs, all bots pooled, that ended at each crisis; top reasons)')
   for (const r of RS) {
     const pool = Object.values(runs[r].full).flat()
-    const failed = pool.filter((x) => x.status === 'failed')
-    console.log(`  ${r}: ` + CRISES.map((c) => { const f = failed.filter((x) => x.crises[x.crises.length - 1].id === c.id); const reasons = {}; for (const x of f) { const k = why(x.crises[x.crises.length - 1]); reasons[k] = (reasons[k] ?? 0) + 1 } return `${c.label} ${pct(f.length, pool.length)} (${Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, n]) => `${k} ${pct(n, f.length)}`).join(', ')})` }).join(' · ') + ` · unfinished at the cap ${pct(pool.filter((x) => ['playing', 'ready', 'crisis'].includes(x.status)).length, pool.length)}`)
+    const failed = pool.filter((x) => x.status === 'failed' && !x.lapsed)
+    console.log(`  ${r}: lapsed ${pct(pool.filter((x) => x.lapsed).length, pool.length)} · ` + CRISES.map((c) => { const f = failed.filter((x) => x.crises[x.crises.length - 1].id === c.id); const reasons = {}; for (const x of f) { const k = why(x.crises[x.crises.length - 1]); reasons[k] = (reasons[k] ?? 0) + 1 } return `${c.label} ${pct(f.length, pool.length)} (${Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, n]) => `${k} ${pct(n, f.length)}`).join(', ')})` }).join(' · ') + ` · unfinished at the cap ${pct(pool.filter((x) => ['playing', 'ready', 'crisis'].includes(x.status)).length, pool.length)}`)
   }
   const aware = ['patient', 'prepared', 'planner', 'lean-V', 'lean-P', 'lean-I', 'lean-K']
   for (const r of RS) {
@@ -157,11 +181,11 @@ function report(N, runs, dec, secs) {
   }
 
   console.log('\n## 5. Decision value (sampled play states; long term = the crisis outlook after the play, reserves included)')
-  table([['rules', 'states from', 'n', 'poker-best = score-best', 'terrain changes best', 'passives change best', 'poker-best is long-term-best (all / at risk)', 'poker points given up for the long-term-best play (med, at risk)'],
-    ...RS.flatMap((r) => Object.entries(dec[r]).map(([bot, cs]) => {
+  table([['rules', 'states from', 'n', 'poker-best = score-best', 'terrain changes best', 'passives change best', 'poker-best is long-term-best (all / at risk)', 'poker pts given up (med, at risk)', 'poker / total / preparation: 3 different plays', 'best score per budget < 5 cards', 'best preparation per budget < 5 cards'],
+    ...RS.flatMap((r) => Object.entries(dec[r] ?? {}).map(([bot, cs]) => {
       const sum = (k) => cs.reduce((n, c) => n + c[k], 0)
       return [r, bot, sum('states'), pct(sum('pokerIsScore'), sum('states')), pct(sum('terrainChanges'), sum('states')), pct(sum('passivesChange'), sum('withCivs')),
-        `${pct(sum('pokerIsLongTerm'), sum('states'))} / ${pct(sum('pokerIsLongTermAtRisk'), sum('atRisk'))}`, med(cs.flatMap((c) => c.longTermCost))]
+        `${pct(sum('pokerIsLongTerm'), sum('states'))} / ${pct(sum('pokerIsLongTermAtRisk'), sum('atRisk'))}`, med(cs.flatMap((c) => c.longTermCost)), pct(sum('threeWay'), sum('states')), pct(sum('smallBestScore'), sum('states')), pct(sum('smallBestPrep'), sum('states'))]
     }))])
 
   console.log('\n## 6. Fairness: seeds no bot completes; forecast-reading completion by cold regions')

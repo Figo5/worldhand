@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  newAscensionGame, applyAscensionAction, evaluatePlay, noStats, generateRegions, landAffinity, runStatus, projectRoundEnd, crisisWorld,
+  newAscensionGame, applyAscensionAction, evaluatePlay, noStats, generateRegions, landAffinity, runStatus, projectRoundEnd, crisisWorld, actionCost,
   ASCENSION_RULES_VERSION, HAND_SIZE, PLAYS_PER_ROUND, DISCARDS_PER_ROUND, WORLD_STATS, SUIT_STAT,
   TERRAIN, TERRAINS, REGION_ADJACENCY,
-  type AscensionState, type AscensionAction, type WorldStats, type Terrain,
+  type AscensionState, type AscensionAction, type WorldStats, type WorldStat, type Terrain,
 } from '../src/engine/ascension/ascension'
 import {
   ARCHETYPES, ARCHETYPE_ORDER, EMERGENCE_STEP, emergeCivilization, emergenceThreshold, readinessOf,
@@ -13,7 +13,7 @@ import { newGame as newClassicGame, SAVE_VERSION } from '../src/engine/worldhand
 import { Rng, hashSeed } from '../src/engine/rng'
 import { stream } from '../src/engine/core/streams'
 import { deck, type Card } from '../src/engine/poker'
-import { ERAS, eraRequirements, canAdvance, isComplete } from '../src/engine/ascension/eras'
+import { ERAS, ERA_BUDGET, eraRequirements, canAdvance, isComplete, requirementShortfall } from '../src/engine/ascension/eras'
 import { CRISES, CRISIS_RULES, evaluateCrisis, type CrisisEvaluation } from '../src/engine/ascension/crises'
 
 const key = (c: Card) => `${c.r}${c.s}`
@@ -43,8 +43,10 @@ function randomActions(seedText: string, n: number): AscensionAction[] {
     // a struck crisis must be faced; a ready one is faced at a random moment
     if (runStatus(s) === 'crisis' || (runStatus(s) === 'ready' && rng.next() < 0.3)) { s = applyAscensionAction(s, { type: 'resolve' }); out.push({ type: 'resolve' }); continue }
     if (runStatus(s) !== 'playing' && runStatus(s) !== 'ready') break
-    const cards = rng.shuffle(s.hand.map((_, j) => j)).slice(0, rng.int(1, 6))
-    const a: AscensionAction = s.discardsLeft > 0 && rng.next() < 0.3 ? { type: 'discard', cards } : { type: 'play', cards }
+    // never beyond the era's budget: a play of at most `budget` cards, a discard only if affordable
+    const cards = rng.shuffle(s.hand.map((_, j) => j)).slice(0, Math.min(rng.int(1, 6), Math.max(1, s.budget)))
+    const discard = s.discardsLeft > 0 && rng.next() < 0.3 && actionCost({ type: 'discard', cards }) <= s.budget
+    const a: AscensionAction = discard ? { type: 'discard', cards } : { type: 'play', cards }
     s = applyAscensionAction(s, a)
     out.push(a)
   }
@@ -68,7 +70,7 @@ describe('Ascension skeleton: new game', () => {
     const s = newAscensionGame('seam')
     expect(s.mode).toBe('ascension')
     expect(s.rulesVersion).toBe(ASCENSION_RULES_VERSION)
-    expect(ASCENSION_RULES_VERSION).toBe(8)
+    expect(ASCENSION_RULES_VERSION).toBe(9)
     expect('version' in s).toBe(false) // Classic's SAVE_VERSION field is not reused
     expect(SAVE_VERSION).toBe(8)
   })
@@ -102,7 +104,7 @@ describe('Ascension skeleton: transitions', () => {
     expect(a).toEqual(b)
     expect(JSON.stringify(a)).toBe(JSON.stringify(b))
     expect(a.reshuffles).toBeGreaterThan(0)
-    expect(a.round).toBeGreaterThan(10)
+    expect(a.round).toBeGreaterThan(3)
   })
 
   it('keeps every invariant through long random runs', () => {
@@ -808,6 +810,26 @@ const balancedBot = (s: AscensionState): AscensionAction => {
   }
   return { type: 'play', cards: pick }
 }
+/** A seeded mix that reaches crises under the era budget: mostly balanced plays, some random plays and
+ *  discards; a ready crisis is faced at a random moment, a struck one at once; stops when the run ends. */
+function mixedActions(seedText: string, n: number): AscensionAction[] {
+  const rng = new Rng(hashSeed(`mixed:${seedText}`))
+  let s = newAscensionGame(seedText)
+  const out: AscensionAction[] = []
+  for (let i = 0; i < n && ['playing', 'ready', 'crisis'].includes(runStatus(s)); i++) {
+    let a: AscensionAction
+    if (runStatus(s) === 'crisis' || (runStatus(s) === 'ready' && rng.next() < 0.25)) a = { type: 'resolve' }
+    else if (rng.next() < 0.7) a = balancedBot(s)
+    else {
+      const cards = rng.shuffle(s.hand.map((_, j) => j)).slice(0, rng.int(1, 6))
+      a = s.discardsLeft > 0 && rng.next() < 0.4 && actionCost({ type: 'discard', cards }) <= s.budget ? { type: 'discard', cards } : { type: 'play', cards }
+    }
+    if (a.type === 'play') a = { type: 'play', cards: a.cards.slice(0, Math.max(1, s.budget)) }
+    s = applyAscensionAction(s, a)
+    out.push(a)
+  }
+  return out
+}
 /** Plays up to 5 cards of these suits (else the first card). */
 const suitBot = (suits: Card['s'][]) => (s: AscensionState): AscensionAction => {
   const idx = s.hand.flatMap((c, i) => (suits.includes(c.s) ? [i] : [])).slice(0, 5)
@@ -834,7 +856,6 @@ describe('Ascension eras', () => {
   const H = 0, D = 1, C_ = 2, S = 3 // hand positions of 2♥ 3♦ 4♣ 5♠
   const play = (s: AscensionState, cards: number[]) => applyAscensionAction(s, { type: 'play', cards })
   const resolve = (s: AscensionState) => applyAscensionAction(s, { type: 'resolve' })
-  const endRound = (s: AscensionState) => { let t = s; const r = s.round; while (t.round === r) t = play(t, [0]); return t }
   const reqs = (s: AscensionState) => eraRequirements(s.era, s.stats, s.civilizations).map((r) => [r.key, r.have, r.need, r.met])
 
   it('three eras, in order, with the documented requirements; every world can meet them', () => {
@@ -930,39 +951,43 @@ describe('Ascension eras', () => {
     expect(forecast.result).toBe('survived')
     expect([runStatus(after), after.era, after.crisis]).toEqual(['playing', 1, null])
     expect(after.eraLog).toEqual([{ from: 'tribal', to: 'ancient', round: s.round, stats: s.stats, civilizations: s.civilizations.length, score: s.score }])
-    // facing changes nothing but the era and crisis records
-    const strip = ({ era, eraLog, crisis, crises, ...rest }: AscensionState) => rest
+    // facing changes nothing but the era and crisis records, and the next era's cards join the unspent ones
+    const strip = ({ era, eraLog, crisis, crises, budget, ...rest }: AscensionState) => rest
     expect(strip(after)).toEqual(strip(s))
+    expect(after.budget).toBe(s.budget + ERA_BUDGET.perEra[1])
     expect(() => resolve(after)).toThrow('no crisis to resolve')
   })
 
-  it(`kept waiting, a crisis gathers +${CRISIS_RULES.gatherPerRound} per round end and strikes on its own after ${CRISIS_RULES.graceRounds}`, () => {
-    let s = play(at({ stats: { vitality: 30, prosperity: 20 }, civs: [civ('nomads', 6, 0)] }), [H])
-    const ready = s.crisis!.round
-    const time = (t: AscensionState) => evaluateCrisis(t.era, crisisWorld(t)).pressures.find((f) => f.label === 'Time to gather')!.amount
-    expect([crisisWorld(s).waited, time(s)]).toEqual([0, 0])
-    for (let waited = 1; waited <= CRISIS_RULES.graceRounds; waited++) {
-      expect(runStatus(s)).toBe('ready')
-      s = endRound(s)
-      expect([crisisWorld(s).waited, time(s)]).toEqual([waited, waited * CRISIS_RULES.gatherPerRound])
-    }
-    expect([runStatus(s), s.round, s.crisis!.round]).toEqual(['crisis', ready + CRISIS_RULES.graceRounds + 1, ready])
+  it("a ready crisis strikes when the era's cards run out: then nothing but facing it is allowed", () => {
+    let s: AscensionState = { ...play(at({ stats: { vitality: 30, prosperity: 20 }, civs: [civ('nomads', 6, 0)] }), [H]) }
+    expect(runStatus(s)).toBe('ready')
+    s = { ...s, budget: 3 }
+    s = play(s, [0, 1]) // 2 cards: 1 left, still ready
+    expect([runStatus(s), s.budget]).toEqual(['ready', 1])
+    s = play(s, [0]) // the last card: it strikes, mid-round
+    expect([runStatus(s), s.budget]).toEqual(['crisis', 0])
     expect(() => play(s, [0])).toThrow('resolve the crisis first')
     expect(() => applyAscensionAction(s, { type: 'discard', cards: [0] })).toThrow('resolve the crisis first')
     expect(() => evaluatePlay(s, [0])).toThrow('resolve the crisis first')
-    expect(resolve(s).crises[0]).toMatchObject({ round: ready, faced: ready + CRISIS_RULES.graceRounds + 1 })
+    const after = resolve(s)
+    expect([after.era, after.budget, runStatus(after)]).toEqual([1, ERA_BUDGET.perEra[1], 'playing']) // nothing left to carry
   })
 
-  it('waiting is a real choice: playing Industry before facing turns a lost Invasion into a win', () => {
+  it('preparing is a real choice: five clubs before facing turn a lost Invasion into a win, and cost five cards', () => {
     const civs = ARCHETYPE_ORDER.map((a, i) => civ(a, [0, 2, 3, 1, 5, 6][i], i)) // all six, Empire Builders on a mountain
     const hand = [C(2, 'C'), C(3, 'C'), C(4, 'C'), C(5, 'C'), C(6, 'C'), C(7, 'H'), C(8, 'H'), C(9, 'H')]
-    const s: AscensionState = { ...withHand(hand), regions: land(EVEN), stats: { vitality: 50, prosperity: 50, industry: 52, knowledge: 50 }, civilizations: civs, era: 2, crisis: { round: 1 }, round: 2, playsLeft: 4 }
+    const s: AscensionState = { ...withHand(hand), regions: land(EVEN), stats: { vitality: 50, prosperity: 50, industry: 52, knowledge: 50 }, civilizations: civs, era: 2, crisis: { round: 1 }, round: 2, playsLeft: 4, budget: 20 }
     const now = evaluateCrisis(2, crisisWorld(s))
-    expect([now.pressure, now.resilience, now.result]).toEqual([102, 101, 'failed'])
-    const later = applyAscensionAction(s, { type: 'play', cards: [0, 1, 2, 3, 4] }) // five clubs, same round: no waiting cost
+    // 43 + 6 open + 50 riches vs 52 arms + 30 allies + 9 passes + 6 forest cover + 10 Empire Builders
+    expect([now.pressure, now.resilience, now.result]).toEqual([99, 107, 'survived'])
+    const poorer = { ...s, stats: { ...s.stats, industry: 45, prosperity: 55 } }
+    const lost = evaluateCrisis(2, crisisWorld(poorer))
+    expect([lost.pressure, lost.resilience, lost.result]).toEqual([43 + 6 + 50 + 10, 45 + 30 + 9 + 6 + 10, 'failed'])
+    const later = applyAscensionAction(poorer, { type: 'play', cards: [0, 1, 2, 3, 4] })
     const then = evaluateCrisis(2, crisisWorld(later))
-    expect(then.resilience - then.pressure - (now.resilience - now.pressure)).toBe(5 - 1 + Math.floor(later.score / CRISIS_RULES.reserveRate)) // +5 arms, +1 riches, + reserves
-    expect(resolve(later).crises[0].result).toBe('survived')
+    // +5 arms, −5 undefended wealth, +1 riches, + this play's reserves
+    expect(then.resilience - then.pressure - (lost.resilience - lost.pressure)).toBe(5 + 5 - 1 + Math.floor(later.score / CRISIS_RULES.reserveRate))
+    expect([then.result, later.budget]).toEqual(['survived', 15])
   })
 
   it("reserves count only this era's score", () => {
@@ -975,11 +1000,11 @@ describe('Ascension eras', () => {
   })
 
   it('in real runs: crises become ready exactly when the requirements hold, are faced once to the forecast, and the world carries over whole', () => {
-    let faced = 0, waitedSome = 0
-    for (const seed of ['era-run-0', 'era-run-1', 'era-run-2', 'era-run-3']) {
+    let faced = 0, waitedSome = 0, lapsed = 0
+    for (const seed of ['era-run-0', 'era-run-1', 'era-run-2', 'era-run-3', 'era-run-4', 'era-run-5', 'era-run-6', 'era-run-7']) {
       let s = newAscensionGame(seed)
       const world = JSON.stringify(s.regions)
-      for (const a of randomActions(seed, 900)) {
+      for (const a of mixedActions(seed, 900)) {
         const before = s
         const preview = a.type === 'play' ? evaluatePlay(before, a.cards) : null
         const forecast = a.type === 'resolve' ? evaluateCrisis(before.era, crisisWorld(before)) : null
@@ -992,10 +1017,16 @@ describe('Ascension eras', () => {
           expect([s.era, s.crisis]).toEqual([before.era + (forecast.result === 'survived' ? 1 : 0), null])
         } else {
           expect([s.era, s.crises]).toEqual([before.era, before.crises])
-          // ready exactly at a round end where the requirements hold, and it stays ready until faced
-          expect(s.crisis).toEqual(before.crisis ?? (roundEnd && canAdvance(before.era, s.stats, s.civilizations) ? { round: before.round } : null))
+          // ready exactly at a round end where the requirements hold (or when the cards run out with them met); it stays ready until faced
+          const spentOut = s.budget <= 0 && !before.crisis && canAdvance(before.era, s.stats, s.civilizations)
+          expect(s.crisis).toEqual(before.crisis ?? (roundEnd && canAdvance(before.era, s.stats, s.civilizations) ? { round: before.round } : spentOut ? { round: s.round } : null))
         }
-        if (s.crisis) expect(runStatus(s)).toBe(s.round > s.crisis.round + CRISIS_RULES.graceRounds ? 'crisis' : 'ready')
+        if (s.crisis && runStatus(s) !== 'failed') expect(runStatus(s)).toBe(s.budget <= 0 ? 'crisis' : 'ready')
+        // the budget: never negative; spent exactly as costed; refilled (with carry-over) by an advance
+        expect(s.budget).toBeGreaterThanOrEqual(0)
+        if (s.era > before.era) expect(s.budget).toBe(before.budget + (ERA_BUDGET.perEra[s.era] ?? 0))
+        else expect(before.budget - s.budget).toBe(actionCost(a))
+        if (s.lapsed) expect([s.budget, before.lapsed, canAdvance(s.era, s.stats, s.civilizations)]).toEqual([0, false, false])
         expect(JSON.stringify(s.regions)).toBe(world)
         expect(s.civilizations.slice(0, before.civilizations.length)).toEqual(before.civilizations)
         if (preview) {
@@ -1009,8 +1040,9 @@ describe('Ascension eras', () => {
       }
       expect(new Set(s.crises.map((c) => c.crisis)).size).toBe(s.crises.length) // no crisis twice
       expect(s.crises.map((c) => c.crisis)).toEqual(['winter', 'plague', 'invasion'].slice(0, s.crises.length))
+      if (s.lapsed) lapsed += 1
     }
-    expect([faced >= 4, waitedSome >= 1]).toEqual([true, true])
+    expect([faced >= 8, waitedSome >= 1]).toEqual([true, true])
   })
 
   it('a balanced run completes the first playable, deterministically, with passives working in every era', () => {
@@ -1019,7 +1051,7 @@ describe('Ascension eras', () => {
     expect(drive('crisis-0', balancedBot)).toEqual(run)
     expect(runStatus(done)).toBe('complete')
     expect(done.crises.map((c) => [c.crisis, c.faced, c.resilience, c.pressure, c.result])).toEqual([
-      ['winter', 4, 38, 23, 'survived'], ['plague', 7, 69, 51, 'survived'], ['invasion', 11, 105, 100, 'survived'],
+      ['winter', 4, 38, 23, 'survived'], ['plague', 7, 69, 51, 'survived'], ['invasion', 11, 111, 98, 'survived'],
     ])
     expect(done.eraLog.map((e) => e.round)).toEqual([4, 7, 11])
     for (let era = 0; era < ERAS.length; era++) {
@@ -1065,15 +1097,16 @@ describe('Ascension crises', () => {
     ...newAscensionGame('crisis-state'), regions: land(t), stats: { ...noStats(), ...stats }, civilizations: civs, era, crisis: { round: 0 },
   })
 
-  it('one crisis per era, in era order, with the documented factors; time and reserves in every one', () => {
+  it('one crisis per era, in era order, with the documented factors; reserves in every one', () => {
     expect(CRISES.map((c) => [c.id, c.label])).toEqual([['winter', 'Harsh Winter'], ['plague', 'Plague'], ['invasion', 'Invasion']])
     expect(CRISES).toHaveLength(ERAS.length)
     for (const c of CRISES) expect(c.watch).toMatch(/^tests /)
     const labels = (era: number) => { const e = evaluateCrisis(era, W(EVEN, {})); return [e.pressures.map((f) => f.label), e.mitigations.map((f) => f.label)] }
-    expect(labels(0)).toEqual([['The winter', 'Cold land', 'Cleared forests', 'Time to gather'], ['Food stores', 'Fertile land', 'Nature Keepers', 'Nomads', 'Reserves']])
-    expect(labels(1)).toEqual([['The plague', 'Crowded ports and farms', 'Trade outruns medicine', 'Merchants', 'Time to gather'], ['Medicine', 'Healthy people', 'Isolated land', 'Scholars', 'Reserves']])
-    expect(labels(2)).toEqual([['The invasion', 'Open land', 'Riches to plunder', 'Undefended wealth', 'Time to gather'], ['Arms and walls', 'Allied civilizations', 'Mountain passes', 'Empire Builders', 'Reserves']])
-    expect(CRISIS_RULES).toEqual({ reserveRate: 150, gatherPerRound: 4, graceRounds: 2 })
+    expect(labels(0)).toEqual([['The winter', 'Cold land', 'Cleared forests'], ['Food stores', 'Fertile land', 'Nature Keepers', 'Nomads', 'Reserves']])
+    expect(labels(1)).toEqual([['The plague', 'Crowded ports and farms', 'Trade outruns medicine', 'Merchants'], ['Medicine', 'Healthy people', 'Isolated land', 'Scholars', 'Reserves']])
+    expect(labels(2)).toEqual([['The invasion', 'Open land', 'Riches to plunder', 'Undefended wealth'], ['Arms and walls', 'Allied civilizations', 'Mountain passes', 'Forest cover', 'Empire Builders', 'Reserves']])
+    // with an era budget there is no waiting cost: the budget is the deadline
+    expect(CRISIS_RULES).toEqual({ reserveRate: 150, gatherPerRound: 0, graceRounds: 2, upkeep: 0 })
     expect(() => evaluateCrisis(3, W(EVEN, {}))).toThrow()
   })
 
@@ -1081,20 +1114,19 @@ describe('Ascension crises', () => {
   const WINTER_LAND: Terrain[] = ['tundra', 'tundra', 'tundra', 'mountains', 'mountains', 'forest', 'forest', 'plains', 'desert', 'desert', 'desert', 'desert']
   it('Harsh Winter: 15 + 2 per cold region + Industry over Vitality vs Vitality + 2 per fertile region + 8 per Nature Keepers / Nomads', () => {
     const civs = [civ('nomads', 8, 0)]
-    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 20, industry: 25 }, civs)))).toEqual([[15, 10, 5, 0], [20, 6, 0, 8, 0], 30, 34, 'survived'])
-    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 20, industry: 25 }, [...civs, civ('natureKeepers', 5, 1)])))).toEqual([[15, 10, 5, 0], [20, 6, 8, 8, 0], 30, 42, 'survived'])
-    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 30, industry: 25 }, civs)))[0]).toEqual([15, 10, 0, 0]) // no strain when Vitality leads
+    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 20, industry: 25 }, civs)))).toEqual([[15, 10, 5], [20, 6, 0, 8, 0], 30, 34, 'survived'])
+    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 20, industry: 25 }, [...civs, civ('natureKeepers', 5, 1)])))).toEqual([[15, 10, 5], [20, 6, 8, 8, 0], 30, 42, 'survived'])
+    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 30, industry: 25 }, civs)))[0]).toEqual([15, 10, 0]) // no strain when Vitality leads
     // the boundary: resilience = pressure survives, one short fails
     expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 18, industry: 25 }, civs))).slice(2)).toEqual([32, 32, 'survived'])
     expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 17, industry: 25 }, civs))).slice(2)).toEqual([33, 31, 'failed'])
   })
 
-  it('reserves: 1 per 150 score earned this era; time: +4 per round a ready crisis was kept waiting', () => {
-    const w = (eraScore: number, waited = 0) => amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 20, industry: 25 }, [civ('nomads', 8, 0)], eraScore, waited)))
+  it('reserves: 1 per 150 score earned this era, never negative', () => {
+    const w = (eraScore: number) => amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 20, industry: 25 }, [civ('nomads', 8, 0)], eraScore)))
     expect([149, 150, 299, 300, 1049].map((sc) => (w(sc)[1] as number[])[4])).toEqual([0, 1, 1, 2, 6])
-    expect(w(450, 1)).toEqual([[15, 10, 5, 4], [20, 6, 0, 8, 3], 34, 37, 'survived'])
-    expect(w(0, 2)).toEqual([[15, 10, 5, 8], [20, 6, 0, 8, 0], 38, 34, 'failed'])
-    expect(w(-50)[1]).toEqual([20, 6, 0, 8, 0]) // never negative
+    expect(w(450)).toEqual([[15, 10, 5], [20, 6, 0, 8, 3], 30, 37, 'survived'])
+    expect(w(-50)[1]).toEqual([20, 6, 0, 8, 0])
   })
 
   // 2 coast, 2 plains, 2 desert, 1 tundra, 5 forest
@@ -1102,24 +1134,24 @@ describe('Ascension crises', () => {
   it('Plague: 35 + 2 per coast/plains + Prosperity over Knowledge + 10 for Merchants vs Knowledge + Vitality ÷ 2 + 2 per desert/tundra + 10 for Scholars', () => {
     const civs = [civ('merchants', 2, 0), civ('scholars', 4, 1)]
     const stats = { prosperity: 40, knowledge: 30, vitality: 25 }
-    expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, stats, civs)))).toEqual([[35, 8, 10, 10, 0], [30, 12, 6, 10, 0], 63, 58, 'failed'])
+    expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, stats, civs)))).toEqual([[35, 8, 10, 10], [30, 12, 6, 10, 0], 63, 58, 'failed'])
     expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, stats, civs, 750))).slice(2)).toEqual([63, 63, 'survived']) // 5 reserves close the gap
     expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, stats, civs, 749))).slice(2)).toEqual([63, 62, 'failed'])
-    expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, { prosperity: 20, knowledge: 30, vitality: 25 }, [])))).toEqual([[35, 8, 0, 0, 0], [30, 12, 6, 0, 0], 43, 48, 'survived'])
+    expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, { prosperity: 20, knowledge: 30, vitality: 25 }, [])))).toEqual([[35, 8, 0, 0], [30, 12, 6, 0, 0], 43, 48, 'survived'])
   })
 
   // 3 mountains, 2 plains, 1 desert, 1 coast, 5 forest
   const INVASION_LAND: Terrain[] = ['mountains', 'mountains', 'mountains', 'plains', 'plains', 'desert', 'coast', 'forest', 'forest', 'forest', 'forest', 'forest']
-  it('Invasion: 40 + 2 per open region + development ÷ 4 + Prosperity over Industry vs Industry + 5 per civilization + 3 per mountain + 10 for Empire Builders', () => {
+  it('Invasion: 43 + 1 per open region + development ÷ 4 + Prosperity over Industry vs Industry + 5 per civilization + 3 per mountain + 2 per forest + 10 for Empire Builders', () => {
     const civs = [civ('empireBuilders', 0, 0), civ('nomads', 3, 1), civ('merchants', 4, 2), civ('natureKeepers', 7, 3)]
     const w = (vitality: number, prosperity: number, industry: number, knowledge: number, eraScore = 0) =>
       evaluateCrisis(2, W(INVASION_LAND, { vitality, prosperity, industry, knowledge }, civs, eraScore))
-    expect(amounts(w(60, 55, 70, 52))).toEqual([[40, 8, 59, 0, 0], [70, 20, 9, 10, 0], 107, 109, 'survived'])
+    expect(amounts(w(60, 55, 70, 52))).toEqual([[43, 4, 59, 0], [70, 20, 9, 10, 10, 0], 106, 119, 'survived'])
     // wealth without walls: Prosperity above Industry, and the extra development draws raiders too
-    expect(amounts(w(60, 80, 70, 52))).toEqual([[40, 8, 65, 10, 0], [70, 20, 9, 10, 0], 123, 109, 'failed'])
-    // a broad world is not safe: all 60s, no Empire Builders, no mountains
+    expect(amounts(w(60, 90, 70, 52))).toEqual([[43, 4, 68, 20], [70, 20, 9, 10, 10, 0], 135, 119, 'failed'])
+    // a broad world is not safe: all 60s, no Empire Builders, no mountains (forests in their place)
     const broad = evaluateCrisis(2, W(EVEN.map((t): Terrain => (t === 'mountains' ? 'forest' : t)), { vitality: 60, prosperity: 60, industry: 60, knowledge: 60 }, civs.slice(1)))
-    expect([broad.pressure, broad.resilience, broad.result]).toEqual([40 + 12 + 60, 60 + 15, 'failed'])
+    expect([broad.pressure, broad.resilience, broad.result]).toEqual([43 + 6 + 60, 60 + 15 + 12, 'failed'])
     // Industry always pays: +1 arms against at most +1/4 riches
     const m = (e: CrisisEvaluation) => e.resilience - e.pressure
     expect(m(w(60, 55, 80, 52)) - m(w(60, 55, 70, 52))).toBe(10 - 2) // development 237 → 247: riches 59 → 61
@@ -1132,14 +1164,14 @@ describe('Ascension crises', () => {
   })
 
   it('the stat distribution alone can decide a crisis: same development, different balance', () => {
-    expect(amounts(evaluateCrisis(0, W(EVEN, { vitality: 20, industry: 10 })))).toEqual([[15, 6, 0, 0], [20, 6, 0, 0, 0], 21, 26, 'survived'])
-    expect(amounts(evaluateCrisis(0, W(EVEN, { vitality: 10, industry: 20 })))).toEqual([[15, 6, 10, 0], [10, 6, 0, 0, 0], 31, 16, 'failed'])
+    expect(amounts(evaluateCrisis(0, W(EVEN, { vitality: 20, industry: 10 })))).toEqual([[15, 6, 0], [20, 6, 0, 0, 0], 21, 26, 'survived'])
+    expect(amounts(evaluateCrisis(0, W(EVEN, { vitality: 10, industry: 20 })))).toEqual([[15, 6, 10], [10, 6, 0, 0, 0], 31, 16, 'failed'])
   })
 
   it('civilizations alone can decide a crisis: Merchants spread the plague, Scholars contain it', () => {
     const stats = { vitality: 30, prosperity: 30, knowledge: 25 }
-    expect(amounts(evaluateCrisis(1, W(EVEN, stats, [civ('merchants', 9, 0)])))).toEqual([[35, 6, 5, 10, 0], [25, 15, 6, 0, 0], 56, 46, 'failed'])
-    expect(amounts(evaluateCrisis(1, W(EVEN, stats, [civ('scholars', 6, 0)])))).toEqual([[35, 6, 5, 0, 0], [25, 15, 6, 10, 0], 46, 56, 'survived'])
+    expect(amounts(evaluateCrisis(1, W(EVEN, stats, [civ('merchants', 9, 0)])))).toEqual([[35, 6, 5, 10], [25, 15, 6, 0, 0], 56, 46, 'failed'])
+    expect(amounts(evaluateCrisis(1, W(EVEN, stats, [civ('scholars', 6, 0)])))).toEqual([[35, 6, 5, 0], [25, 15, 6, 10, 0], 46, 56, 'survived'])
     const inv = (n: number) => evaluateCrisis(2, W(EVEN, { vitality: 50, prosperity: 50, industry: 50, knowledge: 50 }, ARCHETYPE_ORDER.slice(0, n).map((a, i) => civ(a, i, i))))
     expect(inv(4).resilience - inv(3).resilience).toBe(5 + 10) // the 4th is Empire Builders
   })
@@ -1153,11 +1185,9 @@ describe('Ascension crises', () => {
     const fate = (bot: (s: AscensionState) => AscensionAction, seed: string) => { const s = last(drive(seed, bot)); return [runStatus(s), ...outcomes(s)] }
     expect(fate(balancedBot, 'crisis-0')).toEqual(['complete', 'winter:survived', 'plague:survived', 'invasion:survived'])
     expect(fate(suitBot(['C', 'S']), 'crisis-0')).toEqual(['failed', 'winter:failed']) // Industry without Vitality: cleared forests
-    expect(fate(suitBot(['H', 'D']), 'crisis-0')).toEqual(['failed', 'winter:survived', 'plague:failed']) // trade without medicine
-    // a broad balanced world can lose the Invasion
-    expect(last(drive('crisis-4', balancedBot)).crises.map((c) => [c.crisis, c.resilience, c.pressure, c.result])).toEqual([
-      ['winter', 33, 22, 'survived'], ['plague', 67, 53, 'survived'], ['invasion', 98, 100, 'failed'],
-    ])
+    // with the card budget, trade without medicine no longer even reaches the Plague: Ancient lapses
+    const hd = last(drive('crisis-0', suitBot(['H', 'D'])))
+    expect([runStatus(hd), hd.lapsed, hd.era, outcomes(hd)]).toEqual(['failed', true, 1, ['winter:survived']])
   })
 
   it('the outcome follows from the world alone: no randomness, and the seed does not matter', () => {
@@ -1171,8 +1201,8 @@ describe('Ascension crises', () => {
   it('a crisis cannot be skipped: the era never advances without facing it', () => {
     const s = at(0, { vitality: 99, prosperity: 99, industry: 99, knowledge: 99 }, [civ('nomads', 8, 0), civ('scholars', 9, 1)], WINTER_LAND)
     let t: AscensionState = { ...s, crisis: null, playsLeft: 1 }
-    for (let r = 0; r < 12 && runStatus(t) !== 'crisis'; r++) t = applyAscensionAction(t, { type: 'play', cards: [0] })
-    expect([runStatus(t), t.era, t.crises]).toEqual(['crisis', 0, []]) // ready, then struck on its own; never skipped
+    for (let r = 0; r < 200 && runStatus(t) !== 'crisis'; r++) t = applyAscensionAction(t, { type: 'play', cards: [0] })
+    expect([runStatus(t), t.era, t.crises, t.budget]).toEqual(['crisis', 0, [], 0]) // ready, then struck when the cards ran out; never skipped
   })
 
   it('a crisis resolves once: resolving with none ready is refused, and a faced crisis never returns', () => {
@@ -1200,7 +1230,7 @@ describe('Ascension crises', () => {
     expect(JSON.stringify(s)).toBe(snap)
     expect([s.regions, s.stats, s.civilizations, s.score, s.hand]).toEqual([struck.regions, struck.stats, struck.civilizations, struck.score, struck.hand])
     expectConserved(s)
-    const run = drive('crisis-4', balancedBot)
+    const run = drive('crisis-0', suitBot(['C', 'S']))
     expect(runStatus(last(run))).toBe('failed')
     expect(last(run).regions).toEqual(run[0].regions)
   })
@@ -1209,13 +1239,13 @@ describe('Ascension crises', () => {
     let checked = 0, withCiv = 0, readied = 0 // forced strikes: see "kept waiting, a crisis gathers" 
     for (const seed of ['project-0', 'project-1', 'project-2', 'project-3', 'project-4', 'project-5', 'project-6', 'project-7']) {
       let s = newAscensionGame(seed)
-      for (const a of randomActions(seed, 900)) {
+      for (const a of mixedActions(seed, 900)) {
         if (a.type === 'play' && s.playsLeft === 1) {
           const p = evaluatePlay(s, a.cards)
-          const proj = projectRoundEnd(s, Object.fromEntries(WORLD_STATS.map((k) => [k, s.stats[k] + p.statDeltas[k]])) as WorldStats, s.score + p.score)
+          const proj = projectRoundEnd(s, Object.fromEntries(WORLD_STATS.map((k) => [k, s.stats[k] + p.statDeltas[k]])) as WorldStats, s.score + p.score, s.budget - actionCost(a))
           const next = applyAscensionAction(s, a)
           expect(next.civilizations).toEqual(proj.civ ? [...s.civilizations, proj.civ] : s.civilizations)
-          expect([next.crisis !== null, runStatus(next) === 'crisis']).toEqual([proj.ready, proj.forced])
+          expect([next.crisis !== null, runStatus(next) === 'crisis', next.lapsed]).toEqual([proj.ready, proj.forced, proj.lapses])
           if (proj.ready) expect(evaluateCrisis(next.era, crisisWorld(next))).toEqual(proj.crisis)
           checked += 1; if (proj.civ) withCiv += 1; if (proj.ready && !s.crisis) readied += 1
           s = next
@@ -1232,5 +1262,112 @@ describe('Ascension crises', () => {
     const rich = { ...noStats(), vitality: 20, prosperity: 20 }
     expect(projectRoundEnd(s, rich).civ).not.toBeNull()
     expect(projectRoundEnd(s, rich)).toMatchObject({ ready: true, forced: false })
+  })
+})
+
+describe('Ascension era budget (scarcity)', () => {
+  const HAND = [C(2, 'H'), C(3, 'D'), C(4, 'C'), C(5, 'S'), C(6, 'H'), C(7, 'D'), C(8, 'C'), C(9, 'S')]
+  /** a conserved Tribal state with this hand, stats, civilizations and budget left */
+  const game = (o: { stats?: Partial<WorldStats>; civs?: Civilization[]; budget: number; playsLeft?: number; hand?: Card[] }): AscensionState => ({
+    ...withHand(o.hand ?? HAND), regions: land(EVEN), stats: { ...noStats(), ...o.stats }, civilizations: o.civs ?? [], budget: o.budget, playsLeft: o.playsLeft ?? 4,
+  })
+  const play = (s: AscensionState, cards: number[]) => applyAscensionAction(s, { type: 'play', cards })
+
+  it('each era grants its cards: a card played costs 1, a discard 2, facing a crisis nothing', () => {
+    expect(ERA_BUDGET).toEqual({ unit: 'cards', perEra: [70, 70, 90], discardCost: 2, carryOver: true })
+    let s = newAscensionGame('budget-accounting')
+    expect(s.budget).toBe(70)
+    s = play(s, [0, 1, 2])
+    expect(s.budget).toBe(67)
+    s = applyAscensionAction(s, { type: 'discard', cards: [0, 1, 2, 3, 4] })
+    expect(s.budget).toBe(65) // a discard costs 2 however many cards it throws away
+    expect([actionCost({ type: 'play', cards: [0] }), actionCost({ type: 'play', cards: [0, 1, 2, 3, 4] }), actionCost({ type: 'discard', cards: [0] }), actionCost({ type: 'resolve' })]).toEqual([1, 5, 2, 0])
+  })
+
+  it('the budget cannot be exceeded, and a refused action changes nothing', () => {
+    const s = deepFreeze(game({ budget: 2 }))
+    const snap = JSON.stringify(s)
+    expect(() => play(s, [0, 1, 2])).toThrow('not enough cards left: this costs 3, 2 left')
+    expect(() => applyAscensionAction(game({ budget: 1 }), { type: 'discard', cards: [0] })).toThrow('not enough cards left: this costs 2, 1 left')
+    expect(JSON.stringify(s)).toBe(snap)
+    expect(play(s, [0, 1]).budget).toBe(0) // exactly the budget is allowed
+  })
+
+  it('the last card ends the era: the crisis strikes if the requirements hold, otherwise the era lapses and the run is over', () => {
+    const met = play(game({ stats: { vitality: 20, prosperity: 20 }, civs: [civ('nomads', 6, 0)], budget: 2 }), [0, 1])
+    expect([met.budget, met.round, runStatus(met), met.lapsed]).toEqual([0, 1, 'crisis', false]) // mid-round: no round end needed
+    const short = play(game({ stats: { vitality: 13, prosperity: 15 }, civs: [civ('nomads', 6, 0)], budget: 1 }), [0]) // Vitality 14: one short
+    expect([short.budget, runStatus(short), short.lapsed, short.crises]).toEqual([0, 'failed', true, []])
+    for (const a of [{ type: 'play', cards: [0] }, { type: 'discard', cards: [0] }, { type: 'resolve' }] as AscensionAction[]) {
+      expect(() => applyAscensionAction(short, a)).toThrow('run over: the Tribal era ran out of cards')
+    }
+    expect(() => evaluatePlay(short, [0])).toThrow('ran out of cards')
+    expect([short.regions, short.stats.vitality, short.civilizations.length]).toEqual([land(EVEN), 14, 1]) // the world is kept
+    expectConserved(short)
+  })
+
+  it('a discard can spend the era out too', () => {
+    const s = applyAscensionAction(game({ stats: { vitality: 20, prosperity: 20 }, civs: [civ('nomads', 6, 0)], budget: 2 }), { type: 'discard', cards: [0] })
+    expect([s.budget, runStatus(s)]).toEqual([0, 'crisis'])
+  })
+
+  it('facing a ready crisis early carries the unspent cards into the next era', () => {
+    let s = game({ stats: { vitality: 30, prosperity: 20 }, civs: [civ('nomads', 6, 0)], budget: 50, playsLeft: 1 })
+    s = play(s, [0]) // round end: ready, 49 left
+    expect([runStatus(s), s.budget]).toEqual(['ready', 49])
+    s = applyAscensionAction(s, { type: 'resolve' })
+    expect([s.era, s.budget]).toEqual([1, 49 + 70])
+  })
+
+  it('the requirement shortfall says how many cards are spoken for', () => {
+    expect(requirementShortfall(0, { vitality: 10, prosperity: 14, industry: 0, knowledge: 0 })).toBe(5 + 1)
+    expect(requirementShortfall(2, { vitality: 90, prosperity: 40, industry: 40, knowledge: 0 })).toBe(30) // development 170 of 200
+    expect(requirementShortfall(2, { vitality: 80, prosperity: 60, industry: 30, knowledge: 35 })).toBe(5) // a third stat at 40: Knowledge is 5 short
+    expect(requirementShortfall(3, noStats())).toBe(0)
+  })
+
+  it('hand size is a choice: a strong pair earns more per card, five cards more per play', () => {
+    const s = game({ budget: 70, hand: [C(14, 'S'), C(14, 'H'), C(2, 'D'), C(3, 'C'), C(5, 'S'), C(7, 'D'), C(9, 'C'), C(4, 'H')] })
+    const pair = evaluatePlay(s, [0, 1]), five = evaluatePlay(s, [0, 1, 4, 5, 6]) // A♠ A♥ vs A♠ A♥ 5♠ 7♦ 9♣
+    expect(five.score).toBeGreaterThan(pair.score)
+    expect(pair.score / 2).toBeGreaterThan(five.score / 5)
+  })
+
+  /** A focused player who reads the forecast and spends cards only on what it wants: its main suit, what the
+   *  requirements need when the budget is tight, the crisis's best stat while it would be lost; faces when safe. */
+  const focused = (main: Card['s']) => (s: AscensionState): AscensionAction => {
+    const margin = (st: WorldStats) => { const e = evaluateCrisis(s.era, crisisWorld(s, st)); return e.resilience - e.pressure }
+    if (runStatus(s) === 'ready' && margin(s.stats) >= 0) return { type: 'resolve' }
+    const min = ERAS[s.era].needs.min
+    const needy = requirementShortfall(s.era, s.stats) * 1.2 >= s.budget
+    const help = WORLD_STATS.map((k) => [k, margin({ ...s.stats, [k]: s.stats[k] + 1 })] as const).sort((a, b) => b[1] - a[1])[0][0]
+    const rank = (k: WorldStat) => (margin(s.stats) < 0 ? (k === help ? 0 : k === SUIT_STAT[main] ? 1 : 2)
+      : needy ? (s.stats[k] < min ? 0 : k === SUIT_STAT[main] ? 1 : 2) : k === SUIT_STAT[main] ? 0 : s.stats[k] < min ? 1 : 2)
+    const idx = s.hand.map((_, j) => j).sort((a, b) => rank(SUIT_STAT[s.hand[a].s]) - rank(SUIT_STAT[s.hand[b].s]) || a - b).slice(0, Math.min(5, s.budget))
+    const wanted = idx.filter((j) => rank(SUIT_STAT[s.hand[j].s]) <= 1)
+    return { type: 'play', cards: wanted.length ? wanted : idx.slice(0, 1) }
+  }
+  it('focused worlds complete under the budget too (and by playing fewer cards)', () => {
+    const cases: [Card['s'], WorldStats][] = [
+      ['H', { vitality: 68, prosperity: 44, industry: 46, knowledge: 42 }],
+      ['C', { vitality: 45, prosperity: 40, industry: 76, knowledge: 44 }],
+      ['S', { vitality: 43, prosperity: 45, industry: 43, knowledge: 73 }],
+    ]
+    for (const [suit, stats] of cases) {
+      const run = drive('focus-0', focused(suit))
+      const done = last(run)
+      expect([runStatus(done), done.stats]).toEqual(['complete', stats])
+      const plays = run.slice(1).map((s, i) => s.lastPlay !== run[i].lastPlay ? s.lastPlay!.cards.length : null).filter((n): n is number => n !== null)
+      expect(plays.reduce((a, b) => a + b, 0) / plays.length).toBeLessThan(4)
+    }
+    expect(runStatus(last(drive('crisis-0', balancedBot)))).toBe('complete')
+  })
+
+  it('budget transitions never mutate their input, and replay deterministically', () => {
+    const actions = mixedActions('budget-det', 600)
+    expect(replay('budget-det', actions)).toEqual(replay('budget-det', actions))
+    let s = deepFreeze(newAscensionGame('budget-det'))
+    for (const a of actions) s = deepFreeze(applyAscensionAction(s, a))
+    expect(s).toEqual(replay('budget-det', actions))
   })
 })
