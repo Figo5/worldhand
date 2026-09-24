@@ -266,6 +266,9 @@
 .asc .kv dt { color: var(--muted); }
 .asc .kv dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
 .asc .crisis-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.asc .crisis-table-scroll { overflow-x: auto; }
+.asc .summary-swipe { display: none; }
+@media (max-width: 560px) { .asc .summary-swipe { display: block; margin: 0 0 5px; color: var(--muted); font-size: 0.72rem; } }
 .asc .crisis-table th, .asc .crisis-table td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line-soft); }
 .asc .crisis-table th { color: var(--muted); font-weight: 500; font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; }
 .asc .chron { display: grid; gap: 10px; }

@@ -9,7 +9,8 @@ about 25–40 minutes.
 
 Open **[worldhand.netlify.app](https://worldhand.netlify.app/)**, choose
 **Ascension**, then **New world**. Leave the seed empty for a random world, or
-type one to share it: the same seed always deals the same world and cards.
+type one to share it: the same seed, origin, Omen and unlocked content pool
+reproduce the same world, deals and offers.
 
 ## The loop in one minute
 
@@ -52,7 +53,7 @@ Straights and Flushes need exactly five cards; an Ace can be low (A-2-3-4-5).
 To the base, add:
 
 - **Card chips:** 2–10 count their face value, J/Q/K count 10, A counts 11.
-- **Land:** each scoring card gains 1 chip for every region whose terrain
+- **Land:** each scoring card gains 2 chips for every region whose terrain
   favours its stat. Plains and coast favour Prosperity, forest favours
   Vitality, mountains favour Industry, and desert and tundra favour Knowledge.
 - **World cards, the era's rule, civilizations, rivalries and legendaries,**

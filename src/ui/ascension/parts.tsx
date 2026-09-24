@@ -8,6 +8,7 @@ import { CARD_BY_ID } from '../../engine/ascension/content'
 import { LEGENDARIES } from '../../engine/ascension/legendaries'
 import type { CardInst, LegendaryInst } from '../../engine/ascension/state'
 import type { Region } from '../../engine/ascension/world'
+import { LAND_CHIPS } from '../../engine/ascension/scoring'
 
 export const fmt = (n: number) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 export const signed = (n: number) => (n > 0 ? `+${n}` : String(n))
@@ -61,7 +62,7 @@ export function StatBars({ stats, affinity, delta, max }: { stats: WorldStats; a
               {d > 0 && <i className="plus" style={{ left: `${(100 * stats[k]) / top}%`, width: `${(100 * d) / top}%`, background: STAT_COLOR[k] }} />}
             </span>
             <span className="val" data-testid={`asc-stat-${k}`}>{stats[k]}{d ? <small className="good"> +{d}</small> : null}</span>
-            {affinity && <span className="land" style={{ gridColumn: '2 / 4' }}>{affinity[k] ? `land +${affinity[k]} chips per ${STAT_SYMBOL[k]} scored` : 'no land favours it'}</span>}
+            {affinity && <span className="land" style={{ gridColumn: '2 / 4' }}>{affinity[k] ? `${affinity[k]} region${affinity[k] === 1 ? '' : 's'} favour it: +${LAND_CHIPS * affinity[k]} chips per ${STAT_SYMBOL[k]} scored` : 'no land favours it'}</span>}
           </div>
         )
       })}

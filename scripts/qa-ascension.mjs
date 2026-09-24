@@ -22,7 +22,7 @@ const ROOT = resolve(import.meta.dirname, '..')
 const SHOTS = resolve(ROOT, 'shots', 'ascension')
 mkdirSync(SHOTS, { recursive: true })
 let base = process.argv[2] && process.argv[2].startsWith('http') ? process.argv[2] : null
-const personas = (process.argv.find((a, i) => i >= 2 && !a.startsWith('http')) ?? 'planner,mediocre').split(',')
+const personas = process.env.QA_ONLY_MOBILE ? [] : (process.argv.find((a, i) => i >= 2 && !a.startsWith('http')) ?? 'planner,mediocre').split(',')
 let server = null
 if (!base) {
   server = spawn('npx', ['vite', 'preview', '--port', '5188', '--strictPort', '--host', '127.0.0.1'], { cwd: ROOT, stdio: 'pipe' })
@@ -92,7 +92,7 @@ async function agree(page, s) {
 }
 
 /** Play one whole run through the UI as `persona`. */
-async function playRun(page, persona, seedText, { shots = false, reloadAt = -1, maxSteps = 400 } = {}) {
+async function playRun(page, persona, seedText, { shots = false, reloadAt = -1, maxSteps = 400, onStep = null } = {}) {
   await page.locator('[data-testid="asc-new"]').click()
   await page.fill('[data-testid="asc-seed"]', seedText)
   await page.locator('[data-testid="asc-begin"]').click()
@@ -118,6 +118,7 @@ async function playRun(page, persona, seedText, { shots = false, reloadAt = -1, 
     s = next
     steps += 1
     if (!(await agree(page, s))) mismatches += 1
+    if (onStep) await onStep(s)
     if (steps === reloadAt && !reloaded) {
       reloaded = true
       await page.reload()
@@ -168,7 +169,7 @@ try {
       await page.locator('[data-testid="asc-open-chronicle"]').click()
       check(await page.locator('[data-testid="asc-chronicle"] li').count() > 0, 'Chronicle — opens during a run')
       await page.keyboard.press('Escape')
-      await page.getByRole('button', { name: 'Close' }).click()
+      check(await page.locator('[data-testid="asc-chronicle"]').count() === 0, 'Chronicle — Escape closes it')
       // past worlds: the finished run is in the history
       await page.locator('[data-testid="asc-menu"]').click()
       await page.locator('[data-testid="asc-open-history"]').click()
@@ -225,9 +226,30 @@ try {
     await page.locator('[data-testid="asc-card"]').first().click()
     const box = await page.locator('[data-testid="asc-card"]').first().boundingBox()
     check(box && box.width >= 40, 'mobile — cards are tappable', `${Math.round(box?.width ?? 0)}px wide`)
+    await page.evaluate(() => { const cards = Array.from(document.querySelectorAll('[data-testid="asc-card"]')); for (let i = 1; i <= 5; i++) cards[i].click() })
+    check(await page.locator('[data-testid="asc-card"][aria-pressed="true"]').count() === 5 && /at most 5 cards/.test((await text(page, 'asc-error')) ?? ''), 'mobile — rapid taps select five cards and reject a sixth')
     check(await page.locator('[data-testid="asc-globe"]').count() === 1, 'mobile — the globe mounts')
+    await page.getByRole('tab', { name: 'Regions' }).click()
+    await page.locator('[data-testid="asc-world"]').getByRole('listitem').first().click()
+    await page.getByRole('tab', { name: 'Globe' }).click()
+    check(await page.locator('[data-testid="asc-region-detail"]').count() === 1, 'mobile — region selection has a text description')
     check(errors.length === 0, 'mobile — zero console errors', errors.join(' | '))
     await ctx.close()
+    if (process.env.QA_MOBILE_FULL) {
+      // A whole run on the phone: the Council and the summary must fit too.
+      const full = await open(390, 844, '#ascension')
+      await full.page.waitForSelector('[data-testid="asc-hub"]')
+      let widest = 0
+      const t = await playRun(full.page, 'planner', 'qa-mobile-full', { maxSteps: 400, onStep: async (st) => {
+        widest = Math.max(widest, await full.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+        if (st.phase === 'council' && !st.council.offers.some((o) => o.sold) && st.era === 1) await full.page.screenshot({ path: `${SHOTS}/mobile-council.png`, fullPage: true })
+      } })
+      await full.page.waitForSelector('[data-testid="asc-summary"]')
+      await full.page.screenshot({ path: `${SHOTS}/mobile-summary.png`, fullPage: true })
+      check(widest <= 0, 'mobile — a whole run (table, Council, summary) never overflows sideways', `${t.steps} actions, ${t.s.phase}`)
+      check(full.errors.length === 0, 'mobile full run — zero console errors', full.errors.join(' | '))
+      await full.ctx.close()
+    }
   }
 } finally {
   await browser.close()

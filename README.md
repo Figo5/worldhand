@@ -5,7 +5,7 @@ and a portable offline build.
 
 **[Play Worldhand](https://worldhand.netlify.app/)** · [How to play Ascension](docs/ascension.md) · [Classic rules](docs/rules.md) · [Development evidence](docs/development/README.md)
 
-![A poker-hand preview beside Worldhand's evolving 3D planet](docs/media/gameplay.png)
+![An Ascension hand beside the developing world and the forecast Invasion](docs/media/ascension-desktop.png)
 
 The main menu offers two modes. Each keeps its own saves.
 
@@ -29,8 +29,11 @@ origins; each victory unlocks the next of eight **Omens**, stacking rules for a
 harder climb. Everything autosaves, and runs can be exported to another device.
 
 See **[How to play Ascension](docs/ascension.md)**.
+[See the mobile table](docs/media/ascension-mobile.png).
 
 ## Classic — play hands, grow a world, keep it alive
+
+![A Classic poker-hand preview beside Worldhand's evolving 3D planet](docs/media/gameplay.png)
 
 Select one to five cards from an eight-card hand, preview their Growth, then commit
 or discard. Each epoch gives you four plays and three discards to reach its target.
@@ -77,9 +80,10 @@ storage behavior for `file://` varies, so keep an exported backup of a valued ru
   renders engine-owned region state; animation does not decide game outcomes.
   It loads as a separate chunk, so the title screen and hand do not wait for
   Three.js; the portable build inlines it.
-- **Versioned local saves:** schema 4 / engine rules 8. Incompatible saves are
-  preserved as legacy data and rejected with an explanation. Imports are validated
-  before replacing an existing run.
+- **Versioned local saves:** Classic uses schema 4 / rules 8; Ascension uses a
+  separate namespace, run schema 1 / rules 10, and profile schema 1. Incompatible
+  saves are preserved as legacy data and rejected with an explanation. Imports
+  are validated before replacing an existing run.
 
 ## Testing
 
@@ -88,27 +92,26 @@ npm run typecheck      # app and tests
 npm test
 npm run build
 npm run build:portable
-# Optional browser checks of the file:// artifact:
+# Browser checks of the file:// artifact and production build:
 npx playwright install chromium
 node scripts/qa-portable.mjs
+node --import ./scripts/ts-resolve.mjs scripts/qa-ascension.mjs
 ```
 
-Verified on 2026-09-24 in GitHub Actions (Node.js 24): the type-check of app and
-tests, **368 tests passed**, and production and portable builds without warnings.
-Coverage includes poker, deterministic transitions, preview/commit, bounded economy,
-save validation, death boundaries, the Ascension prototype, and 40 recorded Classic
-replays that must reproduce exactly. GitHub Actions runs all of this and the browser
-checks on every push (`.github/workflows/ci.yml`). The portable browser checks also
-passed: offline loading, the inlined 3D globe, keyboard play, the chronicle menu, shop
-purchases, a full run, reload persistence, mobile layout, and save export/import.
+At the current branch revision, typecheck, **325 tests**, and both builds pass
+locally. Coverage includes poker, deterministic transitions, preview/commit,
+bounded economy, saves, Ascension rules and 40 recorded Classic replays that
+must reproduce exactly. GitHub Actions runs these checks and both browser QA
+scripts on every push (`.github/workflows/ci.yml`). The browser scripts exercise
+full runs, reload persistence, mobile layout, the 3D globes and save transfer.
 
 ## Status and limitations
 
 A playable single-player game with no backend, accounts or real-money betting.
 Balance evidence comes from bounded scripted policies, not human win-rate studies.
-Regional bonuses have a measured low impact on many choices; the rules document
-preserves that limitation and the rejected experiments. Keyboard controls and
-reduced-motion support are included.
+Classic's regional bonuses have a measured low impact on many choices; its
+rules document preserves that limitation and the rejected experiments.
+Keyboard controls and reduced-motion support are included in both modes.
 
 ## License
 

@@ -243,7 +243,7 @@ export default function AscensionRoot({ onExit }: { onExit: () => void }) {
       <div className="hub" data-testid="asc-setup">
         <div className="hub-head"><h1>A new world</h1><span className="spacer" /><button onClick={() => setScreen('hub')}>Back</button></div>
         <Panel title="Seed">
-          <label htmlFor="asc-seed">Same seed, same world, same cards. Leave empty for a new one.</label>
+          <label htmlFor="asc-seed">The same seed, origin, Omen and unlocked collection reproduce a run. Leave empty for a new seed.</label>
           <input id="asc-seed" data-testid="asc-seed" value={seedText} placeholder="e.g. first-dawn" maxLength={200} onChange={(e) => setSeedText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && startNew()} />
         </Panel>
         <Panel title="Origin">

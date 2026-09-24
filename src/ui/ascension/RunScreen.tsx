@@ -50,12 +50,14 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
   const [tab, setTab] = useState<'world' | 'civs' | 'regions'>('world')
   const [tipsHidden, setTipsHidden] = useState(false)
   const [sortBy, setSortBy] = useState<'deal' | 'rank' | 'suit'>('deal')
+  const selectedRef = useRef<number[]>([])
   const handRef = useRef<HTMLDivElement>(null)
+  const setSelection = (next: number[]) => { selectedRef.current = next; setSel(next) }
   const status = runStatus(state)
   const canPlay = status === 'playing'
   // selections refer to hand positions: clear them whenever the hand changes
   const handKey = state.hand.map((c) => c.id).join(',')
-  useEffect(() => { setSel([]); setConfirmFace(false) }, [handKey, state.era])
+  useEffect(() => { setSelection([]); setConfirmFace(false) }, [handKey, state.era])
 
   const m = useMemo(() => runMods(state), [state])
   const affinity = useMemo(() => landAffinity(state.regions), [state.regions])
@@ -83,13 +85,16 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
   const act = (a: AscensionAction) => {
     const err = onAct(a)
     setError(err ?? '')
-    if (!err) { setSel([]); setConfirmFace(false) }
+    if (!err) { setSelection([]); setConfirmFace(false) }
   }
+  // Read the current selection synchronously so quick clicks between renders count.
   const toggle = (i: number) => {
     if (!canPlay) return
-    if (sel.includes(i)) setSel(sel.filter((x) => x !== i))
-    else if (sel.length >= 5) setError('Select at most 5 cards.')
-    else { setSel([...sel, i]); setError('') }
+    const cur = selectedRef.current
+    if (cur.includes(i)) setSelection(cur.filter((x) => x !== i))
+    else if (cur.length >= 5) { setError('Select at most 5 cards.'); return }
+    else setSelection([...cur, i])
+    setError('')
   }
   const onHandKeys = (e: KeyboardEvent<HTMLDivElement>) => {
     const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('.pcard2'))
@@ -104,7 +109,7 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
   useEffect(() => {
     const h = (e: globalThis.KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === 'Escape') setSel([])
+      if (e.key === 'Escape') setSelection([])
       if (canPlay && /^[1-8]$/.test(e.key) && order[Number(e.key) - 1] !== undefined) { e.preventDefault(); toggle(order[Number(e.key) - 1]) }
       if (!canPlay || sel.length === 0) return
       if (e.key === 'p' || e.key === 'P') { e.preventDefault(); act({ type: 'play', cards: sel }) }
@@ -316,7 +321,7 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
             <div className="hand-actions">
               <button className="primary" data-testid="asc-play" disabled={!canPlay || sel.length === 0} onClick={() => act({ type: 'play', cards: sel })}>Play{sel.length ? ` ${sel.length}` : ''}<span className="kbd">P</span></button>
               <button data-testid="asc-discard" disabled={!canPlay || sel.length === 0 || state.discardsLeft <= 0} onClick={() => act({ type: 'discard', cards: sel })}>Discard<span className="kbd">D</span></button>
-              <button className="ghost" disabled={sel.length === 0} onClick={() => setSel([])}>Clear</button>
+              <button className="ghost" disabled={sel.length === 0} onClick={() => setSelection([])}>Clear</button>
               <button className="ghost" data-testid="asc-sort" title="Sort the hand (keys 1–8 select cards in this order)" onClick={() => setSortBy(sortBy === 'deal' ? 'rank' : sortBy === 'rank' ? 'suit' : 'deal')}>Sort: {sortBy === 'deal' ? 'as dealt' : sortBy}</button>
               <span className="spacer" />
               <span className="hand-hint">Era score <b className="gold">{fmt(state.eraScore)}</b> → <b className="good">{now.mitigations.find((f) => f.label === 'Reserves')?.amount ?? 0}</b> Reserves</span>

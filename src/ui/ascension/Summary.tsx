@@ -99,7 +99,8 @@ export default function Summary({ state, earned, onPlayAgain, onNewSeed, onMenu,
         </Panel>
       </div>
       <Panel title="The crises" testid="asc-summary-crises">
-        <div style={{ overflowX: 'auto' }}>
+        <p className="summary-swipe">Swipe sideways to see each margin and scar →</p>
+        <div className="crisis-table-scroll" role="region" aria-label="Crisis outcomes; scroll sideways for margins and scars" tabIndex={0}>
           <table className="crisis-table">
             <thead><tr><th>Age</th><th>Crisis</th><th>Result</th><th>Pressure</th><th>Resilience</th><th>Margin</th><th>Scars</th></tr></thead>
             <tbody>
