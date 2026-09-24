@@ -2,12 +2,13 @@
 // the run itself. Owns persistence: every committed action is autosaved (the
 // save is the setup plus the action list), and the profile learns from every
 // state. The engine decides everything; this file only routes.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { applyAction, newRun, replay, runStatus } from '../../engine/ascension/ascension'
 import { ERAS } from '../../engine/ascension/eras'
 import { CRISES } from '../../engine/ascension/crises'
 import { OMENS, MAX_OMEN } from '../../engine/ascension/rules'
-import { ORIGINS, ORIGIN_ORDER, type OriginId } from '../../engine/ascension/world'
+import { ORIGINS, ORIGIN_ORDER, REGION_NAMES, generateRegions, type OriginId } from '../../engine/ascension/world'
+import { hashSeed } from '../../engine/rng'
 import { learn, poolOf, recordRun, type Achievement, type Profile } from '../../engine/ascension/profile'
 import type { AscensionAction, AscensionState, RunSetup } from '../../engine/ascension/state'
 import RunScreen from './RunScreen'
@@ -21,6 +22,9 @@ import {
 } from './storage'
 import { MAX_RESOLVE } from '../../engine/ascension/state'
 import './ascension.css'
+
+const Globe = lazy(() => import('./Globe'))
+const HUB_WORLD = generateRegions(hashSeed('worldhand'))
 
 type Screen = 'hub' | 'setup' | 'run' | 'collection' | 'history' | 'help' | 'settings'
 interface Run { setup: RunSetup; actions: AscensionAction[]; state: AscensionState }
@@ -104,11 +108,18 @@ export default function AscensionRoot({ onExit }: { onExit: () => void }) {
     if (!saveRun(r.setup, actions)) toast('Could not save to this browser (storage is unavailable). Export a backup to keep your run.')
     const finished = next.phase === 'won' || next.phase === 'lost'
     learnFrom(next, actions, finished)
+    for (const c of next.civilizations) if (!r.state.civilizations.some((x) => x.id === c.id)) toast(`A people rises: ${c.name} in ${REGION_NAMES[c.home]}.`)
+    for (const c of next.fallen) if (!r.state.fallen.some((x) => x.id === c.id) && a.type !== 'face') toast(`${c.name} has fallen.`)
     if (a.type === 'face') setMoment(next)
     if (a.type === 'leave') setDawn(next.era)
     return null
   }, [learnFrom, toast])
 
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') { setChronicleOpen(false); setHelpOpen(false) } }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [])
   useEffect(() => { if (dawn === null) return; const t = setTimeout(() => setDawn(null), 2500); return () => clearTimeout(t) }, [dawn])
 
   const begin = (setup: RunSetup) => {
@@ -279,6 +290,13 @@ export default function AscensionRoot({ onExit }: { onExit: () => void }) {
             <button onClick={() => setScreen('help')}>How to play<small>The rules in one page</small></button>
             <button onClick={() => setScreen('settings')} data-testid="asc-open-settings">Settings and backups<small>Motion, tips, export and import</small></button>
           </div>
+          <div className="col">
+          <div className="hub-world" aria-hidden="true">
+            <Suspense fallback={null}>
+              <Globe regions={HUB_WORLD} civs={[]} relations={[]} focus={null} onFocus={() => {}} hit={[]} help={[]} development={{ vitality: 20, prosperity: 20, industry: 20, knowledge: 20 }} crisisFailing={false} reduced={settings.motion === 'reduced'} />
+            </Suspense>
+            <span className="caption">Twelve regions. Six ages. One world at a time.</span>
+          </div>
           <Panel title="Your progress" testid="asc-progress">
             <div className="hub-stats">
               <div className="hub-stat"><b>{profile.stats.runs}</b><span>worlds finished</span></div>
@@ -289,6 +307,7 @@ export default function AscensionRoot({ onExit }: { onExit: () => void }) {
               <div className="hub-stat"><b>{profile.unlocked.cards.length + profile.unlocked.decrees.length + profile.unlocked.legendaries.length}</b><span>cards, decrees and legendaries unlocked</span></div>
             </div>
           </Panel>
+          </div>
         </div>
         {run && inProgress && confirmReset(run)}
       </div>

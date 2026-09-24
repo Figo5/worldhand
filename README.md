@@ -1,12 +1,36 @@
 # Worldhand
 
-A deterministic planet-building poker roguelike with a 3D world and a portable offline build.
+A deterministic poker roguelike that builds a world, with a 3D globe, two modes
+and a portable offline build.
 
-**[Play Worldhand](https://worldhand.netlify.app/)** · [Rules and scoring](docs/rules.md) · [Development evidence](docs/development/README.md)
+**[Play Worldhand](https://worldhand.netlify.app/)** · [How to play Ascension](docs/ascension.md) · [Classic rules](docs/rules.md) · [Development evidence](docs/development/README.md)
 
 ![A poker-hand preview beside Worldhand's evolving 3D planet](docs/media/gameplay.png)
 
-## Play hands. Grow a world. Keep it alive.
+The main menu offers two modes. Each keeps its own saves.
+
+## Ascension — grow a world through six ages
+
+A roguelike campaign of 25–40 minutes. Each age gives you a few poker **hands**
+and **discards**. Only the cards that make a hand score, and each scoring card
+grows its suit's world stat: ♥ Vitality, ♦ Prosperity, ♣ Industry,
+♠ Knowledge. Peoples rise on the land that suits them, grow into kingdoms and
+empires, and become allies or rivals of their neighbours. Every age ends in a
+crisis you can see coming (a winter, a plague, an invasion, a market crash,
+the machines, the Great Filter). Its forecast is exact, and it weighs the
+world you built and the era's score against it. Endure it, or lose one of
+three Resolve and carry its scar. Between ages, the Council sells world cards
+and decrees and offers **legendaries** that bend the rules. Endure the final
+crisis to ascend.
+
+Hands are few, so you cannot fix every weakness. The game is in choosing which
+ones you can survive. Finished runs unlock new cards, legendaries, peoples and
+origins; each victory unlocks the next of eight **Omens**, stacking rules for a
+harder climb. Everything autosaves, and runs can be exported to another device.
+
+See **[How to play Ascension](docs/ascension.md)**.
+
+## Classic — play hands, grow a world, keep it alive
 
 Select one to five cards from an eight-card hand, preview their Growth, then commit
 or discard. Each epoch gives you four plays and three discards to reach its target.

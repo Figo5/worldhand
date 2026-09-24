@@ -31,7 +31,7 @@ export function PlayingCard({ card, selected, scoring, kicker, onToggle, tabInde
   return (
     <button
       type="button"
-      className={`pcard2 ${red ? 'red' : 'blue'}${def ? ' world' : ''}${scoring ? ' scoring' : ''}${kicker ? ' kicker' : ''}`}
+      className={`pcard2 dealt ${red ? 'red' : 'blue'}${def ? ' world' : ''}${scoring ? ' scoring' : ''}${kicker ? ' kicker' : ''}`}
       aria-pressed={selected}
       aria-label={cardAria(card)}
       title={def ? `${def.name} — ${def.text}` : `${cardText(card)}: grows ${WORLD_STAT_LABEL[stat]}`}

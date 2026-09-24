@@ -49,6 +49,7 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
   const [error, setError] = useState('')
   const [tab, setTab] = useState<'world' | 'civs' | 'regions'>('world')
   const [tipsHidden, setTipsHidden] = useState(false)
+  const [sortBy, setSortBy] = useState<'deal' | 'rank' | 'suit'>('deal')
   const handRef = useRef<HTMLDivElement>(null)
   const status = runStatus(state)
   const canPlay = status === 'playing'
@@ -104,6 +105,7 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
     const h = (e: globalThis.KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === 'Escape') setSel([])
+      if (canPlay && /^[1-8]$/.test(e.key) && order[Number(e.key) - 1] !== undefined) { e.preventDefault(); toggle(order[Number(e.key) - 1]) }
       if (!canPlay || sel.length === 0) return
       if (e.key === 'p' || e.key === 'P') { e.preventDefault(); act({ type: 'play', cards: sel }) }
       if ((e.key === 'd' || e.key === 'D') && state.discardsLeft > 0) { e.preventDefault(); act({ type: 'discard', cards: sel }) }
@@ -112,6 +114,10 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
     return () => window.removeEventListener('keydown', h)
   })
 
+  /** display order of the hand (selection always refers to real hand positions) */
+  const order = state.hand.map((_, i) => i)
+  if (sortBy === 'rank') order.sort((a, b) => state.hand[b].r - state.hand[a].r || 'SHDC'.indexOf(state.hand[a].s) - 'SHDC'.indexOf(state.hand[b].s))
+  if (sortBy === 'suit') order.sort((a, b) => 'HDCS'.indexOf(state.hand[a].s) - 'HDCS'.indexOf(state.hand[b].s) || state.hand[b].r - state.hand[a].r)
   const scoringIds = new Set(preview ? preview.r.scoring.map((i) => state.hand[i]?.id) : [])
   const bank = eraEndInfluence(state, m) + treasury(state)
   const statsDelta: WorldStats | null = preview ? preview.r.statDeltas : null
@@ -167,7 +173,7 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
           return (
             <div key={e} className={`track-step${e === state.era ? ' now' : ''}${past ? (past.result === 'endured' ? ' won' : ' lost') : ''}`} title={`${ERAS[e].label}: ${CRISES[id].label} — ${CRISES[id].watch}`}>
               <span className="muted">{ERAS[e].label}</span>
-              <b>{CRISES[id].label}</b>
+              <b className="track-name">{CRISES[id].label.replace(/^The /, '')}</b>
               <span className={`m ${past ? (past.result === 'endured' ? 'good' : 'bad') : ''}`}>{past ? (past.result === 'endured' ? `✓ ${signed(past.margin)}` : `✗ ${signed(past.margin)}`) : e === state.era ? 'now' : '·'}</span>
             </div>
           )
@@ -280,7 +286,7 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
         <span className="meter" title="Discards left this era"><b data-testid="asc-discards">{state.discardsLeft}</b><span>discards</span></span>
         <span className="meter" title="Each failed crisis costs one Resolve. At 0 the world falls."><Pips n={state.resolve} of={MAX_RESOLVE} /><span>resolve</span></span>
         <span className="meter gold" title="Influence: spent at the Council between eras"><b data-testid="asc-influence">{state.influence}</b><span>influence</span></span>
-        <span className="meter" title="Total score. This era's score becomes Reserves against its crisis."><b data-testid="asc-score">{fmt(state.score)}</b><span>score</span></span>
+        <span className="meter" title="Total score. This era's score becomes Reserves against its crisis."><b data-testid="asc-score" key={state.score} className={state.score ? 'score-pop' : ''}>{fmt(state.score)}</b><span>score</span></span>
         <button className="ghost" onClick={onChronicle} data-testid="asc-open-chronicle">Chronicle</button>
         <button className="ghost" onClick={onHelp} aria-label="How to play">?</button>
         <button onClick={onMenu} data-testid="asc-menu">Menu</button>
@@ -303,14 +309,15 @@ export default function RunScreen({ state, onAct, settings, onMenu, onChronicle,
             </button>
             {previewPanel}
             <div className="hand" ref={handRef} onKeyDown={onHandKeys} role="group" aria-label="Your hand">
-              {state.hand.map((c, i) => (
+              {order.map((i) => { const c = state.hand[i]; return (
                 <PlayingCard key={c.id} card={c} selected={sel.includes(i)} scoring={scoringIds.has(c.id) && sel.includes(i)} kicker={!!preview && sel.includes(i) && !scoringIds.has(c.id)} onToggle={() => toggle(i)} />
-              ))}
+              ) })}
             </div>
             <div className="hand-actions">
               <button className="primary" data-testid="asc-play" disabled={!canPlay || sel.length === 0} onClick={() => act({ type: 'play', cards: sel })}>Play{sel.length ? ` ${sel.length}` : ''}<span className="kbd">P</span></button>
               <button data-testid="asc-discard" disabled={!canPlay || sel.length === 0 || state.discardsLeft <= 0} onClick={() => act({ type: 'discard', cards: sel })}>Discard<span className="kbd">D</span></button>
               <button className="ghost" disabled={sel.length === 0} onClick={() => setSel([])}>Clear</button>
+              <button className="ghost" data-testid="asc-sort" title="Sort the hand (keys 1–8 select cards in this order)" onClick={() => setSortBy(sortBy === 'deal' ? 'rank' : sortBy === 'rank' ? 'suit' : 'deal')}>Sort: {sortBy === 'deal' ? 'as dealt' : sortBy}</button>
               <span className="spacer" />
               <span className="hand-hint">Era score <b className="gold">{fmt(state.eraScore)}</b> → <b className="good">{now.mitigations.find((f) => f.label === 'Reserves')?.amount ?? 0}</b> Reserves</span>
             </div>

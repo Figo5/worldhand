@@ -285,6 +285,7 @@ export default function Globe(props: GlobeProps) {
     <div ref={wrapRef} style={{ position: 'absolute', inset: 0 }}>
       <canvas
         ref={canvasRef}
+        style={{ width: '100%', height: '100%', display: 'block' }}
         tabIndex={0}
         role="img"
         data-testid="asc-globe"

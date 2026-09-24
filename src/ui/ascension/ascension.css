@@ -304,3 +304,10 @@
 }
 .asc.motion-reduced *, .asc.motion-reduced *::before, .asc.motion-reduced *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 .asc.motion-reduced .era-dawn { display: none; }
+
+/* ---- polish: dealing, the crisis track, the hub globe ---- */
+.asc .pcard2.dealt { animation: deal 0.28s ease-out; }
+@keyframes deal { from { opacity: 0; transform: translateY(14px) rotate(-2deg); } to { opacity: 1; } }
+.asc .track-step b.track-name { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.15; font-size: 0.64rem; min-height: 2.3em; display: flex; align-items: center; justify-content: center; }
+.asc .hub-world { position: relative; height: 230px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: radial-gradient(circle at 50% 45%, #0d2742, #050b14 70%); }
+.asc .hub-world .caption { position: absolute; left: 12px; bottom: 10px; font-size: 0.72rem; color: var(--muted); }
