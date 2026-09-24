@@ -1153,6 +1153,23 @@ const VALID_OUTCOMES: readonly string[] = ['flourishing', 'withered', '']
 const VALID_LAW_KINDS: readonly Law['kind'][] = ['law', 'upgrade', 'expansion', 'cards']
 const VALID_SUIT_SET = new Set<string>(['S', 'H', 'D', 'C'])
 
+/** Why `item` is not a copy of an entry in `catalog`, or null when it is: every
+ *  field must equal the entry's, except title and desc, which need only be strings. */
+function catalogMismatch(item: unknown, catalog: readonly { id: string }[]): string | null {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return 'contains a malformed item'
+  const it = item as Record<string, unknown>
+  const entry = catalog.find((e) => e.id === it.id) as Record<string, unknown> | undefined
+  if (!entry) return `contains unknown item ${show(it.id)}`
+  for (const k of new Set([...Object.keys(entry), ...Object.keys(it)])) {
+    const ok = k === 'title' || k === 'desc' ? typeof it[k] === 'string' : it[k] === entry[k]
+    if (!ok) return `item "${String(entry.id)}" has an invalid ${k}: ${show(it[k])}`
+  }
+  return null
+}
+
+/** A saved value as written; JSON.stringify would print Infinity as null. */
+const show = (v: unknown) => (typeof v === 'number' ? String(v) : JSON.stringify(v))
+
 /** Structural validator for a deserialized GameState under the CURRENT rules
  *  (SAVE_VERSION). Returns a plain-language rejection reason, or null when the
  *  state is acceptable. Deliberately strict: an incompatible save must be
@@ -1271,6 +1288,29 @@ export function validateState(v: unknown): string | null {
   }
   if ((s.laws.length as number) > LAW_SLOTS) return bad('laws', `exceeds the ${LAW_SLOTS}-slot cap`)
 
+  // owned and offered items: the engine only ever stores copies of catalog
+  // entries, so each must match one. Type checks alone are not enough: extreme
+  // finite values can still overflow Growth to NaN (-Infinity + Infinity).
+  const catalogs = [
+    ['jokers', JOKERS], ['jokerMarket', JOKERS], ['vouchers', VOUCHERS], ['voucherMarket', VOUCHERS],
+    ['consumables', CONSUMABLES], ['consumableMarket', CONSUMABLES], ['projects', WORLD_PROJECTS],
+    ['projectMarket', WORLD_PROJECTS], ['planetMarket', PLANET_CARDS], ['market', MARKET_ITEMS], ['laws', MARKET_ITEMS],
+  ] as const
+  for (const [listName, catalog] of catalogs) {
+    for (const it of s[listName] as unknown[]) {
+      const why = catalogMismatch(it, catalog)
+      if (why) return `${listName} ${why}`
+    }
+  }
+  // planet levels: only categories a Planet card boosts, never negative
+  const planetCategories = new Set<string>(PLANET_CARDS.map((p) => p.category))
+  for (const [cat, level] of Object.entries(s.planetLevels as Record<string, unknown>)) {
+    if (!planetCategories.has(cat)) return bad('planetLevels', `has an unknown hand category "${cat}"`)
+    if (typeof level !== 'number' || !Number.isFinite(level) || level < 0) {
+      return bad('planetLevels', `"${cat}" must be a finite number >= 0, got ${show(level)}`)
+    }
+  }
+
   // regions: ids, adjacency references and dormancy flags must be well-formed
   // (+ the v4 specialization field: exactly null or a legal specialization key)
   for (const r of s.regions as unknown[]) {
@@ -1283,6 +1323,9 @@ export function validateState(v: unknown): string | null {
     }
     if (!Array.isArray(rr.adjacency) || !rr.adjacency.every((a: unknown) => typeof a === 'number' && (a as number) >= 0 && (a as number) < TOTAL_REGIONS)) {
       return bad('regions', 'a region has malformed adjacency')
+    }
+    if (!Number.isInteger(rr.development) || rr.development < 0) {
+      return bad('regions', `a region has an invalid development ${show(rr.development)} (expected an integer >= 0)`)
     }
   }
 
