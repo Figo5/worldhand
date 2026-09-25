@@ -6,6 +6,8 @@
 - [Rejected non-match-penalty experiment](experiments/non-match-penalty-d02b14c/)
 - [Ascension first-playable audit (rules v7)](ascension-audit.md) and its [raw output](experiments/ascension-audit/audit-1000.txt)
 - [Ascension core-loop correction (rules v8)](ascension-core-loop.md): before/after [audit](experiments/ascension-core-loop/audit-1000.txt) and [design comparison](experiments/ascension-core-loop/designs-300.txt)
+- Ascension scarcity studies on the v8/v9 loop: [budget candidates](experiments/ascension-scarcity/) and [graded outcomes](experiments/ascension-graded/designs-1000.txt)
+- **[Ascension release (rules v10): design and balance evidence](ascension-release.md)**, with its [1,000-seed audit, Omen ladder, ablations, legendary lift and origins](experiments/ascension-release/)
 - [Repository analysis and modernization (2026-09-24)](modernization-2026-09-24.md): tooling changes and open findings
 
 These documents span earlier rulesets. Their measurements, counts, paths and
@@ -29,23 +31,32 @@ Run from the repository root. Browser checks use Playwright (a dev dependency);
 install its Chromium runtime with `npx playwright install chromium` if needed.
 Generated QA folders are ignored.
 
-Current and verified against the v8 rules (CI runs the first five, plus
-`qa-ascension-dev.mjs`, on every push):
+Current (CI runs the typecheck, the tests, both builds and both browser QA scripts on every push):
 
 ```sh
-npm run typecheck           # tsc for src/, then tests/ (tests/tsconfig.json)
-npm test                    # unit/contract tests + Classic replay fixtures
+npm run typecheck           # app and tests
+npm test                    # unit/contract tests + Classic replay fixtures + Ascension engine/saves
 npm run build
 npm run build:portable
-node scripts/qa-portable.mjs                  # browser QA of the file:// artifact
-node scripts/qa-ascension-dev.mjs             # Ascension prototype: dev server only; absent from both builds; production globe chunk loads
-node --import ./scripts/ts-resolve.mjs scripts/ascension-audit.mjs 1000   # Ascension v7 vs v8 loop audit (~13 min)
-node --import ./scripts/ts-resolve.mjs scripts/ascension-designs.mjs 300 '<designs json>'   # compare candidate rule designs
-node scripts/playtest-v8.mjs                  # v8 bounded-economy rules, in the browser
-npx vite --port 5177 --host 127.0.0.1 & node scripts/qa.mjs   # dev-server layout check
-node --import ./scripts/ts-resolve.mjs scripts/difficulty-measure.mjs   # balance harness
-node --import ./scripts/ts-resolve.mjs scripts/target-sweep.mjs         # TARGET_GROWTH sweep (dev seeds only)
+node scripts/qa-portable.mjs                                        # the file:// artifact: Classic in full, Ascension offline
+node --import ./scripts/ts-resolve.mjs scripts/qa-ascension.mjs     # Ascension: whole runs through the UI, screens checked against the engine
+node --import ./scripts/ts-resolve.mjs scripts/ascension-sim.mjs 500 all '{"omen":0}'   # Ascension bots: completion, crises, pacing, content
+./scripts/ascension-audit.sh                                        # long-running release audit; keeps completed studies on rerun
+npx vite --port 5177 --host 127.0.0.1 & node scripts/qa.mjs         # Classic dev-server layout check
+node --import ./scripts/ts-resolve.mjs scripts/difficulty-measure.mjs   # Classic balance harness
 ```
+
+`qa-ascension.mjs` takes a base URL (for example a Netlify deploy preview) and
+a comma-separated list of bot personas; `QA_MOBILE_FULL=1` also plays a whole
+run on a phone viewport, and `QA_ONLY_MOBILE=1` limits a rerun to the mobile
+checks. `ascension-sim.mjs` options: `omen`, `pool`
+(`full`/`starter`), `origin`, `ablation`, `patch` (set any engine table value
+by path, harness-only), `seedTexts` (an explicit seed list) and `json`.
+
+The Ascension prototype harness (`ascension-audit.mjs`, `ascension-designs.mjs`,
+`lib/ascension-bots.mjs`) and `qa-ascension-dev.mjs` measured rules v7–v9 and
+were retired with the v10 engine; they remain in history at
+[`c150890`](https://github.com/Figo5/worldhand/tree/c150890/scripts).
 
 **Classic replay fixtures.** `tests/fixtures/classic-replays.json` holds 40
 recorded runs (4 frozen policies x 10 seeds) and `tests/classic-replays.test.ts`
@@ -72,4 +83,3 @@ evidence for earlier reports. The engine-only ones (`solve.mjs`,
 browser ones need a dev server on `127.0.0.1:5177` and have not been re-verified
 against v8. Consult their source and the dated reports before interpreting
 their results.
-

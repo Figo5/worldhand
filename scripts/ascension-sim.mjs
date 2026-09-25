@@ -76,13 +76,13 @@ if (!isMainThread) {
   })
   parentPort.postMessage(out)
 } else {
-  const N = Number(process.argv[2] ?? 200)
   const { BOTS } = await import('./lib/asc-bots.mjs')
   const bots = process.argv[3] && process.argv[3] !== 'all' ? process.argv[3].split(',') : Object.keys(BOTS)
   const opts = JSON.parse(process.argv[4] ?? '{}')
-  const seeds = Array.from({ length: N }, (_, i) => `${opts.prefix ?? 'sim'}-${i}`)
+  const seeds = opts.seedTexts ?? Array.from({ length: Number(process.argv[2] ?? 200) }, (_, i) => `${opts.prefix ?? 'sim'}-${i}`)
+  const N = seeds.length
   const jobs = []
-  for (const bot of bots) for (let i = 0; i < N; i += 25) jobs.push({ bot, seeds: seeds.slice(i, i + 25), opts })
+  for (const bot of bots) for (let i = 0; i < N; i += 100) jobs.push({ bot, seeds: seeds.slice(i, i + 100), opts })
   const t0 = Date.now()
   const res = await new Promise((done, fail) => {
     const out = []; let next = 0, running = 0

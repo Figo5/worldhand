@@ -148,7 +148,7 @@ const regionFor = (s, id) => {
 const targetFor = (s, id, style) => {
   const d = DECREE_BY_ID.get(id)
   if (d.target === 'region') return regionFor(s, id)
-  if (d.target === 'civ') return s.civilizations.filter((c) => c.tier < 3).sort((a, b) => b.tier - a.tier)[0].id
+  if (d.target === 'civ') return s.civilizations.filter((c) => c.tier < 3).sort((a, b) => b.tier - a.tier)[0]?.id ?? null
   if (d.target === 'suit') return STAT_SUIT[['vitality', 'prosperity', 'industry', 'knowledge'].includes(style) ? style : WORLD_STATS.reduce((a, k) => (s.stats[k] > s.stats[a] ? k : a))]
   return undefined
 }

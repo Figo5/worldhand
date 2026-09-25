@@ -1,0 +1,35 @@
+# Ascension v10 simulation — 1000 seeds × 2 bots, opts {"prefix":"lift"} (4302s)
+
+bot           win   resolve-lost  died-in-era T/A/M/I/Inf/S         fails/run  era survival %            median margin by era        score(med)  plays  cards/play  scoring/play  discards/era  faced early (hands left)
+sampler        85%   0.51         0%/0%/2%/4%/3%/6%               0.69      87/84/87/87/91/93         5/9/9/15/29/30                  53279     49        2.90          2.90          1.81  76% (1.9)
+sampler-poker  85%   0.65         0%/0%/2%/5%/3%/6%               0.83      74/85/88/83/92/94         5/14/18/25/44/47                71498     53        3.38          3.38          0.45  0% (0.0)
+
+## Crisis failures (share of faced, all bots pooled)
+  winter          faced   1008  failed  22%  median margin 6
+  drought         faced   1010  failed  15%  median margin 15
+  schism          faced   1026  failed  17%  median margin 10
+  crash           faced    621  failed   7%  median margin 25
+  machines        faced   1014  failed   8%  median margin 49
+  voidstorm       faced    934  failed   8%  median margin 32
+  plague          faced    990  failed  17%  median margin 9
+  invasion        faced    974  failed   7%  median margin 15
+  smog            faced    666  failed  16%  median margin 26
+  filter          faced    877  failed   5%  median margin 44
+  flood           faced    992  failed  17%  median margin 4
+  disinformation  faced    864  failed  10%  median margin 26
+  revolution      faced    677  failed  21%  median margin 10
+
+## Cards per play (share) and hand categories, all bots pooled
+  sizes 1-5: 18% / 28% / 3% / 22% / 28%
+  categories: pair 28%, two-pair 22%, high 18%, flush 12%, straight 11%, full-house 5%, trips 3%, straight-flush 0%, quads 0%
+
+## Seeds no bot wins: 38/1000 (lift-48, lift-49, lift-118, lift-125, lift-130, lift-164, lift-174, lift-177, lift-183, lift-198, lift-207, lift-256, …)
+
+## Legendaries held at the end (share of runs): oraclesEye 29%, gaiasHeart 29%, titanForge 28%, worldTree 28%, everflame 27%, silkRoad 27%, hourglass 27%, sleepingGod 26%, eternalDragon 25%, architectMoon 20%, ironHeart 18%, monolith 18%, hydraCrown 17%, philosophersStone 17%, ouroboros 17%, cosmicLibrary 17%, starseed 13%
+## Living civilizations at the end (share of runs): empireBuilders 95%, nomads 89%, natureKeepers 88%, technocrats 85%, merchants 84%, mystics 83%, scholars 77%, mariners 40%
+## World cards owned at the end (copies per run): granary 0.30, campfire 0.29, tally-stones 0.29, woodpile 0.29, hearth 0.28, trade-road 0.28, balance-scales 0.21, caravanserai 0.20, great-library 0.13, monument 0.13, lodestone 0.12, sacred-grove 0.12, last-stand 0.12, ember-seed 0.11, council-hall 0.11, aqueduct 0.10, herbalist 0.10, war-drums 0.10, border-fort 0.09, world-map 0.06, golden-harvest 0.04, long-count 0.04, philosophers-engine 0.03, grand-bazaar 0.03, iron-colossus 0.03, seed-vault 0.02
+## Legendary lift (win rate of runs ending with it vs all runs, 85%): architectMoon 93% (n=404), cosmicLibrary 92% (n=339), eternalDragon 86% (n=506), everflame 84% (n=545), gaiasHeart 90% (n=572), hourglass 85% (n=531), hydraCrown 90% (n=346), ironHeart 89% (n=357), monolith 88% (n=351), oraclesEye 86% (n=577), ouroboros 89% (n=340), philosophersStone 92% (n=346), silkRoad 85% (n=535), sleepingGod 88% (n=526), starseed 92% (n=261), titanForge 87% (n=566), worldTree 93% (n=556)
+## Legendary lift, offered-and-taken vs offered-and-declined (win %): architectMoon 88% vs 89% (154/506), cosmicLibrary 88% vs 89% (140/592), eternalDragon 83% vs 88% (304/1031), everflame 79% vs 88% (363/851), gaiasHeart 90% vs 86% (397/881), hourglass 84% vs 87% (337/968), hydraCrown 81% vs 90% (135/556), ironHeart 86% vs 89% (125/584), monolith 83% vs 92% (149/602), oraclesEye 85% vs 88% (339/955), ouroboros 85% vs 90% (130/602), philosophersStone 90% vs 89% (136/550), silkRoad 80% vs 89% (333/960), sleepingGod 86% vs 90% (354/939), starseed 91% vs 89% (153/643), titanForge 84% vs 88% (373/899), worldTree 90% vs 87% (334/950)
+## Median civilizations (living/fallen), final stats high→low, Influence earned per run:
+  sampler       civs 7/0  stats 49/44/40/37     influence 53
+  sampler-poker civs 7/0  stats 57/50/46/42     influence 52

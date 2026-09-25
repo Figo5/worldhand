@@ -67,15 +67,17 @@ npm run build:portable
 
 Open **`dist-portable/worldhand.html`** directly in a modern browser. The single
 HTML file bundles JavaScript, CSS and Three.js; it needs no server or network.
-Export/import saves from the title screen to move a run between devices. Browser
-storage behavior for `file://` varies, so keep an exported backup of a valued run.
+Move saves between devices with Classic's title-screen export/import or
+Ascension's **Settings and backups**. Browser storage behavior for `file://`
+varies, so keep an exported backup of a valued run.
 
 ## Architecture
 
 - **Pure TypeScript engine:** seeded random state, poker evaluation and all state
   transitions live in `src/engine/`. The same seed and actions reproduce the run.
-- **One scoring pipeline:** preview and commit share `buildPlan`, keeping the
-  displayed result tied to the actual transaction.
+- **Shared preview calculations:** Classic uses `buildPlan` for preview and
+  commit; Ascension previews by applying the same pure transition used to play.
+  The displayed result is tied to the actual action.
 - **React + Three.js:** React presents the hand, market and chronicle. The globe
   renders engine-owned region state; animation does not decide game outcomes.
   It loads as a separate chunk, so the title screen and hand do not wait for
