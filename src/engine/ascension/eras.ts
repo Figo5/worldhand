@@ -1,47 +1,65 @@
 // Ascension eras: the run structure. Pure — no DOM, no clock, no Math.random.
 //
-// cards/hands → rounds → world development + civilizations → era.
-// A world is ready to leave an era at a round end once it has enough
-// civilizations and enough DEVELOPED stats (Tribal 2 at 15, Ancient 3 at 30,
-// Medieval 3 at 40 plus 200 development in any shape). Meeting them makes the
-// era's crisis ready (crises.ts); surviving it advances, and surviving
-// Medieval's completes the first playable. Nothing is reset.
-import type { Civilization } from './civilizations'
-import type { WorldStats } from './ascension'
+// A run is six eras. Each era gives a fixed number of HANDS (plays) and
+// DISCARDS, has one identity rule, and ends in a crisis drawn (per seed, shown
+// from the start) from its pool. The player faces the crisis whenever they
+// choose; when the hands run out it must be faced. Unspent hands become
+// Influence. Enduring a crisis leads to the Council and the next era;
+// failing one costs a Resolve and leaves a scar, but the run goes on until
+// Resolve runs out. The final crisis must be endured to ascend.
+import type { CrisisId } from './crises'
 
-export type Era = 'tribal' | 'ancient' | 'medieval'
+export type EraId = 'tribal' | 'ancient' | 'medieval' | 'industrial' | 'information' | 'stellar'
+export type EraRule = 'gatherers' | 'writing' | 'levies' | 'steam' | 'network' | 'escape'
 
-/** Working names, in order. To LEAVE an era the world needs, at a round end:
- *  - at least `civilizations` emerged civilizations,
- *  - at least `stats` of the four world stats at `min` or more, and
- *  - (Medieval) `development`: the four stats together at least this high, so a
- *    world may pour it into one peak or spread it across all four. */
-export const ERAS: readonly { id: Era; label: string; needs: { civilizations: number; stats: number; min: number; development?: number } }[] = [
-  { id: 'tribal', label: 'Tribal', needs: { civilizations: 1, stats: 2, min: 15 } },
-  { id: 'ancient', label: 'Ancient', needs: { civilizations: 2, stats: 3, min: 30 } },
-  { id: 'medieval', label: 'Medieval', needs: { civilizations: 3, stats: 3, min: 40, development: 200 } },
-]
-
-export interface Requirement { key: 'civilizations' | 'stats' | 'development'; label: string; have: number; need: number; met: boolean }
-/** One era advance (a survived crisis): the round it was faced in, and the
- *  world and score as they stood. `to` = null: the first playable is complete. */
-export interface EraAdvance { from: Era; to: Era | null; round: number; stats: WorldStats; civilizations: number; score: number }
-
-export const isComplete = (era: number) => era >= ERAS.length
-
-/** What the world still needs to leave era `era` (none once complete). */
-export function eraRequirements(era: number, stats: WorldStats, civs: readonly Civilization[]): Requirement[] {
-  if (isComplete(era)) return []
-  const { civilizations, stats: n, min, development } = ERAS[era].needs
-  const developed = Object.values(stats).filter((v) => v >= min).length
-  const total = Object.values(stats).reduce((a, b) => a + b, 0)
-  return [
-    { key: 'civilizations', label: 'Civilizations', have: civs.length, need: civilizations, met: civs.length >= civilizations },
-    { key: 'stats', label: `Stats at ${min}+`, have: developed, need: n, met: developed >= n },
-    ...(development ? [{ key: 'development' as const, label: 'World development', have: total, need: development, met: total >= development }] : []),
-  ]
+export interface EraDef {
+  id: EraId
+  label: string
+  /** plays this era */
+  hands: number
+  discards: number
+  /** era score per point of Reserves */
+  reserveRate: number
+  /** Influence for enduring its crisis */
+  reward: number
+  rule: EraRule
+  ruleName: string
+  ruleText: string
+  /** crises this era can end in; the run's is fixed from its seed */
+  pool: readonly CrisisId[]
+  theme: string
 }
 
-/** True when the world meets era `era`'s requirements (at a round end: its crisis strikes). */
-export const canAdvance = (era: number, stats: WorldStats, civs: readonly Civilization[]) =>
-  !isComplete(era) && eraRequirements(era, stats, civs).every((r) => r.met)
+export const ERAS: readonly EraDef[] = [
+  {
+    id: 'tribal', label: 'Tribal', hands: 7, discards: 4, reserveRate: 160, reward: 4, rule: 'gatherers', pool: ['winter', 'flood'],
+    ruleName: 'Hunters and Gatherers', ruleText: 'High Card and Pair hands give +1 more of each scoring card’s stat.',
+    theme: 'Small bands learn the land. The first peoples settle where the world favours them.',
+  },
+  {
+    id: 'ancient', label: 'Ancient', hands: 8, discards: 4, reserveRate: 280, reward: 5, rule: 'writing', pool: ['plague', 'drought'],
+    ruleName: 'Writing', ruleText: 'Each ♠ scored +4 chips. Civilizations may grow into Kingdoms at the dawn of an era.',
+    theme: 'Cities, scripts and granaries. What the world knows begins to outlive who knew it.',
+  },
+  {
+    id: 'medieval', label: 'Medieval', hands: 8, discards: 4, reserveRate: 440, reward: 5, rule: 'levies', pool: ['invasion', 'schism'],
+    ruleName: 'Feudal Levies', ruleText: '+1 mult on every play for each living civilization.',
+    theme: 'Castles and cathedrals. Every realm is a fortress, and every neighbour a question.',
+  },
+  {
+    id: 'industrial', label: 'Industrial', hands: 9, discards: 4, reserveRate: 560, reward: 6, rule: 'steam', pool: ['smog', 'crash', 'revolution'],
+    ruleName: 'Steam Power', ruleText: 'Each ♣ scored gives +1 more Industry. Kingdoms may grow into Empires.',
+    theme: 'Coal and iron remake the land faster than any age before.',
+  },
+  {
+    id: 'information', label: 'Information', hands: 9, discards: 4, reserveRate: 1500, reward: 6, rule: 'network', pool: ['machines', 'disinformation'],
+    ruleName: 'The Network', ruleText: '+2 mult on every play for each pair of allied or rival civilizations.',
+    theme: 'Every mind is linked to every other, for better and for worse.',
+  },
+  {
+    id: 'stellar', label: 'Stellar', hands: 10, discards: 4, reserveRate: 1900, reward: 0, rule: 'escape', pool: ['filter', 'voidstorm'],
+    ruleName: 'Escape Velocity', ruleText: 'Straights, Flushes and better score ×1.5.',
+    theme: 'The world looks up. One last test stands between it and the stars.',
+  },
+]
+export const FINAL_ERA = ERAS.length - 1

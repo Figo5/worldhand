@@ -1,1236 +1,656 @@
+// Ascension (rules v10): engine contracts. Determinism, replay, preview ==
+// commit, card conservation, the era/crisis/Council loop, graded crises,
+// content validity, legendaries and Omens.
 import { describe, it, expect } from 'vitest'
 import {
-  newAscensionGame, applyAscensionAction, evaluatePlay, noStats, generateRegions, landAffinity, runStatus, projectRoundEnd, crisisWorld,
-  ASCENSION_RULES_VERSION, HAND_SIZE, PLAYS_PER_ROUND, DISCARDS_PER_ROUND, WORLD_STATS, SUIT_STAT,
-  TERRAIN, TERRAINS, REGION_ADJACENCY,
-  type AscensionState, type AscensionAction, type WorldStats, type Terrain,
+  newRun, applyAction, replay, runStatus, forecast, ownedCards, eraEndInfluence, treasury, isTriumph,
+  ASCENSION_RULES_VERSION, MIN_DECK, TRIUMPH_BONUS, FAIL_INFLUENCE, HAND_INFLUENCE, HAND_CARRY,
 } from '../src/engine/ascension/ascension'
-import {
-  ARCHETYPES, ARCHETYPE_ORDER, EMERGENCE_STEP, emergeCivilization, emergenceThreshold, readinessOf,
-  type Archetype, type Civilization,
-} from '../src/engine/ascension/civilizations'
-import { newGame as newClassicGame, SAVE_VERSION } from '../src/engine/worldhand'
-import { Rng, hashSeed } from '../src/engine/rng'
-import { stream } from '../src/engine/core/streams'
-import { deck, type Card } from '../src/engine/poker'
-import { ERAS, eraRequirements, canAdvance, isComplete } from '../src/engine/ascension/eras'
-import { CRISES, CRISIS_RULES, evaluateCrisis, type CrisisEvaluation } from '../src/engine/ascension/crises'
+import { evaluatePlay, evaluateDiscard, classify, scoringPositions, HAND_TABLE, cardChips, LAND_CHIPS } from '../src/engine/ascension/scoring'
+import { ERAS, FINAL_ERA } from '../src/engine/ascension/eras'
+import { CRISIS_ORDER, evaluateCrisis, type CrisisMods } from '../src/engine/ascension/crises'
+import { WORLD_CARDS, DECREES, CARD_BY_ID, DECREE_BY_ID, CONTENT_VERSION } from '../src/engine/ascension/content'
+import { LEGENDARIES, LEGENDARY_ORDER } from '../src/engine/ascension/legendaries'
+import { ARCHETYPES, ARCHETYPE_ORDER, relationOf, relations, emergenceThreshold, grownTier, TIER_GROWTH, type Civilization } from '../src/engine/ascension/civilizations'
+import { OMENS, runMods, startingResolve, OPPOSITE, borders } from '../src/engine/ascension/rules'
+import { FULL_POOL, STARTER_POOL } from '../src/engine/ascension/pool'
+import { generateRegions, landAffinity, NATURAL_TERRAINS, TERRAIN, REGION_ADJACENCY, ORIGIN_ORDER, WORLD_STATS, noStats, type Terrain } from '../src/engine/ascension/world'
+import { describe as describeEvent, chronicleByEra } from '../src/engine/ascension/chronicle'
+import { marketOffers, legendaryChoice, LEGENDARY_PICK_AFTER, LEGENDARY_SALE_AFTER, REMOVE_PRICE, SELL_REFUND } from '../src/engine/ascension/council'
+import type { AscensionAction, AscensionState, CardInst, RunSetup, LegendaryId } from '../src/engine/ascension/state'
+import { hashSeed } from '../src/engine/rng'
+import type { Card, Rank, Suit } from '../src/engine/poker'
 
-const key = (c: Card) => `${c.r}${c.s}`
-const allCards = (s: AscensionState) => [...s.hand, ...s.drawPile, ...s.discardPile]
-const C = (r: Card['r'], suit: Card['s']): Card => ({ r, s: suit })
-
-/** A conserved state whose hand is exactly `cards` (the rest go to the draw pile). */
-function withHand(cards: Card[], seedText = 'forced-hand'): AscensionState {
-  const s = newAscensionGame(seedText)
-  const picked = new Set(cards.map(key))
-  return { ...s, hand: cards, drawPile: allCards(s).filter((c) => !picked.has(key(c))), discardPile: [] }
+const setup = (seedText = 'test-world', o: Partial<RunSetup> = {}): RunSetup => ({ seedText, omen: 0, origin: 'pangaea', pool: FULL_POOL, ...o })
+const C = (r: Rank, s: Suit): Card => ({ r, s })
+const inst = (r: Rank, s: Suit, id = 1000 + r * 4 + 'SHDC'.indexOf(s), kind: string | null = null): CardInst => ({ id, r, s, kind, bonus: 0 })
+const noMods = { wildSuit: null, straightWrap: false, straightGap: false }
+/** A state whose hand is exactly `hand` (the rest of the deck untouched; conservation kept by swapping). */
+function withHand(s: AscensionState, hand: CardInst[]): AscensionState {
+  const t = structuredClone(s)
+  const all = ownedCards(t).filter((c) => !hand.some((h) => h.id === c.id))
+  t.hand = hand.map((h) => ({ ...h }))
+  t.drawPile = all
+  t.discardPile = []
+  return t
 }
-
-/** Every one of the 52 cards exists exactly once across hand, draw and discard. */
-function expectConserved(s: AscensionState) {
-  expect(allCards(s).map(key).sort()).toEqual(deck().map(key).sort())
-}
-
-/** A seeded random mix of legal plays and discards, including rollovers; faces
- *  each crisis at a random moment while it is ready (or when it strikes) and
- *  stops when the run ends. */
-function randomActions(seedText: string, n: number): AscensionAction[] {
-  const rng = new Rng(hashSeed(`actions:${seedText}`))
-  let s = newAscensionGame(seedText)
-  const out: AscensionAction[] = []
-  for (let i = 0; i < n; i++) {
-    // a struck crisis must be faced; a ready one is faced at a random moment
-    if (runStatus(s) === 'crisis' || (runStatus(s) === 'ready' && rng.next() < 0.3)) { s = applyAscensionAction(s, { type: 'resolve' }); out.push({ type: 'resolve' }); continue }
-    if (runStatus(s) !== 'playing' && runStatus(s) !== 'ready') break
-    const cards = rng.shuffle(s.hand.map((_, j) => j)).slice(0, rng.int(1, 6))
-    const a: AscensionAction = s.discardsLeft > 0 && rng.next() < 0.3 ? { type: 'discard', cards } : { type: 'play', cards }
-    s = applyAscensionAction(s, a)
-    out.push(a)
-  }
-  return out
-}
-/** Play these cards, first resolving a pending crisis (a crisis blocks play). */
-const playThrough = (s: AscensionState, cards: number[]) =>
-  applyAscensionAction(runStatus(s) === 'crisis' ? applyAscensionAction(s, { type: 'resolve' }) : s, { type: 'play', cards })
-const replay = (seedText: string, actions: AscensionAction[]) => actions.reduce(applyAscensionAction, newAscensionGame(seedText))
-
-function deepFreeze<T>(o: T): T {
-  if (o && typeof o === 'object' && !Object.isFrozen(o)) {
-    Object.freeze(o)
-    for (const v of Object.values(o)) deepFreeze(v)
-  }
-  return o
-}
-
-describe('Ascension skeleton: new game', () => {
-  it('is explicitly marked as Ascension with its own rules version', () => {
-    const s = newAscensionGame('seam')
-    expect(s.mode).toBe('ascension')
-    expect(s.rulesVersion).toBe(ASCENSION_RULES_VERSION)
-    expect(ASCENSION_RULES_VERSION).toBe(8)
-    expect('version' in s).toBe(false) // Classic's SAVE_VERSION field is not reused
-    expect(SAVE_VERSION).toBe(8)
-  })
-
-  it('deals a full hand from a conserved, seeded 52-card deck', () => {
-    const s = newAscensionGame('seam')
-    expect(s.hand).toHaveLength(HAND_SIZE)
-    expect(s.drawPile).toHaveLength(52 - HAND_SIZE)
-    expect(s).toMatchObject({ round: 1, playsLeft: PLAYS_PER_ROUND, discardsLeft: DISCARDS_PER_ROUND, score: 0, reshuffles: 0, lastPlay: null, era: 0, eraLog: [], crisis: null, crises: [] })
-    expectConserved(s)
-  })
-
-  it('the same seed deals the same game; different seeds deal different games', () => {
-    expect(newAscensionGame('alpha')).toEqual(newAscensionGame('alpha'))
-    expect(newAscensionGame('alpha').hand).not.toEqual(newAscensionGame('beta').hand)
-  })
-
-  it('uses its own streams: a seed phrase deals differently than in Classic', () => {
-    for (let i = 0; i < 20; i++) {
-      const seed = `mode-${i}`
-      expect(newAscensionGame(seed).hand.map(key)).not.toEqual(newClassicGame(seed).hand.map(key))
-    }
-  })
-})
-
-describe('Ascension skeleton: transitions', () => {
-  it('same seed + same actions = same state (300 random legal actions, with reshuffles)', () => {
-    const actions = randomActions('det', 300)
-    const a = replay('det', actions)
-    const b = replay('det', actions)
-    expect(a).toEqual(b)
-    expect(JSON.stringify(a)).toBe(JSON.stringify(b))
-    expect(a.reshuffles).toBeGreaterThan(0)
-    expect(a.round).toBeGreaterThan(10)
-  })
-
-  it('keeps every invariant through long random runs', () => {
-    for (const seed of ['inv-0', 'inv-1', 'inv-2']) {
-      let s = newAscensionGame(seed)
-      let scored = 0
-      for (const a of randomActions(seed, 200)) {
-        const before = s
-        s = applyAscensionAction(s, a)
-        if (a.type === 'play') scored += evaluatePlay(before, a.cards).score
-        expectConserved(s)
-        expect(s.hand).toHaveLength(HAND_SIZE)
-        expect(s.score).toBe(scored)
-        expect(s.playsLeft).toBeGreaterThanOrEqual(1)
-        expect(s.playsLeft).toBeLessThanOrEqual(PLAYS_PER_ROUND)
-        expect(s.discardsLeft).toBeGreaterThanOrEqual(0)
-        expect(s.discardsLeft).toBeLessThanOrEqual(DISCARDS_PER_ROUND)
+const play = (s: AscensionState, cards: number[]) => applyAction(s, { type: 'play', cards })
+const face = (s: AscensionState) => applyAction(s, { type: 'face' })
+const leave = (s: AscensionState) => applyAction(s, { type: 'leave' })
+/** Play the first card until the hands run out. */
+const spendHands = (s: AscensionState) => { let t = s; while (runStatus(t) === 'playing') t = play(t, [0]); return t }
+/** A deterministic scripted run: each era, play the best-scoring single pair-or-more greedily, face at the end, leave every Council. */
+function scripted(seedText: string, o: Partial<RunSetup> = {}) {
+  const actions: AscensionAction[] = []
+  let s = newRun(setup(seedText, o))
+  const go = (a: AscensionAction) => { actions.push(a); s = applyAction(s, a) }
+  for (let guard = 0; guard < 500 && s.phase !== 'won' && s.phase !== 'lost'; guard++) {
+    const st = runStatus(s)
+    if (st === 'council') {
+      if (s.council!.legendaryChoice) go({ type: 'legendary', pick: 0 })
+      else {
+        const i = s.council!.offers.findIndex((x) => !x.sold && x.kind === 'card' && x.price <= s.influence)
+        go(i >= 0 ? { type: 'buy', offer: i } : { type: 'leave' })
       }
-    }
-  })
-
-  it('never mutates its input (deep-frozen states still transition)', () => {
-    let s = deepFreeze(newAscensionGame('frozen'))
-    for (const a of randomActions('frozen', 60)) s = deepFreeze(applyAscensionAction(s, a))
-    expectConserved(s)
-  })
-
-  it('a play scores exactly what evaluatePlay previewed and moves the cards to discard', () => {
-    const s = newAscensionGame('score')
-    const idxs = [0, 2, 4]
-    const preview = evaluatePlay(s, idxs)
-    const next = applyAscensionAction(s, { type: 'play', cards: idxs })
-    expect(next.score).toBe(preview.score)
-    expect(next.lastPlay).toEqual(preview)
-    expect(next.discardPile.map(key)).toEqual(idxs.map((i) => key(s.hand[i])))
-    expect(next.playsLeft).toBe(PLAYS_PER_ROUND - 1)
-    expect(next.discardsLeft).toBe(DISCARDS_PER_ROUND)
-  })
-
-  it('evaluatePlay scores chips × the shared poker mult', () => {
-    const s = withHand([C(5, 'S'), C(5, 'H'), C(13, 'D'), C(2, 'C'), C(3, 'C'), C(4, 'C'), C(6, 'C'), C(7, 'C')])
-    expectConserved(s)
-    expect(evaluatePlay(s, [0, 1, 2])).toMatchObject({ category: 'pair', label: 'Pair', chips: 23, mult: 1.5, pokerScore: 35 })
-  })
-
-  it('a discard costs a discard, not a play, and scores nothing', () => {
-    const s = newAscensionGame('discard')
-    const next = applyAscensionAction(s, { type: 'discard', cards: [1, 3] })
-    expect(next).toMatchObject({ discardsLeft: DISCARDS_PER_ROUND - 1, playsLeft: PLAYS_PER_ROUND, score: 0, lastPlay: null })
-    expect(next.hand).toHaveLength(HAND_SIZE)
-    expectConserved(next)
-  })
-
-  it('the last play of a round rolls over to a fresh round and hand', () => {
-    let s = newAscensionGame('rollover')
-    s = applyAscensionAction(s, { type: 'discard', cards: [0] })
-    for (let i = 0; i < PLAYS_PER_ROUND; i++) s = playThrough(s, [0])
-    expect(s).toMatchObject({ round: 2, playsLeft: PLAYS_PER_ROUND, discardsLeft: DISCARDS_PER_ROUND })
-    expect(s.hand).toHaveLength(HAND_SIZE)
-    expectConserved(s)
-  })
-})
-
-describe('Ascension skeleton: illegal actions are rejected safely', () => {
-  const s = deepFreeze(newAscensionGame('illegal'))
-  const snapshot = JSON.stringify(s)
-  const bad: [string, AscensionAction, RegExp][] = [
-    ['empty play', { type: 'play', cards: [] }, /1–5/],
-    ['six cards', { type: 'play', cards: [0, 1, 2, 3, 4, 5] }, /1–5/],
-    ['duplicate card', { type: 'play', cards: [2, 2] }, /twice/],
-    ['index past the hand', { type: 'play', cards: [HAND_SIZE] }, /no card/],
-    ['negative index', { type: 'discard', cards: [-1] }, /no card/],
-    ['fractional index', { type: 'play', cards: [1.5] }, /no card/],
-    ['non-array cards', { type: 'play', cards: 3 as unknown as number[] }, /1–5/],
-    ['unknown action', { type: 'boostWorld' } as unknown as AscensionAction, /unknown action/],
-  ]
-  for (const [name, action, message] of bad) {
-    it(`${name} throws and leaves the state untouched`, () => {
-      expect(() => applyAscensionAction(s, action)).toThrow(message)
-      expect(JSON.stringify(s)).toBe(snapshot)
-    })
-  }
-
-  it('discarding with no discards left throws', () => {
-    let t = newAscensionGame('no-discards')
-    for (let i = 0; i < DISCARDS_PER_ROUND; i++) t = applyAscensionAction(t, { type: 'discard', cards: [0] })
-    const before = JSON.stringify(t)
-    expect(() => applyAscensionAction(t, { type: 'discard', cards: [0] })).toThrow(/no discards left/)
-    expect(JSON.stringify(t)).toBe(before)
-    expect(() => applyAscensionAction(t, { type: 'play', cards: [0] })).not.toThrow()
-  })
-
-  it('playing with no plays left throws (unreachable through rollover, guarded anyway)', () => {
-    const t = { ...newAscensionGame('no-plays'), playsLeft: 0 }
-    expect(() => applyAscensionAction(t, { type: 'play', cards: [0] })).toThrow(/no plays left/)
-  })
-})
-
-describe('Ascension world stats', () => {
-  const statsOf = (s: AscensionState) => ({ ...s.stats })
-  const HAND = [C(9, 'H'), C(6, 'H'), C(3, 'H'), C(13, 'S'), C(13, 'D'), C(12, 'C'), C(2, 'S'), C(8, 'D')]
-
-  it('a new game starts with all four stats at 0 and no deltas', () => {
-    const s = newAscensionGame('stats')
-    expect(s.stats).toEqual({ vitality: 0, prosperity: 0, industry: 0, knowledge: 0 })
-    expect(s.lastPlay).toBeNull()
-  })
-
-  it('suits map to the right stats: ♥ Vitality, ♦ Prosperity, ♣ Industry, ♠ Knowledge', () => {
-    expect(SUIT_STAT).toEqual({ H: 'vitality', D: 'prosperity', C: 'industry', S: 'knowledge' })
-    const s = withHand([C(10, 'H'), C(10, 'D'), C(10, 'C'), C(10, 'S'), C(2, 'H'), C(3, 'D'), C(4, 'C'), C(5, 'S')])
-    const only = (stat: keyof WorldStats, n = 1): WorldStats => ({ ...noStats(), [stat]: n })
-    expect(evaluatePlay(s, [0]).statDeltas).toEqual(only('vitality'))
-    expect(evaluatePlay(s, [1]).statDeltas).toEqual(only('prosperity'))
-    expect(evaluatePlay(s, [2]).statDeltas).toEqual(only('industry'))
-    expect(evaluatePlay(s, [3]).statDeltas).toEqual(only('knowledge'))
-  })
-
-  it('every played card counts, kickers included, so a play grows the world by its card count', () => {
-    const s = withHand(HAND)
-    expect(evaluatePlay(s, [0, 1, 2]).statDeltas).toEqual({ vitality: 3, prosperity: 0, industry: 0, knowledge: 0 })
-    for (const idxs of [[0], [3, 4], [0, 3, 5], [0, 1, 4, 5], [0, 1, 2, 6, 7]]) {
-      const d = evaluatePlay(s, idxs).statDeltas
-      expect(WORLD_STATS.reduce((n, k) => n + d[k], 0)).toBe(idxs.length)
-    }
-  })
-
-  it('a mixed-suit hand develops several stats at once', () => {
-    const s = withHand(HAND)
-    expect(evaluatePlay(s, [3, 4, 5, 0]).statDeltas).toEqual({ vitality: 1, prosperity: 1, industry: 1, knowledge: 1 })
-  })
-
-  it('previewed deltas are exactly the committed deltas', () => {
-    let s = newAscensionGame('preview-commit')
-    for (const a of randomActions('preview-commit', 120)) {
-      const before = s
-      s = applyAscensionAction(s, a)
-      if (a.type !== 'play') continue
-      const preview = evaluatePlay(before, a.cards)
-      expect(s.lastPlay).toEqual(preview)
-      for (const k of WORLD_STATS) expect(s.stats[k]).toBe(before.stats[k] + preview.statDeltas[k])
-    }
-  })
-
-  it('same seed + same actions gives identical world stats', () => {
-    const actions = randomActions('stats-det', 200)
-    const a = replay('stats-det', actions)
-    const b = replay('stats-det', actions)
-    expect(a.stats).toEqual(b.stats)
-    expect(a.lastPlay?.statDeltas).toEqual(b.lastPlay?.statDeltas)
-    expect(WORLD_STATS.every((k) => a.stats[k] > 0)).toBe(true)
-  })
-
-  it('stats always equal the sum of every play\'s deltas, and cards stay conserved', () => {
-    let s = newAscensionGame('stats-sum')
-    const total = noStats()
-    for (const a of randomActions('stats-sum', 200)) {
-      const before = s
-      s = applyAscensionAction(s, a)
-      if (a.type === 'play') for (const k of WORLD_STATS) total[k] += evaluatePlay(before, a.cards).statDeltas[k]
-      expect(s.stats).toEqual(total)
-      expectConserved(s)
-    }
-  })
-
-  it('discards never change world stats', () => {
-    let s = applyAscensionAction(newAscensionGame('stats-discard'), { type: 'play', cards: [0, 1, 2] })
-    const stats = statsOf(s)
-    const last = s.lastPlay
-    for (let i = 0; i < DISCARDS_PER_ROUND; i++) s = applyAscensionAction(s, { type: 'discard', cards: [0, 1, 2, 3, 4] })
-    expect(s.stats).toEqual(stats)
-    expect(s.lastPlay).toEqual(last)
-  })
-
-  it('illegal actions never change world stats', () => {
-    const s = deepFreeze(applyAscensionAction(newAscensionGame('stats-illegal'), { type: 'play', cards: [0, 1] }))
-    const stats = statsOf(s)
-    for (const a of [{ type: 'play', cards: [] }, { type: 'play', cards: [1, 1] }, { type: 'play', cards: [9] }, { type: 'discard', cards: [0, 1, 2, 3, 4, 5] }] as AscensionAction[]) {
-      expect(() => applyAscensionAction(s, a)).toThrow()
-      expect(s.stats).toEqual(stats)
-    }
-  })
-
-  it('evaluatePlay changes nothing (pure preview)', () => {
-    const s = deepFreeze(newAscensionGame('stats-pure'))
-    const snapshot = JSON.stringify(s)
-    evaluatePlay(s, [0, 1, 2, 3, 4])
-    expect(JSON.stringify(s)).toBe(snapshot)
-  })
-
-  // Not a balance claim: it only shows the mechanic can make choices diverge.
-  it('tradeoff: the higher-scoring poker hand is not the one that develops Vitality', () => {
-    const s = withHand(HAND)
-    const kings = evaluatePlay(s, [3, 4, 5])  // K♠ K♦ Q♣: a pair
-    const hearts = evaluatePlay(s, [0, 1, 2]) // 9♥ 6♥ 3♥: high card
-    expect(kings).toMatchObject({ category: 'pair', pokerScore: 57 })
-    expect(hearts).toMatchObject({ category: 'high', pokerScore: 18 })
-    expect(kings.pokerScore).toBeGreaterThan(hearts.pokerScore * 3)
-    expect(kings.statDeltas).toEqual({ vitality: 0, prosperity: 1, industry: 1, knowledge: 1 })
-    expect(hearts.statDeltas).toEqual({ vitality: 3, prosperity: 0, industry: 0, knowledge: 0 })
-  })
-})
-
-describe('Ascension terrain', () => {
-  const layout = (seed: string) => newAscensionGame(seed).regions.map((r) => r.terrain).join(',')
-  /** the documented rule: weighted pick over TERRAINS from stream ('ascension','terrain',id) */
-  const expectedTerrain = (seed: number, id: number) => {
-    let roll = stream(seed, 'ascension', 'terrain', id).int(0, TERRAINS.reduce((n, t) => n + TERRAIN[t].weight, 0))
-    return TERRAINS.find((t) => (roll -= TERRAIN[t].weight) < 0)
-  }
-
-  it('the same seed always generates the same world', () => {
-    for (const seed of ['alpha', 'beta', 'world-5']) {
-      expect(newAscensionGame(seed).regions).toEqual(newAscensionGame(seed).regions)
-      expect(newAscensionGame(seed).regions).toEqual(generateRegions(hashSeed(seed)))
-    }
-  })
-
-  it('different seeds usually generate different layouts, and every terrain occurs', () => {
-    const layouts = Array.from({ length: 200 }, (_, i) => layout(`sample-${i}`))
-    expect(new Set(layouts).size).toBeGreaterThanOrEqual(195)
-    const seen = new Set(layouts.flatMap((l) => l.split(',')))
-    expect([...seen].sort()).toEqual([...TERRAINS].sort())
-  })
-
-  it('region ids and adjacency are stable, symmetric and connected; terrain is always valid', () => {
-    for (const seed of ['alpha', 'beta', 'gamma', 'world-8']) {
-      const regions = newAscensionGame(seed).regions
-      expect(regions.map((r) => r.id)).toEqual([...Array(12).keys()])
-      expect(regions.map((r) => r.neighbors)).toEqual(REGION_ADJACENCY)
-      for (const r of regions) expect(TERRAINS).toContain(r.terrain)
-    }
-    REGION_ADJACENCY.forEach((ns, id) => {
-      expect(ns).not.toContain(id)
-      for (const n of ns) expect(REGION_ADJACENCY[n]).toContain(id)
-    })
-    const reached = new Set([0])
-    for (let grew = true; grew;) {
-      grew = false
-      for (const id of [...reached]) for (const n of REGION_ADJACENCY[id]) if (!reached.has(n)) { reached.add(n); grew = true }
-    }
-    expect(reached.size).toBe(12)
-  })
-
-  it('each region draws only from its own named stream, and terrain never shifts the deal', () => {
-    for (const seedText of ['alpha', 'beta', 'world-5']) {
-      const s = newAscensionGame(seedText)
-      s.regions.forEach((r) => expect(r.terrain).toBe(expectedTerrain(s.seed, r.id)))
-      const deal = stream(s.seed, 'ascension', 'deck').shuffle(deck()).slice(-HAND_SIZE).reverse()
-      expect(s.hand).toEqual(deal)
-    }
-  })
-
-  it('terrain is static during play and never changes suit stats or poker score', () => {
-    let s = newAscensionGame('static-land')
-    const regions = JSON.stringify(s.regions)
-    for (const a of randomActions('static-land', 150)) s = applyAscensionAction(s, a)
-    expect(JSON.stringify(s.regions)).toBe(regions)
-    const hand = [C(9, 'H'), C(6, 'H'), C(3, 'H'), C(2, 'H'), C(10, 'S'), C(7, 'S'), C(4, 'S'), C(2, 'S')]
-    const a = evaluatePlay(withHand(hand, 'world-5'), [0, 1, 2, 3])
-    const b = evaluatePlay(withHand(hand, 'world-8'), [0, 1, 2, 3])
-    expect(a.statDeltas).toEqual(b.statDeltas)
-    expect(a.pokerScore).toBe(b.pokerScore)
-  })
-
-  it('land bonus = Σ stat deltas × regions favouring that stat; a play adds poker score + land bonus + civ bonus', () => {
-    let s = newAscensionGame('land-bonus')
-    for (const act of randomActions('land-bonus', 100)) {
-      if (act.type === 'play') {
-        const r = evaluatePlay(s, act.cards)
-        const affinity = landAffinity(s.regions)
-        expect(r.landBonus).toBe(WORLD_STATS.reduce((n, k) => n + r.statDeltas[k] * affinity[k], 0))
-        expect(r.score).toBe(r.pokerScore + r.landBonus + r.civBonus)
-        const next = applyAscensionAction(s, act)
-        expect(next.score - s.score).toBe(r.score)
+    } else if (st === 'crisis') go({ type: 'face' })
+    else {
+      let best: number[] = [0], v = -1
+      for (let m = 1; m < 256; m++) {
+        const idx = [0, 1, 2, 3, 4, 5, 6, 7].filter((i) => m & (1 << i))
+        if (idx.length > 5 || idx.some((i) => i >= s.hand.length)) continue
+        const r = evaluatePlay(s, idx)
+        if (r.score > v) { v = r.score; best = idx }
       }
-      s = applyAscensionAction(s, act)
-    }
-    expect(WORLD_STATS.reduce((n, k) => n + landAffinity(s.regions)[k], 0)).toBe(12)
-  })
-
-  // Not a balance claim: it only shows terrain can change which play is better.
-  it('two seeds, same hand: terrain flips which play is worth more', () => {
-    expect(landAffinity(newAscensionGame('world-5').regions)).toEqual({ vitality: 6, prosperity: 4, industry: 2, knowledge: 0 })
-    expect(landAffinity(newAscensionGame('world-8').regions)).toEqual({ vitality: 1, prosperity: 2, industry: 2, knowledge: 7 })
-    const hand = [C(9, 'H'), C(6, 'H'), C(3, 'H'), C(2, 'H'), C(10, 'S'), C(7, 'S'), C(4, 'S'), C(2, 'S')]
-    const HEARTS = [0, 1, 2, 3] // 9♥ 6♥ 3♥ 2♥: high card 20, +4 Vitality
-    const SPADES = [4, 5, 6, 7] // 10♠ 7♠ 4♠ 2♠: high card 23, +4 Knowledge
-    const forestWorld = withHand(hand, 'world-5')
-    const loreWorld = withHand(hand, 'world-8')
-    // poker alone always prefers the spades
-    expect(evaluatePlay(forestWorld, SPADES).pokerScore).toBeGreaterThan(evaluatePlay(forestWorld, HEARTS).pokerScore)
-    // the same +4 Vitality is worth +24 in the forest world and +4 in the lore world
-    expect(evaluatePlay(forestWorld, HEARTS)).toMatchObject({ pokerScore: 20, landBonus: 24, score: 44 })
-    expect(evaluatePlay(loreWorld, HEARTS)).toMatchObject({ pokerScore: 20, landBonus: 4, score: 24 })
-    expect(evaluatePlay(forestWorld, SPADES)).toMatchObject({ pokerScore: 23, landBonus: 0, score: 23 })
-    expect(evaluatePlay(loreWorld, SPADES)).toMatchObject({ pokerScore: 23, landBonus: 28, score: 51 })
-  })
-
-  it('Classic geography ignores the seed and is untouched by Ascension terrain', () => {
-    const classic = (seed: string) => newClassicGame(seed).regions.map((r) => `${r.id}:${r.name}:${r.terrain}:${r.adjacency.join('.')}`).join('|')
-    for (const seed of ['alpha', 'beta', 'world-5', 'world-8']) expect(classic(seed)).toBe(classic('replay-0'))
-    expect(newClassicGame('world-5').regions.map((r) => r.terrain)).toEqual(
-      ['meadow', 'coast', 'highland', 'forest', 'steppe', 'wetland', 'meadow', 'coast', 'highland', 'forest', 'steppe', 'wetland'])
-  })
-})
-
-describe('Ascension civilizations', () => {
-  /** A policy that plays up to 5 cards of the given suits (else the first card). */
-  const suitPolicy = (suits: Card['s'][]) => (s: AscensionState) => {
-    const idx = s.hand.flatMap((c, i) => (suits.includes(c.s) ? [i] : [])).slice(0, 5)
-    return idx.length ? idx : [0]
-  }
-  const runRounds = (seed: string, suits: Card['s'][], rounds = 6) => {
-    let s = newAscensionGame(seed)
-    const policy = suitPolicy(suits)
-    while (s.round <= rounds && runStatus(s) !== 'failed') {
-      s = runStatus(s) === 'crisis' ? applyAscensionAction(s, { type: 'resolve' }) : applyAscensionAction(s, { type: 'play', cards: policy(s) })
-    }
-    return s
-  }
-  const labels = (s: AscensionState) => s.civilizations.map((c) => c.archetype)
-  /** A crafted world: terrain per region (or one terrain everywhere) and stats; one play from a round end. */
-  const crafted = (terrain: Terrain | Terrain[], stats: Partial<WorldStats>, seed = 'craft') => {
-    const s = newAscensionGame(seed)
-    return {
-      ...s,
-      regions: REGION_ADJACENCY.map((n, id) => ({ id, terrain: Array.isArray(terrain) ? terrain[id] : terrain, neighbors: [...n] })),
-      stats: { ...noStats(), ...stats },
-      playsLeft: 1,
+      if (s.discardsLeft > 0 && v < 40) go({ type: 'discard', cards: [0, 1] })
+      else go({ type: 'play', cards: best })
     }
   }
-  const endRound = (s: AscensionState) => applyAscensionAction(s, { type: 'play', cards: [0] })
-
-  it('the archetype table is well-formed and a new game has no civilizations', () => {
-    expect([...ARCHETYPE_ORDER].sort()).toEqual(Object.keys(ARCHETYPES).sort())
-    for (const a of ARCHETYPE_ORDER) {
-      expect(ARCHETYPES[a].stats.length).toBeGreaterThan(0)
-      for (const t of ARCHETYPES[a].terrains) expect(TERRAINS).toContain(t)
-      for (const k of ARCHETYPES[a].stats) expect(WORLD_STATS).toContain(k)
-    }
-    expect(newAscensionGame('civ').civilizations).toEqual([])
-  })
-
-  it('emerges only at a round end, at most one per round, with an escalating threshold', () => {
-    let s = { ...crafted('plains', { vitality: 50, prosperity: 50 }), playsLeft: PLAYS_PER_ROUND }
-    for (let i = 0; i < PLAYS_PER_ROUND - 1; i++) s = playThrough(s, [0])
-    expect(s.civilizations).toEqual([])
-    s = endRound(s)
-    expect(s.civilizations).toHaveLength(1)
-    expect(s.civilizations[0]).toMatchObject({ id: 0, tier: 1, emergedRound: 1, reason: { needed: EMERGENCE_STEP } })
-    for (let i = 0; i < PLAYS_PER_ROUND; i++) s = playThrough(s, [0])
-    expect(s.civilizations).toHaveLength(2)
-    expect(s.civilizations[1]).toMatchObject({ id: 1, emergedRound: 2, reason: { needed: 2 * EMERGENCE_STEP } })
-    expect(emergenceThreshold(2)).toBe(3 * EMERGENCE_STEP)
-    expect(endRound(crafted('plains', { vitality: EMERGENCE_STEP - 2 })).civilizations).toEqual([])
-  })
-
-  it('same seed + same actions gives the same civilizations', () => {
-    const actions = randomActions('civ-det', 300)
-    const a = replay('civ-det', actions)
-    expect(a.civilizations.length).toBeGreaterThan(0)
-    expect(replay('civ-det', actions).civilizations).toEqual(a.civilizations)
-  })
-
-  it('the player decides: different strategies on the same seed grow different civilizations', () => {
-    expect(labels(runRounds('alpha', ['H']))).toEqual(['nomads', 'natureKeepers'])
-    expect(labels(runRounds('alpha', ['S']))).toEqual(['scholars'])
-    expect(labels(runRounds('alpha', ['D']))).toEqual(['merchants'])
-    // clubs + spades grows Empire Builders, Scholars and Technocrats while its Winter waits;
-    // faced now it would fail (Industry without Vitality: cleared forests)
-    const cs = runRounds('alpha', ['C', 'S'])
-    expect(labels(cs)).toEqual(['empireBuilders', 'scholars', 'technocrats'])
-    const winter = evaluateCrisis(cs.era, crisisWorld(cs))
-    expect([['ready', 'crisis'].includes(runStatus(cs)), winter.crisis, winter.result]).toEqual([true, 'winter', 'failed'])
-    expect(winter.pressures.find((f) => f.label === 'Cleared forests')!.amount).toBeGreaterThan(20)
-  })
-
-  it('the seed decides too: the same strategy on different terrain grows different civilizations', () => {
-    // world-5 has no desert or tundra; world-8 has seven Knowledge regions
-    expect(landAffinity(newAscensionGame('world-5').regions).knowledge).toBe(0)
-    expect(labels(runRounds('world-5', ['S']))).toEqual([])
-    expect(labels(runRounds('world-8', ['S']))).toEqual(['scholars'])
-    // beta has no plains or coast, so no Merchants however much Prosperity grows
-    const beta = runRounds('beta', ['D'])
-    expect(beta.stats.prosperity).toBeGreaterThan(3 * EMERGENCE_STEP)
-    expect(labels(beta)).toEqual([])
-  })
-
-  it('terrain preference: a civilization only founds a home on its terrains', () => {
-    expect(endRound(crafted('forest', { industry: 50 })).civilizations).toEqual([]) // no mountains
-    expect(labels(endRound(crafted('mountains', { industry: 50 })))).toEqual(['empireBuilders'])
-    expect(endRound(crafted('mountains', { vitality: 50 })).civilizations).toEqual([]) // no forest or open land
-  })
-
-  it('stat preference: the most developed eligible archetype emerges', () => {
-    const land: Terrain[] = ['forest', 'desert', 'plains', 'coast', 'mountains', 'tundra', 'forest', 'desert', 'plains', 'coast', 'mountains', 'tundra']
-    expect(labels(endRound(crafted(land, { vitality: 9, knowledge: 30 })))).toEqual(['scholars'])
-    expect(labels(endRound(crafted(land, { vitality: 30, knowledge: 9 }))).map((a) => ARCHETYPES[a].stats[0])).toEqual(['vitality'])
-    expect(labels(endRound(crafted(land, { prosperity: 20, industry: 21 })))).toEqual(['empireBuilders'])
-    // all coast: Empire Builders (mountains) and Scholars (desert/tundra) have no home,
-    // so Technocrats emerge when BOTH their stats are high, and not before
-    expect(labels(endRound(crafted('coast', { industry: 30, knowledge: 30 })))).toEqual(['technocrats'])
-    expect(endRound(crafted('coast', { industry: 30, knowledge: 4 })).civilizations).toEqual([])
-    expect(readinessOf('technocrats', { ...noStats(), industry: 30, knowledge: 7 })).toBe(7)
-  })
-
-  it('adjacency matters: Empire Builders take the best-connected mountain', () => {
-    // all mountains: region 8 is the only one with 5 neighbours
-    expect(endRound(crafted('mountains', { industry: 50 })).civilizations[0].home).toBe(8)
-    // mountains at R0, R1, R2, R8: R0/R1 have the most mountain neighbours (2 each), but the
-    // hub preference adds each region's degree, so R8 (1 mountain neighbour, 5 borders) wins
-    const hubLand = REGION_ADJACENCY.map((_, id): Terrain => ([0, 1, 2, 8].includes(id) ? 'mountains' : 'plains'))
-    expect(endRound(crafted(hubLand, { industry: 50 })).civilizations[0]).toMatchObject({ archetype: 'empireBuilders', home: 8, reason: { regionFit: 6 } })
-    // Nature Keepers prefer the forest with the most forest neighbours
-    const land: Terrain[] = ['forest', 'forest', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'forest', 'forest', 'mountains', 'mountains', 'mountains']
-    const civ = endRound(crafted(land, { vitality: 50 })).civilizations[0]
-    expect(civ).toMatchObject({ archetype: 'natureKeepers', home: 0, reason: { regionFit: 3, terrain: 'forest' } }) // R0 borders forests R1, R7, R8
-  })
-
-  it('exact ties are broken by the seeded civ stream, reproducibly', () => {
-    // all tundra, Vitality == Knowledge: Nomads and Scholars tie on readiness AND fit
-    // (called directly, so no round-ending play can tip one stat first)
-    const regions = crafted('tundra', {}).regions
-    const stats = { ...noStats(), vitality: 50, knowledge: 50 }
-    const pick = (i: number) => emergeCivilization(hashSeed(`tie-${i}`), 1, regions, stats, [])!
-    const picks = Array.from({ length: 30 }, (_, i) => pick(i).archetype)
-    expect(new Set(picks)).toEqual(new Set(['nomads', 'scholars']))
-    for (let i = 0; i < 5; i++) expect(pick(i).archetype).toBe(picks[i])
-    expect(pick(0).home).toBe(8) // the only region with 5 tundra neighbours: no tie, no RNG
-  })
-
-  it('equally good homes are chosen by the seeded civ stream, reproducibly', () => {
-    // forest only at R2 and R5 (no forest neighbours each): Nature Keepers' homes tie on fit
-    const land = REGION_ADJACENCY.map((_, id): Terrain => ([2, 5].includes(id) ? 'forest' : 'mountains'))
-    const regions = crafted(land, {}).regions
-    const stats = { ...noStats(), vitality: 50 }
-    const home = (i: number) => emergeCivilization(hashSeed(`home-${i}`), 1, regions, stats, [])!.home
-    const homes = Array.from({ length: 30 }, (_, i) => home(i))
-    expect(new Set(homes)).toEqual(new Set([2, 5]))
-    for (let i = 0; i < 5; i++) expect(home(i)).toBe(homes[i])
-  })
-
-  it('one civilization per region and per archetype; a lone home cannot be shared', () => {
-    let s = crafted(['forest', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains', 'mountains'], { vitality: 90 })
-    s = endRound(s)
-    expect(labels(s)).toEqual(['natureKeepers'])
-    for (let i = 0; i < 3 * PLAYS_PER_ROUND; i++) s = playThrough(s, [0])
-    expect(labels(s)).toEqual(['natureKeepers'])
-  })
-
-  it('invariants over many runs: valid unique homes on favoured terrain, readiness met and maximal, terrain untouched', () => {
-    for (let i = 0; i < 12; i++) {
-      const seed = `civ-inv-${i}`
-      let s = newAscensionGame(seed)
-      const land = JSON.stringify(s.regions)
-      for (const a of randomActions(seed, 250)) {
-        const before = s
-        s = applyAscensionAction(s, a)
-        if (s.civilizations.length === before.civilizations.length) continue
-        const civ = s.civilizations[s.civilizations.length - 1]
-        const home = s.regions[civ.home]
-        expect(ARCHETYPES[civ.archetype].terrains).toContain(home.terrain)
-        expect(civ.reason.readiness).toBe(readinessOf(civ.archetype, s.stats))
-        expect(civ.reason.readiness).toBeGreaterThanOrEqual(emergenceThreshold(before.civilizations.length))
-        for (const other of ARCHETYPE_ORDER) {
-          if (before.civilizations.some((c) => c.archetype === other)) continue
-          const hasHome = s.regions.some((r) => ARCHETYPES[other].terrains.includes(r.terrain) && !before.civilizations.some((c) => c.home === r.id))
-          if (hasHome) expect(readinessOf(other, s.stats)).toBeLessThanOrEqual(civ.reason.readiness)
-        }
-      }
-      expect(JSON.stringify(s.regions)).toBe(land)
-      const homes = s.civilizations.map((c) => c.home)
-      expect(new Set(homes).size).toBe(homes.length)
-      expect(new Set(labels(s)).size).toBe(s.civilizations.length)
-      for (const h of homes) expect(h >= 0 && h < 12).toBe(true)
-      expectConserved(s)
-    }
-  })
-
-  it('emergence is a pure function of its inputs and does not touch stats or score', () => {
-    const s = deepFreeze(crafted('plains', { prosperity: 40 }))
-    const a = emergeCivilization(s.seed, s.round, s.regions, s.stats, s.civilizations)
-    expect(emergeCivilization(s.seed, s.round, s.regions, s.stats, s.civilizations)).toEqual(a)
-    const next = endRound(s)
-    const play = evaluatePlay(s, [0])
-    expect(next.score).toBe(s.score + play.score)
-    for (const k of WORLD_STATS) expect(next.stats[k]).toBe(s.stats[k] + play.statDeltas[k])
-  })
-})
-
-describe('Ascension civilization passives', () => {
-  const civ = (archetype: Archetype, home = 0, id = 0): Civilization => ({
-    id, archetype, home, tier: 1, emergedRound: 1,
-    reason: { stat: ARCHETYPES[archetype].stats[0], readiness: EMERGENCE_STEP, needed: EMERGENCE_STEP, terrain: ARCHETYPES[archetype].terrains[0], regionFit: 0 },
-  })
-  /** Every archetype, Empire Builders at hub R8 (5 borders). */
-  const allSix = () => ARCHETYPE_ORDER.map((a, i) => civ(a, [0, 1, 2, 8, 4, 5][i], i))
-  /** Forest, mountains, desert, coast ×3: every stat has land affinity 3, so
-   *  plays of the same size earn the same land bonus. */
-  const EVEN_LAND = REGION_ADJACENCY.map((n, id) => ({ id, terrain: (['forest', 'mountains', 'desert', 'coast'] as const)[id % 4] as Terrain, neighbors: [...n] }))
-  const world = (hand: Card[], stats: Partial<WorldStats>, civilizations: Civilization[]): AscensionState =>
-    ({ ...withHand(hand), regions: EVEN_LAND.map((r) => ({ ...r, neighbors: [...r.neighbors] })), stats: { ...noStats(), ...stats }, civilizations })
-  /** [archetype, amount] of each triggered passive, in order. */
-  const bonuses = (s: AscensionState, idxs: number[]) => evaluatePlay(s, idxs).civBonuses.map((b) => [b.archetype, b.amount])
-  // hand positions:  0     1     2     3     4     5     6     7
-  const HAND = [C(2, 'H'), C(3, 'H'), C(4, 'C'), C(5, 'C'), C(9, 'S'), C(10, 'S'), C(13, 'D'), C(14, 'D')]
-  const H1 = 0, H2 = 1, C1 = 2, C2 = 3, S1 = 4, S2 = 5, D1 = 6, D2 = 7
-
-  it('the passive table is well-formed: every archetype has a named, documented passive', () => {
-    for (const a of ARCHETYPE_ORDER) {
-      expect(ARCHETYPES[a].passive.name).toMatch(/\w/)
-      expect(ARCHETYPES[a].passive.text).toMatch(/\+\d/)
-    }
-  })
-
-  it('Nature Keepers (Stewardship): +3 per ♥ while Vitality ≥ Industry AFTER the play', () => {
-    const s = world(HAND, { vitality: 5, industry: 5 }, [civ('natureKeepers')])
-    expect(bonuses(s, [H1])).toEqual([['natureKeepers', 3]]) // 6 ≥ 5
-    expect(bonuses(s, [H1, H2])).toEqual([['natureKeepers', 6]])
-    expect(bonuses(s, [H1, C1])).toEqual([['natureKeepers', 3]]) // 6 ≥ 6: equality counts
-    expect(bonuses(s, [H1, C1, C2])).toEqual([]) // its own ♣ push Industry to 7 > 6
-    expect(bonuses(s, [C1, S1])).toEqual([]) // no ♥
-    expect(evaluatePlay(s, [H1, C1, C2]).civBonus).toBe(0)
-  })
-
-  it('Nomads (Wandering): +4 per suit beyond the first', () => {
-    const s = world(HAND, {}, [civ('nomads')])
-    expect(bonuses(s, [H1, H2])).toEqual([])
-    expect(bonuses(s, [H1, C1])).toEqual([['nomads', 4]])
-    expect(bonuses(s, [H1, C1, S1])).toEqual([['nomads', 8]])
-    expect(bonuses(s, [H1, H2, C1, S1, D1])).toEqual([['nomads', 12]])
-  })
-
-  it('Merchants (Commerce): with at least 2 ♦, +10% of the poker score rounded down', () => {
-    const s = world([C(14, 'D'), C(13, 'D'), C(12, 'S'), C(14, 'S'), C(2, 'H'), C(3, 'H'), C(4, 'C'), C(5, 'C')], {}, [civ('merchants')])
-    expect(evaluatePlay(s, [0, 1, 2]).pokerScore).toBe(39) // A♦ K♦ Q♠ high card
-    expect(bonuses(s, [0, 1, 2])).toEqual([['merchants', 3]])
-    expect(bonuses(s, [0, 1])).toEqual([['merchants', 2]]) // 27 → 2
-    expect(bonuses(s, [0, 3, 2])).toEqual([]) // one ♦
-  })
-
-  it("Empire Builders (Roads): +1 per ♣ per border of the empire's home", () => {
-    const at = (home: number) => world(HAND, {}, [civ('empireBuilders', home)])
-    expect(bonuses(at(8), [C1, C2])).toEqual([['empireBuilders', 10]]) // R8: 5 borders
-    expect(bonuses(at(9), [C1, C2])).toEqual([['empireBuilders', 8]]) // R9: 4 borders
-    expect(bonuses(at(0), [C1, C2])).toEqual([['empireBuilders', 6]]) // R0: 3 borders
-    expect(bonuses(at(8), [H1, S1])).toEqual([])
-  })
-
-  it('Scholars (Libraries): +1 per ♠ per 10 Knowledge AFTER the play, capped at +5 per ♠', () => {
-    const at = (knowledge: number) => world(HAND, { knowledge }, [civ('scholars')])
-    expect(bonuses(at(8), [S1])).toEqual([]) // 9
-    expect(bonuses(at(9), [S1])).toEqual([['scholars', 1]]) // this ♠ makes 10
-    expect(bonuses(at(18), [S1])).toEqual([['scholars', 1]]) // 19
-    expect(bonuses(at(29), [S1])).toEqual([['scholars', 3]]) // 30
-    expect(bonuses(at(80), [S1, S2])).toEqual([['scholars', 10]]) // 82 → capped at 5 per ♠
-    expect(bonuses(at(80), [H1, C1])).toEqual([])
-  })
-
-  it('Technocrats (Engineering): with both ♣ and ♠, +3 per ♣ and ♠ card', () => {
-    const s = world(HAND, {}, [civ('technocrats')])
-    expect(bonuses(s, [C1, S1])).toEqual([['technocrats', 6]])
-    expect(bonuses(s, [C1, C2, S1, H1])).toEqual([['technocrats', 9]]) // the ♥ adds nothing
-    expect(bonuses(s, [C1, C2])).toEqual([])
-    expect(bonuses(s, [S1, S2])).toEqual([])
-  })
-
-  it('only emerged civilizations act; all of them stack, in emergence order, into the score', () => {
-    const play = [H1, C1, S1, D1, D2] // 1♥ 1♣ 1♠ 2♦
-    const stats = { vitality: 50, knowledge: 50 }
-    expect(evaluatePlay(world(HAND, stats, []), play)).toMatchObject({ civBonuses: [], civBonus: 0 })
-    expect(bonuses(world(HAND, stats, [civ('nomads')]), play)).toEqual([['nomads', 12]])
-    const six = evaluatePlay(world(HAND, stats, allSix()), play) // 2♥ 4♣ 9♠ K♦ A♦: high card, poker 42
-    expect(six.civBonuses.map((b) => [b.archetype, b.amount])).toEqual([
-      ['natureKeepers', 3], ['nomads', 12], ['merchants', 4], ['empireBuilders', 5], ['scholars', 5], ['technocrats', 6],
-    ])
-    expect(six.civBonus).toBe(35)
-    expect(six.score).toBe(42 + 15 + 35)
-    expect(bonuses(world(HAND, stats, allSix().reverse()), play).map(([a]) => a)).toEqual([...ARCHETYPE_ORDER].reverse())
-    // untriggered passives are left out, not listed at 0
-    expect(bonuses(world(HAND, stats, [civ('technocrats'), civ('merchants', 1, 1)]), [H1, H2])).toEqual([])
-  })
-
-  it('every civ bonus carries a readable explanation of its numbers', () => {
-    const six = evaluatePlay(world(HAND, { vitality: 50, knowledge: 50 }, allSix()), [H1, C1, S1, D1, D2])
-    expect(six.civBonuses.map((b) => b.detail)).toEqual([
-      '1 ♥ × 3 (Vitality 51 ≥ Industry 1)', '4 suits → 3 × 4', '2 ♦: 10% of 42', '1 ♣ × 5 borders of R8', '1 ♠ × 5 (Knowledge 51)', '1 ♣ + 1 ♠ × 3',
-    ])
-  })
-
-  it('in real runs: preview equals commit, determinism, stats and emergence untouched, terrain static, cards conserved', () => {
-    let withBonus = 0
-    for (const seed of ['civ-run-0', 'civ-run-1', 'civ-run-2']) {
-      const actions = randomActions(seed, 400)
-      let s = newAscensionGame(seed)
-      const land = JSON.stringify(s.regions)
-      // an independent shadow of the world: suit counts only, and emergence from them
-      const shadow = noStats()
-      let shadowCivs: Civilization[] = []
-      for (const a of actions) {
-        const before = s
-        const preview = a.type === 'play' ? evaluatePlay(before, a.cards) : null
-        s = applyAscensionAction(s, a)
-        if (!preview) continue
-        expect(s.score - before.score).toBe(preview.score)
-        expect(s.lastPlay).toEqual(preview)
-        if (preview.civBonus > 0) withBonus += 1
-        for (const c of preview.cards) shadow[SUIT_STAT[c.s]] += 1
-        if (s.round > before.round) {
-          const civ = emergeCivilization(s.seed, before.round, s.regions, shadow, shadowCivs)
-          if (civ) shadowCivs = [...shadowCivs, civ]
-        }
-        expect(s.stats).toEqual(shadow)
-        expect(s.civilizations).toEqual(shadowCivs)
-        expectConserved(s)
-      }
-      expect(s.civilizations.length).toBeGreaterThanOrEqual(2)
-      expect(JSON.stringify(s.regions)).toBe(land)
-      expect(replay(seed, actions)).toEqual(s)
-    }
-    expect(withBonus).toBeGreaterThan(50) // not vacuous
-  })
-
-  it('evaluatePlay with all six civilizations changes nothing (deep-frozen state)', () => {
-    const s = deepFreeze(world(HAND, { vitality: 50, knowledge: 50 }, allSix()))
-    const snap = JSON.stringify(s)
-    expect(evaluatePlay(s, [H1, C1, S1, D1, D2]).civBonus).toBe(35)
-    expect(applyAscensionAction(s, { type: 'play', cards: [H1, C1, S1, D1, D2] }).score).toBe(s.score + evaluatePlay(s, [H1, C1, S1, D1, D2]).score)
-    expect(JSON.stringify(s)).toBe(snap)
-  })
-
-  it('a discard triggers no passive, even with a selection every civilization would reward', () => {
-    const s = world(HAND, { vitality: 50, knowledge: 50 }, allSix())
-    const next = applyAscensionAction(s, { type: 'discard', cards: [H1, C1, S1, D1, D2] })
-    expect(next.score).toBe(s.score)
-    expect(next.stats).toEqual(s.stats)
-    expect(next.lastPlay).toBeNull()
-    expect(next.civilizations).toEqual(s.civilizations)
-    expectConserved(next)
-  })
-
-  it('illegal actions trigger no passive and leave the state untouched', () => {
-    const s = world(HAND, { vitality: 50, knowledge: 50 }, allSix())
-    const snap = JSON.stringify(s)
-    const bad: [AscensionState, AscensionAction][] = [
-      [s, { type: 'play', cards: [] }],
-      [s, { type: 'play', cards: [H1, H1] }],
-      [s, { type: 'play', cards: [8] }],
-      [s, { type: 'play', cards: [0, 1, 2, 3, 4, 5] }],
-      [{ ...s, playsLeft: 0 }, { type: 'play', cards: [H1] }],
-      [{ ...s, discardsLeft: 0 }, { type: 'discard', cards: [H1] }],
-    ]
-    for (const [state, a] of bad) expect(() => applyAscensionAction(state, a)).toThrow()
-    expect(JSON.stringify(s)).toBe(snap)
-  })
-
-  // Tradeoffs, not balance: each pair of plays comes from ONE hand in ONE
-  // state; the civilization flips which play scores more. EVEN_LAND gives
-  // equal-sized plays the same land bonus, so only poker + passive differ.
-  it('reversal: Nomads make a mixed pair beat a flush', () => {
-    const hand = [C(2, 'H'), C(3, 'H'), C(4, 'H'), C(5, 'H'), C(7, 'H'), C(14, 'S'), C(14, 'D'), C(13, 'C')]
-    const flush = [0, 1, 2, 3, 4], pair = [5, 6, 7, 4, 3] // A♠ A♦ K♣ 7♥ 5♥
-    const before = world(hand, {}, []), after = world(hand, {}, [civ('nomads')])
-    expect([evaluatePlay(before, flush).score, evaluatePlay(before, pair).score]).toEqual([84 + 15, 80 + 15])
-    expect([evaluatePlay(after, flush).score, evaluatePlay(after, pair).score]).toEqual([99, 95 + 12])
-  })
-
-  it('reversal: Nature Keepers turn Industry growth into a cost', () => {
-    // both plays have one ♥; the ♣ play pushes Industry past Vitality and loses Stewardship
-    const hand = [C(13, 'H'), C(12, 'C'), C(11, 'C'), C(12, 'D'), C(9, 'S'), C(2, 'S'), C(3, 'D'), C(4, 'D')]
-    const clubs = [0, 1, 2], mixed = [0, 3, 4] // K♥ Q♣ J♣ (36) vs K♥ Q♦ 9♠ (34)
-    const stats = { vitality: 10, industry: 10 }
-    const before = world(hand, stats, []), after = world(hand, stats, [civ('natureKeepers')])
-    expect([evaluatePlay(before, clubs).score, evaluatePlay(before, mixed).score]).toEqual([36 + 9, 34 + 9])
-    expect([evaluatePlay(after, clubs).score, evaluatePlay(after, mixed).score]).toEqual([45, 43 + 3])
-  })
-
-  it('reversal: Merchants make a smaller pair with diamonds beat bigger aces', () => {
-    const hand = [C(14, 'S'), C(14, 'C'), C(12, 'S'), C(13, 'D'), C(13, 'H'), C(12, 'D'), C(2, 'C'), C(3, 'C')]
-    const aces = [0, 1, 2], kings = [3, 4, 5] // 40 × 1.5 = 60 vs 38 × 1.5 = 57
-    const before = world(hand, {}, []), after = world(hand, {}, [civ('merchants')])
-    expect([evaluatePlay(before, aces).score, evaluatePlay(before, kings).score]).toEqual([60 + 9, 57 + 9])
-    expect([evaluatePlay(after, aces).score, evaluatePlay(after, kings).score]).toEqual([69, 66 + 5])
-  })
-})
-
-/** A civilization record for crafted states. */
-const civ = (archetype: Archetype, home: number, id: number): Civilization => ({
-  id, archetype, home, tier: 1, emergedRound: 1,
-  reason: { stat: ARCHETYPES[archetype].stats[0], readiness: EMERGENCE_STEP, needed: EMERGENCE_STEP, terrain: ARCHETYPES[archetype].terrains[0], regionFit: 0 },
-})
-/** Regions on the fixed topology: one terrain everywhere, or one per region id. */
-const land = (t: Terrain | Terrain[]) => REGION_ADJACENCY.map((n, id) => ({ id, terrain: Array.isArray(t) ? t[id] : t, neighbors: [...n] }))
-/** forest, mountains, desert, coast ×3 */
-const EVEN = (['forest', 'mountains', 'desert', 'coast'] as const).flatMap((t) => [t, t, t]) as Terrain[]
-/** 5 cards, each time the one whose stat (current + chosen) is lowest; the deterministic diagnostic bot. */
-const balancedBot = (s: AscensionState): AscensionAction => {
-  const add = { ...s.stats }, pick: number[] = []
-  while (pick.length < 5) {
-    const i = s.hand.map((_, j) => j).filter((j) => !pick.includes(j)).sort((a, b) => add[SUIT_STAT[s.hand[a].s]] - add[SUIT_STAT[s.hand[b].s]] || a - b)[0]
-    pick.push(i); add[SUIT_STAT[s.hand[i].s]] += 1
-  }
-  return { type: 'play', cards: pick }
+  return { s, actions }
 }
-/** Plays up to 5 cards of these suits (else the first card). */
-const suitBot = (suits: Card['s'][]) => (s: AscensionState): AscensionAction => {
-  const idx = s.hand.flatMap((c, i) => (suits.includes(c.s) ? [i] : [])).slice(0, 5)
-  return { type: 'play', cards: idx.length ? idx : [0] }
-}
-/** Every state of a run: the bot plays and faces each crisis as soon as it is ready; stops when the run ends (or after 150 rounds). */
-function drive(seed: string, bot: (s: AscensionState) => AscensionAction): AscensionState[] {
-  const states = [newAscensionGame(seed)]
-  for (let s = states[0]; ['playing', 'ready', 'crisis'].includes(runStatus(s)) && s.round <= 150; states.push(s)) {
-    s = applyAscensionAction(s, runStatus(s) === 'playing' ? bot(s) : { type: 'resolve' })
-  }
-  return states
-}
-const last = <T>(a: T[]) => a[a.length - 1]
-const outcomes = (s: AscensionState) => s.crises.map((c) => `${c.crisis}:${c.result}`)
+const deepFreeze = <T,>(o: T): T => { if (o && typeof o === 'object') { Object.freeze(o); for (const v of Object.values(o)) deepFreeze(v) } return o }
+const mods = (o: Partial<CrisisMods> = {}): CrisisMods => ({ reserveRate: 100, pressurePct: 0, strainPct: 0, allyResilience: 3, rivalPressure: 5, rivalsEverywhere: false, extraPressures: [], extraMitigations: [], ...o })
 
-describe('Ascension eras', () => {
-  /** A conserved state `playsLeft` plays from a round end: this hand, stats, civs, era and land (default EVEN). */
-  const at = (o: { stats?: Partial<WorldStats>; civs?: Civilization[]; era?: number; playsLeft?: number; land?: Terrain | Terrain[] }) => ({
-    ...withHand([C(2, 'H'), C(3, 'D'), C(4, 'C'), C(5, 'S'), C(6, 'H'), C(7, 'D'), C(8, 'C'), C(9, 'S')]),
-    regions: land(o.land ?? EVEN),
-    stats: { ...noStats(), ...o.stats }, civilizations: o.civs ?? [], era: o.era ?? 0, playsLeft: o.playsLeft ?? 1,
+describe('Ascension v10: a new run', () => {
+  it('is rules version 10 with the documented opening', () => {
+    const s = newRun(setup())
+    expect(ASCENSION_RULES_VERSION).toBe(10)
+    expect(s.rulesVersion).toBe(10)
+    expect(s.phase).toBe('play')
+    expect(s.era).toBe(0)
+    expect(s.handsLeft).toBe(ERAS[0].hands)
+    expect(s.discardsLeft).toBe(ERAS[0].discards)
+    expect(s.hand).toHaveLength(8)
+    expect(ownedCards(s)).toHaveLength(52)
+    expect(s.resolve).toBe(3)
+    expect(s.influence).toBe(0)
+    expect(s.crisisTrack).toHaveLength(ERAS.length)
+    s.crisisTrack.forEach((id, i) => expect(ERAS[i].pool).toContain(id))
+    expect(s.chronicle[0].t).toBe('genesis')
   })
-  const H = 0, D = 1, C_ = 2, S = 3 // hand positions of 2♥ 3♦ 4♣ 5♠
-  const play = (s: AscensionState, cards: number[]) => applyAscensionAction(s, { type: 'play', cards })
-  const resolve = (s: AscensionState) => applyAscensionAction(s, { type: 'resolve' })
-  const endRound = (s: AscensionState) => { let t = s; const r = s.round; while (t.round === r) t = play(t, [0]); return t }
-  const reqs = (s: AscensionState) => eraRequirements(s.era, s.stats, s.civilizations).map((r) => [r.key, r.have, r.need, r.met])
 
-  it('three eras, in order, with the documented requirements; every world can meet them', () => {
-    expect(ERAS.map((e) => [e.id, e.label, e.needs])).toEqual([
-      ['tribal', 'Tribal', { civilizations: 1, stats: 2, min: 15 }],
-      ['ancient', 'Ancient', { civilizations: 2, stats: 3, min: 30 }],
-      ['medieval', 'Medieval', { civilizations: 3, stats: 3, min: 40, development: 200 }],
-    ])
-    // each era asks more civilizations and a higher level
+  it('same seed and actions → the same run; a different seed deals a different world', () => {
+    const a = scripted('determinism-1'), b = scripted('determinism-1'), c = newRun(setup('determinism-2'))
+    expect(b.s).toEqual(a.s)
+    expect(b.actions).toEqual(a.actions)
+    const x = newRun(setup('determinism-1'))
+    expect(c.hand.map((h) => h.id)).not.toEqual(x.hand.map((h) => h.id))
+  })
+
+  it('replay(setup, actions) rebuilds the exact state, and names an illegal action', () => {
+    for (const seed of ['replay-a', 'replay-b', 'replay-c']) {
+      const { s, actions } = scripted(seed)
+      expect(replay(setup(seed), actions)).toEqual(s)
+    }
+    expect(() => replay(setup('replay-a'), [{ type: 'leave' }])).toThrow(/action 1 \(leave\)/)
+  })
+
+  it('validates its setup', () => {
+    expect(() => newRun(setup(''))).toThrow(/seed/)
+    expect(() => newRun(setup('x', { omen: 9 }))).toThrow(/omen/)
+    expect(() => newRun(setup('x', { origin: 'mars' as never }))).toThrow(/origin/)
+    expect(() => newRun(setup('x', { pool: { ...FULL_POOL, cards: ['nope'] } }))).toThrow(/unknown card/)
+    expect(() => newRun(setup('x', { pool: { ...FULL_POOL, legendaries: ['nope' as LegendaryId] } }))).toThrow(/unknown legendary/)
+  })
+
+  it('terrain depends only on (seed, region, origin); origins shift the land', () => {
+    const seed = hashSeed('land')
+    const a = generateRegions(seed), b = generateRegions(seed)
+    expect(b).toEqual(a)
+    a.forEach((r, i) => expect(r.neighbors).toEqual(REGION_ADJACENCY[i]))
+    // over many seeds, an origin's favoured terrain appears more often
+    const count = (origin: typeof ORIGIN_ORDER[number], t: Terrain) => Array.from({ length: 200 }, (_, i) => generateRegions(hashSeed(`o${i}`), origin).filter((r) => r.terrain === t).length).reduce((x, y) => x + y, 0)
+    expect(count('archipelago', 'coast')).toBeGreaterThan(count('pangaea', 'coast') * 2)
+    expect(count('highlands', 'mountains')).toBeGreaterThan(count('pangaea', 'mountains'))
+    expect(count('highlands', 'coast')).toBe(0)
+    expect(count('verdant', 'desert')).toBe(0)
+  })
+})
+
+describe('Ascension v10: hands and scoring', () => {
+  it('classifies hands (only five cards make Straights and Flushes)', () => {
+    expect(classify([C(2, 'H')], noMods)).toBe('high')
+    expect(classify([C(9, 'H'), C(9, 'S')], noMods)).toBe('pair')
+    expect(classify([C(9, 'H'), C(9, 'S'), C(4, 'D'), C(4, 'C')], noMods)).toBe('two-pair')
+    expect(classify([C(9, 'H'), C(9, 'S'), C(9, 'D')], noMods)).toBe('trips')
+    expect(classify([C(2, 'H'), C(3, 'S'), C(4, 'D'), C(5, 'C'), C(6, 'H')], noMods)).toBe('straight')
+    expect(classify([C(14, 'H'), C(2, 'S'), C(3, 'D'), C(4, 'C'), C(5, 'H')], noMods)).toBe('straight')
+    expect(classify([C(2, 'H'), C(7, 'H'), C(4, 'H'), C(9, 'H'), C(11, 'H')], noMods)).toBe('flush')
+    expect(classify([C(2, 'H'), C(2, 'S'), C(2, 'D'), C(9, 'C'), C(9, 'H')], noMods)).toBe('full-house')
+    expect(classify([C(2, 'H'), C(2, 'S'), C(2, 'D'), C(2, 'C')], noMods)).toBe('quads')
+    expect(classify([C(5, 'S'), C(6, 'S'), C(7, 'S'), C(8, 'S'), C(9, 'S')], noMods)).toBe('straight-flush')
+    expect(classify([C(2, 'H'), C(7, 'H'), C(4, 'H'), C(9, 'H')], noMods)).toBe('high')
+    // Q-K-A-2-3 wraps only with the Architect Moon; a one-rank gap likewise
+    expect(classify([C(12, 'H'), C(13, 'S'), C(14, 'D'), C(2, 'C'), C(3, 'H')], noMods)).toBe('high')
+    expect(classify([C(12, 'H'), C(13, 'S'), C(14, 'D'), C(2, 'C'), C(3, 'H')], { ...noMods, straightWrap: true })).toBe('straight')
+    expect(classify([C(2, 'H'), C(3, 'S'), C(4, 'D'), C(5, 'C'), C(7, 'H')], noMods)).toBe('high')
+    expect(classify([C(2, 'H'), C(3, 'S'), C(4, 'D'), C(5, 'C'), C(7, 'H')], { ...noMods, straightGap: true })).toBe('straight')
+    expect(classify([C(2, 'H'), C(3, 'S'), C(4, 'D'), C(5, 'C'), C(8, 'H')], { ...noMods, straightGap: true })).toBe('high')
+    // the World Tree: hearts are wild for Flushes
+    expect(classify([C(2, 'S'), C(7, 'S'), C(4, 'H'), C(9, 'S'), C(11, 'H')], noMods)).toBe('high')
+    expect(classify([C(2, 'S'), C(7, 'S'), C(4, 'H'), C(9, 'S'), C(11, 'H')], { ...noMods, wildSuit: 'H' })).toBe('flush')
+    expect(classify([C(2, 'S'), C(7, 'S'), C(4, 'H'), C(9, 'H'), C(11, 'H')], { ...noMods, wildSuit: 'H' })).toBe('high') // only two natural cards
+    expect(classify([C(2, 'H'), C(7, 'H'), C(4, 'H'), C(9, 'H'), C(11, 'H')], { ...noMods, wildSuit: 'H' })).toBe('flush')
+
+  })
+
+  it('only the cards that make the hand score', () => {
+    expect(scoringPositions([C(9, 'H'), C(9, 'S'), C(4, 'D')], 'pair')).toEqual([0, 1])
+    expect(scoringPositions([C(3, 'H'), C(13, 'S'), C(4, 'D')], 'high')).toEqual([1])
+    expect(scoringPositions([C(9, 'H'), C(9, 'S'), C(4, 'D'), C(4, 'C'), C(2, 'C')], 'two-pair')).toEqual([0, 1, 2, 3])
+    expect(scoringPositions([C(2, 'H'), C(2, 'S'), C(2, 'D'), C(2, 'C'), C(5, 'C')], 'quads')).toEqual([0, 1, 2, 3])
+    expect(scoringPositions([C(2, 'H'), C(7, 'H'), C(4, 'H'), C(9, 'H'), C(11, 'H')], 'flush')).toEqual([0, 1, 2, 3, 4])
+  })
+
+  it('a pair: base + card values + land, stats from scoring cards only (with the Tribal rule)', () => {
+    let s = newRun(setup('score-pair'))
+    s = withHand(s, [inst(9, 'H'), inst(9, 'C'), inst(2, 'S'), inst(4, 'D'), inst(5, 'D'), inst(6, 'D'), inst(7, 'D'), inst(8, 'D')])
+    const r = evaluatePlay(s, [0, 1, 2])
+    const aff = landAffinity(s.regions)
+    expect(r.category).toBe('pair')
+    expect(r.scoring).toEqual([0, 1])
+    expect(r.chips).toBe(HAND_TABLE.pair.chips + 18 + LAND_CHIPS * (aff.vitality + aff.industry))
+    expect(r.mult).toBe(HAND_TABLE.pair.mult)
+    // Hunters and Gatherers: a pair gives its stats again
+    expect(r.statDeltas).toEqual({ vitality: 2, prosperity: 0, industry: 2, knowledge: 0 })
+    expect(r.score).toBe(Math.floor(r.chips * r.mult))
+    expect(cardChips(14)).toBe(11)
+    expect(cardChips(12)).toBe(10)
+  })
+
+  it('preview == commit: the play result is exactly what the play does', () => {
+    let s = newRun(setup('preview-commit'))
+    for (let i = 0; i < 25 && s.phase !== 'won' && s.phase !== 'lost'; i++) {
+      if (runStatus(s) === 'council') { s = leave(s); continue }
+      if (runStatus(s) === 'crisis') { s = face(s); continue }
+      const idx = [0, 1, 2, 3, 4].slice(0, 1 + (i % 5))
+      const r = evaluatePlay(s, idx)
+      const f = forecast(s)
+      const t = play(s, idx)
+      expect(t.lastPlay).toEqual(r)
+      expect(t.score - s.score).toBe(r.score)
+      for (const k of WORLD_STATS) expect(t.stats[k] - s.stats[k]).toBe(r.statDeltas[k])
+      expect(t.eraReserves - s.eraReserves).toBe(r.reserves)
+      expect(forecast(s)).toEqual(f) // previewing changed nothing
+      s = t
+    }
+  })
+
+  it('illegal actions throw and never change the input state', () => {
+    const s = deepFreeze(newRun(setup('illegal')))
+    expect(() => play(s, [])).toThrow(/select 1–5/)
+    expect(() => play(s, [0, 1, 2, 3, 4, 5])).toThrow(/select 1–5/)
+    expect(() => play(s, [0, 0])).toThrow(/twice/)
+    expect(() => play(s, [9])).toThrow(/no card/)
+    expect(() => applyAction(s, { type: 'leave' })).toThrow(/Council is not in session/)
+    expect(() => applyAction(s, { type: 'bogus' } as never)).toThrow(/unknown action/)
+    // a legal play still works on the frozen state (transitions never mutate)
+    expect(play(s, [0]).handsLeft).toBe(s.handsLeft - 1)
+    const spent = spendHands(newRun(setup('illegal')))
+    expect(() => play(spent, [0])).toThrow(/face the crisis/)
+    let d = newRun(setup('illegal'))
+    for (let i = 0; i < ERAS[0].discards; i++) d = applyAction(d, { type: 'discard', cards: [0] })
+    expect(() => applyAction(d, { type: 'discard', cards: [0] })).toThrow(/no discards/)
+  })
+
+  it('conserves cards through plays, discards, reshuffles, eras and the Council', () => {
+    const { s, actions } = scripted('conservation')
+    let t = newRun(setup('conservation'))
+    let owned = 52
+    for (const a of actions) {
+      const before = t
+      t = applyAction(t, a)
+      if (a.type === 'buy' && before.council!.offers[a.offer].kind === 'card') owned += 1
+      const ids = ownedCards(t).map((c) => c.id)
+      expect(new Set(ids).size).toBe(ids.length)
+      expect(ids).toHaveLength(owned)
+      expect(t.hand.length).toBeLessThanOrEqual(8)
+      for (const k of WORLD_STATS) expect(Number.isInteger(t.stats[k]) && t.stats[k] >= 0).toBe(true)
+      expect(Number.isFinite(t.score)).toBe(true)
+    }
+    expect(t).toEqual(s)
+  })
+})
+
+describe('Ascension v10: eras, crises and graded outcomes', () => {
+  it('six eras of rising hands, each ending in a crisis from its pool', () => {
+    expect(ERAS.map((e) => e.id)).toEqual(['tribal', 'ancient', 'medieval', 'industrial', 'information', 'stellar'])
     for (let i = 1; i < ERAS.length; i++) {
-      expect(ERAS[i].needs.min).toBeGreaterThan(ERAS[i - 1].needs.min)
-      expect(ERAS[i].needs.civilizations).toBeGreaterThan(ERAS[i - 1].needs.civilizations)
+      expect(ERAS[i].hands).toBeGreaterThanOrEqual(ERAS[i - 1].hands)
+      expect(ERAS[i].reserveRate).toBeGreaterThan(ERAS[i - 1].reserveRate)
     }
-    // 3 civilizations need 3 archetypes with distinct homes: true of every sampled world
-    const hosts = (seed: string) => {
-      const regions = generateRegions(hashSeed(seed))
-      const opts = ARCHETYPE_ORDER.map((a) => regions.filter((r) => ARCHETYPES[a].terrains.includes(r.terrain)).map((r) => r.id))
-      const go = (i: number, used: number[]): number => (i === opts.length ? 0
-        : Math.max(go(i + 1, used), ...opts[i].filter((h) => !used.includes(h)).map((h) => 1 + go(i + 1, [...used, h]))))
-      return go(0, [])
-    }
-    for (let i = 0; i < 300; i++) expect(hosts(`hosts-${i}`)).toBeGreaterThanOrEqual(ERAS[ERAS.length - 1].needs.civilizations)
+    expect(new Set(ERAS.flatMap((e) => e.pool)).size).toBe(CRISIS_ORDER.length)
+    expect(new Set(ERAS.map((e) => e.rule)).size).toBe(ERAS.length)
   })
 
-  it('a new world is Tribal and shows exactly what it needs', () => {
-    const s = newAscensionGame('era-new')
-    expect(s).toMatchObject({ era: 0, eraLog: [] })
-    expect(reqs(s)).toEqual([['civilizations', 0, 1, false], ['stats', 0, 2, false]])
-    expect(canAdvance(s.era, s.stats, s.civilizations)).toBe(false)
+  it('the forecast is the exact result of facing', () => {
+    let s = spendHands(newRun(setup('forecast')))
+    const f = forecast(s)
+    s = face(s)
+    const { era, handsLeft, triumph, prevented, influence, scars, ...ev } = s.crises[0]
+    void era; void handsLeft; void triumph; void prevented; void influence; void scars
+    expect({ ...ev, result: f.result }).toEqual(f)
   })
 
-  it('requirements are met exactly at their thresholds, never one short', () => {
-    ERAS.forEach(({ needs }, era) => {
-      const civs = ARCHETYPE_ORDER.slice(0, needs.civilizations).map((a, i) => civ(a, i, i))
-      // n stats at v, the rest topping development up to at least `dev` (in the last stat, kept below the minimum)
-      const stats = (n: number, v: number, dev = 0) => {
-        const st = Object.fromEntries(WORLD_STATS.map((k, i) => [k, i < n ? v : 0])) as WorldStats
-        st.knowledge += Math.max(0, dev - n * v)
-        return st
-      }
-      const dev = needs.development ?? 0
-      expect(canAdvance(era, stats(needs.stats, needs.min, dev), civs)).toBe(true)
-      expect(canAdvance(era, stats(needs.stats, needs.min - 1, dev), civs)).toBe(false) // a stat one short
-      expect(canAdvance(era, stats(needs.stats - 1, 999), civs)).toBe(false) // one stat too few
-      expect(canAdvance(era, stats(needs.stats, needs.min, dev), civs.slice(1))).toBe(false) // one civilization too few
-      if (dev) expect(canAdvance(era, stats(needs.stats, needs.min, dev - 1), civs)).toBe(false) // development one short
-      expect(eraRequirements(era, stats(needs.stats, needs.min, dev), civs).every((r) => r.met && r.have >= r.need)).toBe(true)
-    })
+  it('facing with hands left banks them as Influence and carries up to two into the next era; the hands running out forces the crisis', () => {
+    const s = structuredClone(newRun(setup('early')))
+    s.stats = { vitality: 40, prosperity: 40, industry: 40, knowledge: 40 }
+    const early = face(s)
+    const out = early.crises[0]
+    if (out.result === 'endured') expect(out.influence).toBe(eraEndInfluence(s) + (out.triumph ? TRIUMPH_BONUS : 0) + treasury(s))
+    else expect(out.influence).toBe(FAIL_INFLUENCE)
+    if (out.result === 'endured') expect(leave(early).handsLeft).toBe(ERAS[1].hands + Math.min(HAND_CARRY, ERAS[0].hands))
+    const spent = spendHands(s)
+    expect(runStatus(spent)).toBe('crisis')
+    expect(eraEndInfluence({ ...spent, civilizations: s.civilizations })).toBe(eraEndInfluence(s) - HAND_INFLUENCE * ERAS[0].hands)
   })
 
-  it('Medieval takes 200 development in any shape: one peak or spread out, with 3 stats at 40+', () => {
-    const civs = [civ('nomads', 0, 0), civ('scholars', 1, 1), civ('empireBuilders', 2, 2)]
-    const w = (vitality: number, prosperity: number, industry: number, knowledge: number) => canAdvance(2, { vitality, prosperity, industry, knowledge }, civs)
-    expect(w(50, 50, 50, 50)).toBe(true) // balanced
-    expect(w(100, 40, 40, 20)).toBe(true) // a Vitality peak
-    expect(w(40, 0, 40, 120)).toBe(true) // a Knowledge peak with Prosperity neglected
-    expect(w(100, 40, 39, 21)).toBe(false) // only 2 stats at 40
-    expect(w(99, 40, 40, 20)).toBe(false) // development 199
+  it('a failed crisis costs a Resolve and leaves its scar, but the run goes on', () => {
+    const s0 = newRun(setup('scar'))
+    const s = face(s0) // an undeveloped world fails its first crisis
+    const out = s.crises[0]
+    expect(out.result).toBe('failed')
+    expect(s.resolve).toBe(2)
+    expect(s.phase).toBe('council')
+    expect(out.influence).toBe(FAIL_INFLUENCE)
+    expect(s.chronicle.some((e) => e.t === 'crisis' && e.result === 'failed')).toBe(true)
   })
 
-  it('the crisis becomes ready at the round end where the requirements hold, not before', () => {
-    let s = at({ stats: { vitality: 14, prosperity: 15 }, civs: [civ('nomads', 6, 0)], playsLeft: 2 })
-    s = play(s, [H]) // Vitality 15: met, but mid-round
-    expect(canAdvance(s.era, s.stats, s.civilizations)).toBe(true)
-    expect([runStatus(s), s.crisis]).toEqual(['playing', null])
-    s = applyAscensionAction(s, { type: 'discard', cards: [0] }) // a discard is not a checkpoint
-    expect(runStatus(s)).toBe('playing')
-    const round = s.round
-    s = play(s, [0]) // the round's last play
-    expect([runStatus(s), s.crisis, s.era, s.eraLog, s.crises]).toEqual(['ready', { round }, 0, [], []])
+  it('Resolve 0 ends the run; the final crisis must be endured', () => {
+    let s = newRun(setup('fall'))
+    s = face(s); s = leave(s); s = face(s); s = leave(s); s = face(s)
+    expect(s.resolve).toBe(0)
+    expect(s.phase).toBe('lost')
+    expect(s.chronicle[s.chronicle.length - 1]).toMatchObject({ t: 'end', result: 'lost' })
+    expect(() => play(s, [0])).toThrow(/over/)
+    expect(() => face(s)).toThrow(/over/)
+    // a final crisis failed ends the run even with Resolve left
+    const t = structuredClone(newRun(setup('final')))
+    t.era = FINAL_ERA
+    const f = face(t)
+    expect(f.phase).toBe('lost')
+    expect(f.resolve).toBe(2)
+    // and endured, the world ascends
+    const w = structuredClone(t)
+    w.stats = { vitality: 500, prosperity: 500, industry: 500, knowledge: 500 }
+    expect(face(w).phase).toBe('won')
   })
 
-  it('a round end one short of any requirement makes nothing ready; a civilization emerging there counts', () => {
-    const civs = [civ('nomads', 6, 0)]
-    expect(runStatus(play(at({ stats: { vitality: 13, prosperity: 15 }, civs }), [H]))).toBe('playing') // Vitality 14
-    expect(runStatus(play(at({ stats: { vitality: 14, prosperity: 20 }, civs }), [H]))).toBe('ready')
-    // no civilization, and none can emerge on tundra without Vitality or Knowledge
-    const t = play(at({ stats: { prosperity: 20, industry: 20 }, land: 'tundra' }), [D])
-    expect([t.civilizations, runStatus(t)]).toEqual([[], 'playing'])
-    const e = play(at({ stats: { vitality: 20, prosperity: 20 } }), [D])
-    expect([e.civilizations.length, runStatus(e)]).toEqual([1, 'ready'])
-  })
-
-  it('a ready crisis blocks nothing: play on, and face it whenever you choose; surviving advances exactly one era', () => {
-    let s = play(at({ stats: { vitality: 30, prosperity: 20 }, civs: [civ('nomads', 6, 0)] }), [H])
-    expect(runStatus(s)).toBe('ready')
-    s = play(s, [0]) // plays, previews and discards are allowed while ready
-    expect(() => evaluatePlay(s, [0])).not.toThrow()
-    s = applyAscensionAction(s, { type: 'discard', cards: [0] })
-    const forecast = evaluateCrisis(0, crisisWorld(s))
-    const after = resolve(s)
-    expect(after.crises).toEqual([{ ...forecast, round: s.crisis!.round, faced: s.round }])
-    expect(forecast.result).toBe('survived')
-    expect([runStatus(after), after.era, after.crisis]).toEqual(['playing', 1, null])
-    expect(after.eraLog).toEqual([{ from: 'tribal', to: 'ancient', round: s.round, stats: s.stats, civilizations: s.civilizations.length, score: s.score }])
-    // facing changes nothing but the era and crisis records
-    const strip = ({ era, eraLog, crisis, crises, ...rest }: AscensionState) => rest
-    expect(strip(after)).toEqual(strip(s))
-    expect(() => resolve(after)).toThrow('no crisis to resolve')
-  })
-
-  it(`kept waiting, a crisis gathers +${CRISIS_RULES.gatherPerRound} per round end and strikes on its own after ${CRISIS_RULES.graceRounds}`, () => {
-    let s = play(at({ stats: { vitality: 30, prosperity: 20 }, civs: [civ('nomads', 6, 0)] }), [H])
-    const ready = s.crisis!.round
-    const time = (t: AscensionState) => evaluateCrisis(t.era, crisisWorld(t)).pressures.find((f) => f.label === 'Time to gather')!.amount
-    expect([crisisWorld(s).waited, time(s)]).toEqual([0, 0])
-    for (let waited = 1; waited <= CRISIS_RULES.graceRounds; waited++) {
-      expect(runStatus(s)).toBe('ready')
-      s = endRound(s)
-      expect([crisisWorld(s).waited, time(s)]).toEqual([waited, waited * CRISIS_RULES.gatherPerRound])
-    }
-    expect([runStatus(s), s.round, s.crisis!.round]).toEqual(['crisis', ready + CRISIS_RULES.graceRounds + 1, ready])
-    expect(() => play(s, [0])).toThrow('resolve the crisis first')
-    expect(() => applyAscensionAction(s, { type: 'discard', cards: [0] })).toThrow('resolve the crisis first')
-    expect(() => evaluatePlay(s, [0])).toThrow('resolve the crisis first')
-    expect(resolve(s).crises[0]).toMatchObject({ round: ready, faced: ready + CRISIS_RULES.graceRounds + 1 })
-  })
-
-  it('waiting is a real choice: playing Industry before facing turns a lost Invasion into a win', () => {
-    const civs = ARCHETYPE_ORDER.map((a, i) => civ(a, [0, 2, 3, 1, 5, 6][i], i)) // all six, Empire Builders on a mountain
-    const hand = [C(2, 'C'), C(3, 'C'), C(4, 'C'), C(5, 'C'), C(6, 'C'), C(7, 'H'), C(8, 'H'), C(9, 'H')]
-    const s: AscensionState = { ...withHand(hand), regions: land(EVEN), stats: { vitality: 50, prosperity: 50, industry: 52, knowledge: 50 }, civilizations: civs, era: 2, crisis: { round: 1 }, round: 2, playsLeft: 4 }
-    const now = evaluateCrisis(2, crisisWorld(s))
-    expect([now.pressure, now.resilience, now.result]).toEqual([102, 101, 'failed'])
-    const later = applyAscensionAction(s, { type: 'play', cards: [0, 1, 2, 3, 4] }) // five clubs, same round: no waiting cost
-    const then = evaluateCrisis(2, crisisWorld(later))
-    expect(then.resilience - then.pressure - (now.resilience - now.pressure)).toBe(5 - 1 + Math.floor(later.score / CRISIS_RULES.reserveRate)) // +5 arms, +1 riches, + reserves
-    expect(resolve(later).crises[0].result).toBe('survived')
-  })
-
-  it("reserves count only this era's score", () => {
-    let s = play(at({ stats: { vitality: 30, prosperity: 20 }, civs: [civ('nomads', 6, 0)] }), [H])
-    expect(crisisWorld(s).eraScore).toBe(s.score)
-    s = resolve(s)
-    expect(crisisWorld(s).eraScore).toBe(0)
-    s = play(s, [0])
-    expect(crisisWorld(s).eraScore).toBe(s.score - s.eraLog[0].score)
-  })
-
-  it('in real runs: crises become ready exactly when the requirements hold, are faced once to the forecast, and the world carries over whole', () => {
-    let faced = 0, waitedSome = 0
-    for (const seed of ['era-run-0', 'era-run-1', 'era-run-2', 'era-run-3']) {
-      let s = newAscensionGame(seed)
-      const world = JSON.stringify(s.regions)
-      for (const a of randomActions(seed, 900)) {
-        const before = s
-        const preview = a.type === 'play' ? evaluatePlay(before, a.cards) : null
-        const forecast = a.type === 'resolve' ? evaluateCrisis(before.era, crisisWorld(before)) : null
-        s = applyAscensionAction(s, a)
-        const roundEnd = s.round > before.round
-        if (forecast) {
-          faced += 1
-          if (before.round > before.crisis!.round + 1) waitedSome += 1
-          expect(s.crises).toEqual([...before.crises, { ...forecast, round: before.crisis!.round, faced: before.round }])
-          expect([s.era, s.crisis]).toEqual([before.era + (forecast.result === 'survived' ? 1 : 0), null])
-        } else {
-          expect([s.era, s.crises]).toEqual([before.era, before.crises])
-          // ready exactly at a round end where the requirements hold, and it stays ready until faced
-          expect(s.crisis).toEqual(before.crisis ?? (roundEnd && canAdvance(before.era, s.stats, s.civilizations) ? { round: before.round } : null))
-        }
-        if (s.crisis) expect(runStatus(s)).toBe(s.round > s.crisis.round + CRISIS_RULES.graceRounds ? 'crisis' : 'ready')
-        expect(JSON.stringify(s.regions)).toBe(world)
-        expect(s.civilizations.slice(0, before.civilizations.length)).toEqual(before.civilizations)
-        if (preview) {
-          expect(s.lastPlay).toEqual(preview)
-          expect(s.score - before.score).toBe(preview.score)
-          for (const k of WORLD_STATS) expect(s.stats[k]).toBe(before.stats[k] + preview.statDeltas[k])
-        } else {
-          expect([s.stats, s.score]).toEqual([before.stats, before.score])
-        }
-        expectConserved(s)
-      }
-      expect(new Set(s.crises.map((c) => c.crisis)).size).toBe(s.crises.length) // no crisis twice
-      expect(s.crises.map((c) => c.crisis)).toEqual(['winter', 'plague', 'invasion'].slice(0, s.crises.length))
-    }
-    expect([faced >= 4, waitedSome >= 1]).toEqual([true, true])
-  })
-
-  it('a balanced run completes the first playable, deterministically, with passives working in every era', () => {
-    const run = drive('crisis-0', balancedBot)
-    const done = last(run)
-    expect(drive('crisis-0', balancedBot)).toEqual(run)
-    expect(runStatus(done)).toBe('complete')
-    expect(done.crises.map((c) => [c.crisis, c.faced, c.resilience, c.pressure, c.result])).toEqual([
-      ['winter', 4, 38, 23, 'survived'], ['plague', 7, 69, 51, 'survived'], ['invasion', 11, 105, 100, 'survived'],
-    ])
-    expect(done.eraLog.map((e) => e.round)).toEqual([4, 7, 11])
-    for (let era = 0; era < ERAS.length; era++) {
-      expect(run.some((s, i) => i > 0 && run[i - 1].era === era && s.lastPlay !== run[i - 1].lastPlay && s.lastPlay!.civBonus > 0)).toBe(true)
+  it('every crisis is endured by a world strong in what it tests, and failed by an empty one', () => {
+    const regions = generateRegions(hashSeed('crisis-land'))
+    for (const id of CRISIS_ORDER) {
+      const w = { regions, stats: noStats(), civilizations: [], relations: [], eraScore: 0, eraPressure: 0, eraReserves: 0 }
+      expect(evaluateCrisis(id, w, mods()).result).toBe('failed')
+      const strong = { ...w, stats: { vitality: 200, prosperity: 200, industry: 200, knowledge: 200 } }
+      expect(evaluateCrisis(id, strong, mods()).result, id).toBe('endured')
+      // reserves always help
+      expect(evaluateCrisis(id, { ...w, eraScore: 10_000 }, mods()).resilience).toBeGreaterThan(evaluateCrisis(id, w, mods()).resilience)
     }
   })
 
-  it('passives are the same in every era: eras change no play', () => {
-    const civs = ARCHETYPE_ORDER.map((a, i) => civ(a, i, i))
-    const base = at({ stats: { vitality: 50, knowledge: 50 }, civs })
-    for (let era = 0; era < ERAS.length; era++) expect(evaluatePlay({ ...base, era }, [H, D, C_, S, 6])).toEqual(evaluatePlay(base, [H, D, C_, S, 6]))
-  })
-
-  it('first playable complete: every action is refused and the world is kept for inspection', () => {
-    const run = drive('crisis-0', balancedBot)
-    const done = deepFreeze(last(run))
-    const snap = JSON.stringify(done)
-    expect([isComplete(done.era), done.era, runStatus(done)]).toEqual([true, ERAS.length, 'complete'])
-    expect(eraRequirements(done.era, done.stats, done.civilizations)).toEqual([])
-    expect(canAdvance(done.era, done.stats, done.civilizations)).toBe(false)
-    for (const a of [{ type: 'play', cards: [0] }, { type: 'discard', cards: [0] }, { type: 'resolve' }] as AscensionAction[]) {
-      expect(() => applyAscensionAction(done, a)).toThrow('first playable complete')
-    }
-    expect(() => evaluatePlay(done, [0])).toThrow('first playable complete')
-    expect(JSON.stringify(done)).toBe(snap)
-    expectConserved(done)
-    expect(done.regions).toEqual(run[0].regions)
-  })
-
-  it('same seed + same actions give the same eras and crises', () => {
-    const actions = randomActions('era-det', 900)
-    const a = replay('era-det', actions)
-    expect(a.crises.length).toBeGreaterThanOrEqual(1)
-    expect(replay('era-det', actions)).toEqual(a)
+  it('crisis math: strain, pressing omens, rivalries only in conflict crises, alliances everywhere', () => {
+    const regions = generateRegions(hashSeed('crisis-math'))
+    const w = { regions, stats: { vitality: 2, prosperity: 0, industry: 12, knowledge: 0 }, civilizations: [], relations: [{ a: 0, b: 1, relation: 'rival' as const }, { a: 0, b: 2, relation: 'ally' as const }], eraScore: 250, eraPressure: 4, eraReserves: 3 }
+    const winter = evaluateCrisis('winter', w, mods())
+    expect(winter.pressures.find((f) => f.label === 'Cleared forests')!.amount).toBe(20) // (12 − 2) × 2
+    expect(winter.pressures.find((f) => f.label === 'Your own doing')!.amount).toBe(4)
+    expect(winter.pressures.some((f) => f.label === 'Rivalries')).toBe(false)
+    expect(winter.mitigations.find((f) => f.label === 'Alliances')!.amount).toBe(3)
+    expect(winter.mitigations.find((f) => f.label === 'Reserves')!.amount).toBe(2 + 3) // 250 ÷ 100 + 3 banked
+    const invasion = evaluateCrisis('invasion', w, mods())
+    expect(invasion.pressures.find((f) => f.label === 'Rivalries')!.amount).toBe(5)
+    const pressing = evaluateCrisis('winter', w, mods({ pressurePct: 10 }))
+    expect(pressing.pressure).toBe(Math.ceil(winter.pressure * 1.1))
+    const deep = evaluateCrisis('winter', w, mods({ strainPct: 50 }))
+    expect(deep.pressures.find((f) => f.label === 'Cleared forests')!.amount).toBe(30)
+    expect(isTriumph({ ...winter, result: 'endured', margin: Math.ceil(winter.pressure / 4) })).toBe(true)
   })
 })
 
-describe('Ascension crises', () => {
-  const W = (t: Terrain | Terrain[], stats: Partial<WorldStats>, civs: Civilization[] = [], eraScore = 0, waited = 0) =>
-    ({ regions: land(t), stats: { ...noStats(), ...stats }, civilizations: civs, eraScore, waited })
-  const amounts = (e: CrisisEvaluation) => [e.pressures.map((f) => f.amount), e.mitigations.map((f) => f.amount), e.pressure, e.resilience, e.result]
-  const at = (era: number, stats: Partial<WorldStats>, civs: Civilization[], t: Terrain | Terrain[] = EVEN) => ({
-    ...newAscensionGame('crisis-state'), regions: land(t), stats: { ...noStats(), ...stats }, civilizations: civs, era, crisis: { round: 0 },
-  })
-
-  it('one crisis per era, in era order, with the documented factors; time and reserves in every one', () => {
-    expect(CRISES.map((c) => [c.id, c.label])).toEqual([['winter', 'Harsh Winter'], ['plague', 'Plague'], ['invasion', 'Invasion']])
-    expect(CRISES).toHaveLength(ERAS.length)
-    for (const c of CRISES) expect(c.watch).toMatch(/^tests /)
-    const labels = (era: number) => { const e = evaluateCrisis(era, W(EVEN, {})); return [e.pressures.map((f) => f.label), e.mitigations.map((f) => f.label)] }
-    expect(labels(0)).toEqual([['The winter', 'Cold land', 'Cleared forests', 'Time to gather'], ['Food stores', 'Fertile land', 'Nature Keepers', 'Nomads', 'Reserves']])
-    expect(labels(1)).toEqual([['The plague', 'Crowded ports and farms', 'Trade outruns medicine', 'Merchants', 'Time to gather'], ['Medicine', 'Healthy people', 'Isolated land', 'Scholars', 'Reserves']])
-    expect(labels(2)).toEqual([['The invasion', 'Open land', 'Riches to plunder', 'Undefended wealth', 'Time to gather'], ['Arms and walls', 'Allied civilizations', 'Mountain passes', 'Empire Builders', 'Reserves']])
-    expect(CRISIS_RULES).toEqual({ reserveRate: 150, gatherPerRound: 4, graceRounds: 2 })
-    expect(() => evaluateCrisis(3, W(EVEN, {}))).toThrow()
-  })
-
-  // 3 tundra, 2 mountains, 2 forest, 1 plains, 4 desert
-  const WINTER_LAND: Terrain[] = ['tundra', 'tundra', 'tundra', 'mountains', 'mountains', 'forest', 'forest', 'plains', 'desert', 'desert', 'desert', 'desert']
-  it('Harsh Winter: 15 + 2 per cold region + Industry over Vitality vs Vitality + 2 per fertile region + 8 per Nature Keepers / Nomads', () => {
-    const civs = [civ('nomads', 8, 0)]
-    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 20, industry: 25 }, civs)))).toEqual([[15, 10, 5, 0], [20, 6, 0, 8, 0], 30, 34, 'survived'])
-    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 20, industry: 25 }, [...civs, civ('natureKeepers', 5, 1)])))).toEqual([[15, 10, 5, 0], [20, 6, 8, 8, 0], 30, 42, 'survived'])
-    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 30, industry: 25 }, civs)))[0]).toEqual([15, 10, 0, 0]) // no strain when Vitality leads
-    // the boundary: resilience = pressure survives, one short fails
-    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 18, industry: 25 }, civs))).slice(2)).toEqual([32, 32, 'survived'])
-    expect(amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 17, industry: 25 }, civs))).slice(2)).toEqual([33, 31, 'failed'])
-  })
-
-  it('reserves: 1 per 150 score earned this era; time: +4 per round a ready crisis was kept waiting', () => {
-    const w = (eraScore: number, waited = 0) => amounts(evaluateCrisis(0, W(WINTER_LAND, { vitality: 20, industry: 25 }, [civ('nomads', 8, 0)], eraScore, waited)))
-    expect([149, 150, 299, 300, 1049].map((sc) => (w(sc)[1] as number[])[4])).toEqual([0, 1, 1, 2, 6])
-    expect(w(450, 1)).toEqual([[15, 10, 5, 4], [20, 6, 0, 8, 3], 34, 37, 'survived'])
-    expect(w(0, 2)).toEqual([[15, 10, 5, 8], [20, 6, 0, 8, 0], 38, 34, 'failed'])
-    expect(w(-50)[1]).toEqual([20, 6, 0, 8, 0]) // never negative
-  })
-
-  // 2 coast, 2 plains, 2 desert, 1 tundra, 5 forest
-  const PLAGUE_LAND: Terrain[] = ['coast', 'coast', 'plains', 'plains', 'desert', 'desert', 'tundra', 'forest', 'forest', 'forest', 'forest', 'forest']
-  it('Plague: 35 + 2 per coast/plains + Prosperity over Knowledge + 10 for Merchants vs Knowledge + Vitality ÷ 2 + 2 per desert/tundra + 10 for Scholars', () => {
-    const civs = [civ('merchants', 2, 0), civ('scholars', 4, 1)]
-    const stats = { prosperity: 40, knowledge: 30, vitality: 25 }
-    expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, stats, civs)))).toEqual([[35, 8, 10, 10, 0], [30, 12, 6, 10, 0], 63, 58, 'failed'])
-    expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, stats, civs, 750))).slice(2)).toEqual([63, 63, 'survived']) // 5 reserves close the gap
-    expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, stats, civs, 749))).slice(2)).toEqual([63, 62, 'failed'])
-    expect(amounts(evaluateCrisis(1, W(PLAGUE_LAND, { prosperity: 20, knowledge: 30, vitality: 25 }, [])))).toEqual([[35, 8, 0, 0, 0], [30, 12, 6, 0, 0], 43, 48, 'survived'])
-  })
-
-  // 3 mountains, 2 plains, 1 desert, 1 coast, 5 forest
-  const INVASION_LAND: Terrain[] = ['mountains', 'mountains', 'mountains', 'plains', 'plains', 'desert', 'coast', 'forest', 'forest', 'forest', 'forest', 'forest']
-  it('Invasion: 40 + 2 per open region + development ÷ 4 + Prosperity over Industry vs Industry + 5 per civilization + 3 per mountain + 10 for Empire Builders', () => {
-    const civs = [civ('empireBuilders', 0, 0), civ('nomads', 3, 1), civ('merchants', 4, 2), civ('natureKeepers', 7, 3)]
-    const w = (vitality: number, prosperity: number, industry: number, knowledge: number, eraScore = 0) =>
-      evaluateCrisis(2, W(INVASION_LAND, { vitality, prosperity, industry, knowledge }, civs, eraScore))
-    expect(amounts(w(60, 55, 70, 52))).toEqual([[40, 8, 59, 0, 0], [70, 20, 9, 10, 0], 107, 109, 'survived'])
-    // wealth without walls: Prosperity above Industry, and the extra development draws raiders too
-    expect(amounts(w(60, 80, 70, 52))).toEqual([[40, 8, 65, 10, 0], [70, 20, 9, 10, 0], 123, 109, 'failed'])
-    // a broad world is not safe: all 60s, no Empire Builders, no mountains
-    const broad = evaluateCrisis(2, W(EVEN.map((t): Terrain => (t === 'mountains' ? 'forest' : t)), { vitality: 60, prosperity: 60, industry: 60, knowledge: 60 }, civs.slice(1)))
-    expect([broad.pressure, broad.resilience, broad.result]).toEqual([40 + 12 + 60, 60 + 15, 'failed'])
-    // Industry always pays: +1 arms against at most +1/4 riches
-    const m = (e: CrisisEvaluation) => e.resilience - e.pressure
-    expect(m(w(60, 55, 80, 52)) - m(w(60, 55, 70, 52))).toBe(10 - 2) // development 237 → 247: riches 59 → 61
-  })
-
-  it('terrain alone can decide a crisis', () => {
-    const stats = { vitality: 15, prosperity: 15 }, civs = [civ('nomads', 0, 0)]
-    expect(evaluateCrisis(0, W('forest', stats, civs)).result).toBe('survived') // 15 vs 15 + 24 + 8
-    expect(evaluateCrisis(0, W('tundra', stats, civs)).result).toBe('failed') // 39 vs 23
-  })
-
-  it('the stat distribution alone can decide a crisis: same development, different balance', () => {
-    expect(amounts(evaluateCrisis(0, W(EVEN, { vitality: 20, industry: 10 })))).toEqual([[15, 6, 0, 0], [20, 6, 0, 0, 0], 21, 26, 'survived'])
-    expect(amounts(evaluateCrisis(0, W(EVEN, { vitality: 10, industry: 20 })))).toEqual([[15, 6, 10, 0], [10, 6, 0, 0, 0], 31, 16, 'failed'])
-  })
-
-  it('civilizations alone can decide a crisis: Merchants spread the plague, Scholars contain it', () => {
-    const stats = { vitality: 30, prosperity: 30, knowledge: 25 }
-    expect(amounts(evaluateCrisis(1, W(EVEN, stats, [civ('merchants', 9, 0)])))).toEqual([[35, 6, 5, 10, 0], [25, 15, 6, 0, 0], 56, 46, 'failed'])
-    expect(amounts(evaluateCrisis(1, W(EVEN, stats, [civ('scholars', 6, 0)])))).toEqual([[35, 6, 5, 0, 0], [25, 15, 6, 10, 0], 46, 56, 'survived'])
-    const inv = (n: number) => evaluateCrisis(2, W(EVEN, { vitality: 50, prosperity: 50, industry: 50, knowledge: 50 }, ARCHETYPE_ORDER.slice(0, n).map((a, i) => civ(a, i, i))))
-    expect(inv(4).resilience - inv(3).resilience).toBe(5 + 10) // the 4th is Empire Builders
-  })
-
-  it("score alone can decide a crisis: the same world survives with this era's reserves", () => {
-    const w = (eraScore: number) => evaluateCrisis(0, W(WINTER_LAND, { vitality: 17, industry: 25 }, [civ('nomads', 8, 0)], eraScore)).result
-    expect([w(0), w(299), w(300)]).toEqual(['failed', 'failed', 'survived'])
-  })
-
-  it('the same seed, played differently, meets different fates', () => {
-    const fate = (bot: (s: AscensionState) => AscensionAction, seed: string) => { const s = last(drive(seed, bot)); return [runStatus(s), ...outcomes(s)] }
-    expect(fate(balancedBot, 'crisis-0')).toEqual(['complete', 'winter:survived', 'plague:survived', 'invasion:survived'])
-    expect(fate(suitBot(['C', 'S']), 'crisis-0')).toEqual(['failed', 'winter:failed']) // Industry without Vitality: cleared forests
-    expect(fate(suitBot(['H', 'D']), 'crisis-0')).toEqual(['failed', 'winter:survived', 'plague:failed']) // trade without medicine
-    // a broad balanced world can lose the Invasion
-    expect(last(drive('crisis-4', balancedBot)).crises.map((c) => [c.crisis, c.resilience, c.pressure, c.result])).toEqual([
-      ['winter', 33, 22, 'survived'], ['plague', 67, 53, 'survived'], ['invasion', 98, 100, 'failed'],
-    ])
-  })
-
-  it('the outcome follows from the world alone: no randomness, and the seed does not matter', () => {
-    const w = W(WINTER_LAND, { vitality: 18, industry: 25 }, [civ('nomads', 8, 0)])
-    expect(evaluateCrisis(0, w)).toEqual(evaluateCrisis(0, w))
-    for (const seed of ['a', 'b', 'c']) expect(evaluateCrisis(0, { ...newAscensionGame(seed), ...w })).toEqual(evaluateCrisis(0, w))
-    const frozen = deepFreeze(at(0, { vitality: 18, industry: 25 }, [civ('nomads', 8, 0)], WINTER_LAND))
-    expect(applyAscensionAction(frozen, { type: 'resolve' }).crises[0]).toEqual({ ...evaluateCrisis(0, crisisWorld(frozen)), round: 0, faced: 1 })
-  })
-
-  it('a crisis cannot be skipped: the era never advances without facing it', () => {
-    const s = at(0, { vitality: 99, prosperity: 99, industry: 99, knowledge: 99 }, [civ('nomads', 8, 0), civ('scholars', 9, 1)], WINTER_LAND)
-    let t: AscensionState = { ...s, crisis: null, playsLeft: 1 }
-    for (let r = 0; r < 12 && runStatus(t) !== 'crisis'; r++) t = applyAscensionAction(t, { type: 'play', cards: [0] })
-    expect([runStatus(t), t.era, t.crises]).toEqual(['crisis', 0, []]) // ready, then struck on its own; never skipped
-  })
-
-  it('a crisis resolves once: resolving with none ready is refused, and a faced crisis never returns', () => {
-    expect(() => applyAscensionAction(newAscensionGame('no-crisis'), { type: 'resolve' })).toThrow('no crisis to resolve')
-    const s = applyAscensionAction(at(0, { vitality: 18, industry: 25 }, [civ('nomads', 8, 0)], WINTER_LAND), { type: 'resolve' })
-    expect([runStatus(s), s.era, s.crises.length]).toEqual(['playing', 1, 1])
-    expect(() => applyAscensionAction(s, { type: 'resolve' })).toThrow('no crisis to resolve')
-    // the next round end with requirements met brings the NEXT era's crisis
-    const next = applyAscensionAction({ ...s, stats: { vitality: 40, prosperity: 40, industry: 40, knowledge: 40 }, civilizations: [civ('nomads', 8, 0), civ('scholars', 9, 1)], playsLeft: 1 }, { type: 'play', cards: [0] })
-    expect(runStatus(next)).toBe('ready')
-    expect(evaluateCrisis(next.era, crisisWorld(next)).crisis).toBe('plague')
-  })
-
-  it('failure ends the run and keeps the world for inspection', () => {
-    const struck = at(0, { vitality: 17, industry: 25 }, [civ('nomads', 8, 0)], WINTER_LAND)
-    const s = deepFreeze(applyAscensionAction(struck, { type: 'resolve' }))
-    expect([runStatus(s), s.era, s.eraLog, s.crisis]).toEqual(['failed', 0, [], null])
-    expect(s.crises).toEqual([{ ...evaluateCrisis(0, crisisWorld(struck)), round: 0, faced: 1 }])
-    expect(last(s.crises)).toMatchObject({ result: 'failed', pressure: 33, resilience: 31 })
-    const snap = JSON.stringify(s)
-    for (const a of [{ type: 'play', cards: [0] }, { type: 'discard', cards: [0] }, { type: 'resolve' }] as AscensionAction[]) {
-      expect(() => applyAscensionAction(s, a)).toThrow('run over: Harsh Winter failed')
+describe('Ascension v10: civilizations', () => {
+  it('eight archetypes, each with a passive, homes and names; relations are symmetric', () => {
+    expect(ARCHETYPE_ORDER).toHaveLength(8)
+    for (const a of ARCHETYPE_ORDER) {
+      const d = ARCHETYPES[a]
+      expect(d.terrains.length).toBeGreaterThan(0)
+      expect(d.passive.text(1)).not.toEqual(d.passive.text(2))
+      for (const b of ARCHETYPE_ORDER) expect(relationOf(a, b)).toBe(relationOf(b, a))
     }
-    expect(() => evaluatePlay(s, [0])).toThrow('run over')
-    expect(JSON.stringify(s)).toBe(snap)
-    expect([s.regions, s.stats, s.civilizations, s.score, s.hand]).toEqual([struck.regions, struck.stats, struck.civilizations, struck.score, struck.hand])
-    expectConserved(s)
-    const run = drive('crisis-4', balancedBot)
-    expect(runStatus(last(run))).toBe('failed')
-    expect(last(run).regions).toEqual(run[0].regions)
+    expect(relationOf('natureKeepers', 'nomads')).toBe('ally')
+    expect(relationOf('empireBuilders', 'nomads')).toBe('rival')
+    expect(emergenceThreshold(0)).toBe(5)
+    expect(emergenceThreshold(3)).toBe(20)
   })
 
-  it("the round-end projection the UI shows is exactly what the round's last play commits", () => {
-    let checked = 0, withCiv = 0, readied = 0 // forced strikes: see "kept waiting, a crisis gathers" 
-    for (const seed of ['project-0', 'project-1', 'project-2', 'project-3', 'project-4', 'project-5', 'project-6', 'project-7']) {
-      let s = newAscensionGame(seed)
-      for (const a of randomActions(seed, 900)) {
-        if (a.type === 'play' && s.playsLeft === 1) {
-          const p = evaluatePlay(s, a.cards)
-          const proj = projectRoundEnd(s, Object.fromEntries(WORLD_STATS.map((k) => [k, s.stats[k] + p.statDeltas[k]])) as WorldStats, s.score + p.score)
-          const next = applyAscensionAction(s, a)
-          expect(next.civilizations).toEqual(proj.civ ? [...s.civilizations, proj.civ] : s.civilizations)
-          expect([next.crisis !== null, runStatus(next) === 'crisis']).toEqual([proj.ready, proj.forced])
-          if (proj.ready) expect(evaluateCrisis(next.era, crisisWorld(next))).toEqual(proj.crisis)
-          checked += 1; if (proj.civ) withCiv += 1; if (proj.ready && !s.crisis) readied += 1
-          s = next
-        } else s = applyAscensionAction(s, a)
+  it('civilizations emerge from development, and grow a tier at the dawn of the right era', () => {
+    const { s } = scripted('civs-grow')
+    expect(s.civilizations.length + s.fallen.length).toBeGreaterThan(0)
+    const civ: Civilization = { ...s.civilizations[0] ?? s.fallen[0], tier: 1, archetype: 'natureKeepers' }
+    const rich = { vitality: 99, prosperity: 0, industry: 0, knowledge: 0 }
+    expect(grownTier(civ, rich, 0)).toBe(1)
+    expect(grownTier(civ, rich, TIER_GROWTH[0].fromEra)).toBe(2)
+    expect(grownTier({ ...civ, tier: 2 }, rich, TIER_GROWTH[1].fromEra)).toBe(3)
+    expect(grownTier(civ, { ...rich, vitality: 5 }, 5)).toBe(1)
+  })
+
+  it('relations follow borders (and the Architect Moon adds opposite borders)', () => {
+    const regions = generateRegions(hashSeed('rel'))
+    const civ = (id: number, home: number, archetype: Civilization['archetype']): Civilization => ({ id, archetype, name: `c${id}`, home, tier: 1, emergedEra: 0, emergedPlay: 0, reason: { stat: 'vitality', readiness: 0, needed: 0, terrain: 'forest', regionFit: 0 } })
+    const pair = [civ(0, 0, 'natureKeepers'), civ(1, 1, 'nomads')] // 0 and 1 border
+    expect(relations(pair, regions)).toEqual([{ a: 0, b: 1, relation: 'ally' }])
+    const far = [civ(0, 0, 'natureKeepers'), civ(1, 4, 'nomads')] // 0 and 4 are opposite
+    expect(relations(far, regions)).toEqual([])
+    const s = newRun(setup('moon'))
+    const m = runMods({ ...s, legendaries: [{ id: 'architectMoon', counter: 0, awake: false }] })
+    expect(relations(far, borders(regions, m))).toEqual([{ a: 0, b: 1, relation: 'ally' }])
+    OPPOSITE.forEach((o, i) => expect(OPPOSITE[o]).toBe(i))
+  })
+})
+
+describe('Ascension v10: content', () => {
+  it('world cards: 30–50, unique stable ids, valid cards, text and effects; decrees likewise', () => {
+    expect(CONTENT_VERSION).toBeGreaterThanOrEqual(1)
+    const n = WORLD_CARDS.length + DECREES.length
+    expect(n).toBeGreaterThanOrEqual(30)
+    expect(n).toBeLessThanOrEqual(55)
+    const ids = [...WORLD_CARDS.map((c) => c.id), ...DECREES.map((d) => d.id)]
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const c of WORLD_CARDS) {
+      expect(c.id).toMatch(/^[a-z][a-z0-9-]*$/)
+      expect(c.rank).toBeGreaterThanOrEqual(2)
+      expect(c.rank).toBeLessThanOrEqual(14)
+      expect('SHDC').toContain(c.suit)
+      expect(c.text.length).toBeGreaterThan(8)
+      expect(c.effects.length).toBeGreaterThan(0)
+      expect(c.era).toBeGreaterThanOrEqual(0)
+      expect(c.era).toBeLessThan(ERAS.length)
+      for (const e of c.effects) for (const op of e.ops) {
+        if ('per' in op && op.per?.per === 'terrain') for (const t of op.per.terrains) expect(TERRAIN[t]).toBeDefined()
       }
+      expect(CARD_BY_ID.get(c.id)).toBe(c)
     }
-    expect([checked > 40, withCiv > 5, readied >= 4]).toEqual([true, true, true])
+    for (const d of DECREES) { expect(d.price).toBeGreaterThan(0); expect(d.ops.length).toBeGreaterThan(0); expect(DECREE_BY_ID.get(d.id)).toBe(d) }
+    // every rarity and many archetypes are represented
+    for (const r of ['common', 'uncommon', 'rare']) expect(WORLD_CARDS.some((c) => c.rarity === r)).toBe(true)
+    expect(new Set(WORLD_CARDS.flatMap((c) => c.tags)).size).toBeGreaterThanOrEqual(12)
   })
 
-  it('projecting the round end changes nothing, and with no stats given it uses the world as it stands', () => {
-    const s = deepFreeze(newAscensionGame('project-pure'))
-    expect(projectRoundEnd(s)).toEqual(projectRoundEnd(s, s.stats, s.score))
-    expect(projectRoundEnd(s)).toMatchObject({ civ: null, ready: false, forced: false })
-    const rich = { ...noStats(), vitality: 20, prosperity: 20 }
-    expect(projectRoundEnd(s, rich).civ).not.toBeNull()
-    expect(projectRoundEnd(s, rich)).toMatchObject({ ready: true, forced: false })
+  it('every world card does something when it triggers', () => {
+    for (const def of WORLD_CARDS) {
+      let s = newRun(setup(`card-${def.id}`))
+      s.stats = { vitality: 30, prosperity: 30, industry: 30, knowledge: 36 }
+      const card = inst(def.rank, def.suit, 5000, def.id)
+      if (def.effects.some((e) => e.when === 'discarded')) {
+        s = withHand(s, [card, inst(2, 'S', 5001), inst(3, 'S', 5002), inst(4, 'S', 5003), inst(5, 'S', 5004), inst(6, 'S', 5005), inst(7, 'S', 5006), inst(8, 'S', 5007)])
+        const d = evaluateDiscard(s, [0])
+        expect(d.lines.length, def.id).toBeGreaterThan(0)
+        continue
+      }
+      const held = def.effects.some((e) => e.when === 'held')
+      const hand = held
+        ? [inst(9, 'S', 5001), card, inst(3, 'D', 5002), inst(4, 'D', 5003), inst(5, 'D', 5004), inst(6, 'D', 5005), inst(7, 'D', 5006), inst(8, 'D', 5007)]
+        : [card, inst(def.rank, def.suit === 'S' ? 'H' : 'S', 5001), inst(3, 'D', 5002), inst(4, 'C', 5003), inst(5, 'D', 5004), inst(6, 'D', 5005), inst(7, 'D', 5006), inst(8, 'D', 5007)]
+      s = withHand(s, hand)
+      // put it where its condition holds
+      for (const e of def.effects) for (const op of e.ops) if ('per' in op && op.per?.per === 'terrain') s.regions[11].terrain = op.per.terrains[0]
+      if (def.id === 'last-stand') s.handsLeft = 1
+      if (def.id === 'long-count') s.handsPlayed = 3
+      if (def.id === 'balance-scales') s.stats = { vitality: 30, prosperity: 30, industry: 30, knowledge: 30 }
+      if (def.id === 'monument') s.stats = { vitality: 60, prosperity: 10, industry: 10, knowledge: 10 }
+      if (def.id === 'border-fort') s.crisisTrack[s.era] = 'invasion'
+      if (def.id === 'herbalist') s.crisisTrack[s.era] = 'winter'
+      if (def.id === 'trade-road' || def.id === 'grand-bazaar') s = withHand(s, [card, inst(def.rank, 'D', 5001), inst(3, 'S', 5002), inst(4, 'C', 5003), inst(5, 'S', 5004), inst(6, 'S', 5005), inst(7, 'S', 5006), inst(8, 'C', 5007)])
+      if (def.tags.includes('civ') || def.tags.includes('relations')) {
+        const c = (id: number, home: number, archetype: Civilization['archetype']): Civilization => ({ id, archetype, name: `c${id}`, home, tier: 1, emergedEra: 0, emergedPlay: 0, reason: { stat: 'vitality', readiness: 0, needed: 0, terrain: 'forest', regionFit: 0 } })
+        s.civilizations = def.id === 'war-drums' ? [c(0, 0, 'empireBuilders'), c(1, 1, 'nomads')] : [c(0, 0, 'natureKeepers'), c(1, 1, 'nomads')]
+      }
+      const idx = held ? [0] : def.id === 'trade-road' || def.id === 'grand-bazaar' ? [0, 1] : [0, 1]
+      const r = evaluatePlay(s, idx)
+      const src = held ? 'held' : 'card'
+      expect(r.lines.some((l) => l.source === src), `${def.id}: ${JSON.stringify(r.lines)}`).toBe(true)
+    }
+  })
+
+  it('legendaries: 12–20, each changes a rule through at least one hook, with text', () => {
+    expect(LEGENDARY_ORDER.length).toBeGreaterThanOrEqual(12)
+    expect(LEGENDARY_ORDER.length).toBeLessThanOrEqual(20)
+    expect(new Set(LEGENDARY_ORDER).size).toBe(LEGENDARY_ORDER.length)
+    for (const id of LEGENDARY_ORDER) {
+      const d = LEGENDARIES[id]
+      expect(d.id).toBe(id)
+      expect(d.text.length).toBeGreaterThan(20)
+      const hooks = ['mods', 'score', 'crisis', 'discard', 'dawn', 'eraEnd', 'endure', 'prevent', 'tempered'].filter((h) => h in d)
+      expect(hooks.length, id).toBeGreaterThan(0)
+    }
+  })
+
+  it('pools: the starter pool is a subset of the full pool; both are valid run setups', () => {
+    for (const k of ['cards', 'decrees', 'legendaries', 'archetypes'] as const) {
+      for (const id of STARTER_POOL[k]) expect((FULL_POOL[k] as string[]).includes(id)).toBe(true)
+      expect(STARTER_POOL[k].length).toBeLessThan(FULL_POOL[k].length)
+    }
+    expect(() => newRun(setup('starter', { pool: STARTER_POOL }))).not.toThrow()
+  })
+})
+
+describe('Ascension v10: the Council', () => {
+  const atCouncil = (seed: string) => { const s = face(newRun(setup(seed))); expect(s.phase).toBe('council'); return s }
+
+  it('offers are a deterministic function of seed, era and reroll; a legendary is chosen after the right eras', () => {
+    const s = atCouncil('council-a')
+    const m = runMods(s)
+    expect(marketOffers(s, 0, 0, m)).toEqual(s.council!.offers)
+    expect(marketOffers(s, 0, 1, m)).not.toEqual(s.council!.offers)
+    expect(s.council!.offers.filter((o) => o.kind === 'card')).toHaveLength(m.marketSlots - 2)
+    expect(s.council!.offers.filter((o) => o.kind === 'decree')).toHaveLength(2)
+    expect(LEGENDARY_PICK_AFTER).toContain(0)
+    expect(s.council!.legendaryChoice).toEqual(legendaryChoice(s, 0))
+    expect(s.council!.legendaryChoice).toHaveLength(3)
+    for (const e of LEGENDARY_SALE_AFTER) expect(LEGENDARY_PICK_AFTER).not.toContain(e)
+  })
+
+  it('buying a card adds it to the deck; decrees act; legendaries fill slots; prices are paid', () => {
+    let s = atCouncil('council-b')
+    s = { ...structuredClone(s), influence: 100 }
+    const ci = s.council!.offers.findIndex((o) => o.kind === 'card')
+    const bought = applyAction(s, { type: 'buy', offer: ci })
+    const def = CARD_BY_ID.get(s.council!.offers[ci].id)!
+    expect(ownedCards(bought)).toHaveLength(53)
+    expect(ownedCards(bought).some((c) => c.kind === def.id && c.r === def.rank && c.s === def.suit)).toBe(true)
+    expect(bought.influence).toBe(100 - s.council!.offers[ci].price)
+    expect(() => applyAction(bought, { type: 'buy', offer: ci })).toThrow(/already bought/)
+    const picked = applyAction(s, { type: 'legendary', pick: 1 })
+    expect(picked.legendaries.map((l) => l.id)).toEqual([s.council!.legendaryChoice![1]])
+    expect(picked.council!.legendaryChoice).toBeNull()
+    const sold = applyAction(picked, { type: 'sell', slot: 0 })
+    expect(sold.legendaries).toEqual([])
+    expect(sold.influence).toBe(picked.influence + SELL_REFUND)
+    const rr = applyAction(s, { type: 'reroll' })
+    expect(rr.council!.rerolls).toBe(1)
+    expect(rr.influence).toBe(99)
+    const card = ownedCards(s)[0].id
+    const thin = applyAction(s, { type: 'remove', card })
+    expect(ownedCards(thin)).toHaveLength(51)
+    expect(thin.influence).toBe(100 - REMOVE_PRICE)
+    expect(() => applyAction({ ...s, influence: 0 }, { type: 'reroll' })).toThrow(/not enough Influence/)
+  })
+
+  it('decrees: terraform needs a legal region; shift and census move stats; Rally caps at 3', () => {
+    const s = { ...structuredClone(atCouncil('council-c')), influence: 100 }
+    const run = (id: string, target?: number | Suit) => {
+      const t = structuredClone(s)
+      t.council!.offers = [{ kind: 'decree', id, price: 1, sold: false }]
+      return applyAction(t, { type: 'buy', offer: 0, ...(target !== undefined ? { target } : {}) })
+    }
+    const desert = s.regions.find((r) => r.terrain === 'desert' || r.terrain === 'tundra')
+    if (desert) expect(run('irrigate', desert.id).regions[desert.id].terrain).toBe('plains')
+    const wrong = s.regions.find((r) => r.terrain === 'forest')!
+    expect(() => run('irrigate', wrong.id)).toThrow(/needs desert or tundra/)
+    expect(() => run('irrigate')).toThrow(/choose a region/)
+    const lo = run('census')
+    expect(Object.values(lo.stats).reduce((a, b) => a + b, 0)).toBe(Object.values(s.stats).reduce((a, b) => a + b, 0) + 3)
+    const full = { ...structuredClone(s), resolve: 3 }
+    full.council!.offers = [{ kind: 'decree', id: 'rally', price: 1, sold: false }]
+    expect(() => applyAction(full, { type: 'buy', offer: 0 })).toThrow(/already full/)
+    const summer = run('long-summer')
+    expect(leave(summer).handsLeft).toBe(ERAS[1].hands + 2)
+    const charter = run('guild-charter', 'C')
+    expect(ownedCards(charter).filter((c) => c.s === 'C')).toHaveLength(16)
+  })
+
+  it('the deck cannot be thinned below the minimum', () => {
+    const s = structuredClone(atCouncil('council-d'))
+    s.influence = 1000
+    s.drawPile = s.drawPile.slice(0, MIN_DECK)
+    expect(() => applyAction(s, { type: 'remove', card: s.drawPile[0].id })).toThrow(/cannot be thinned/)
+  })
+})
+
+describe('Ascension v10: legendaries in play', () => {
+  const withLegend = (id: LegendaryId, seed = `leg-${id}`) => { const s = structuredClone(newRun(setup(seed))); s.legendaries = [{ id, counter: 0, awake: false }]; return s }
+
+  it('the Sleeping God turns the first failed crisis into endured, then wakes (+4 mult)', () => {
+    const s = face(withLegend('sleepingGod'))
+    expect(s.crises[0]).toMatchObject({ result: 'endured', prevented: true })
+    expect(s.resolve).toBe(3)
+    expect(s.legendaries[0].awake).toBe(true)
+    const t = face(leave(s))
+    expect(t.crises[1].result).toBe('failed')
+    const r = evaluatePlay(leave(t), [0])
+    expect(r.lines.some((l) => l.label === 'The Sleeping God' && l.mult === 4)).toBe(true)
+  })
+
+  it('the Hourglass adds hands and pressure; the Oracle adds discards and banks reserves', () => {
+    const h = withLegend('hourglass')
+    const base = newRun(setup('leg-hourglass'))
+    expect(runMods(h).handsBonus).toBe(2)
+    expect(forecast(h).pressure).toBeGreaterThan(forecast(base).pressure)
+    const o = withLegend('oraclesEye')
+    expect(runMods(o).discardsBonus).toBe(2)
+    expect(applyAction(o, { type: 'discard', cards: [0] }).eraReserves).toBe(2)
+  })
+
+  it('the Titan Forge tempers scoring cards permanently; the Everflame doubles small hands', () => {
+    let s = withLegend('titanForge')
+    s = withHand(s, [inst(9, 'C', 7001), inst(9, 'D', 7002), inst(2, 'S', 7003), inst(3, 'S', 7004), inst(4, 'S', 7005), inst(5, 'H', 7006), inst(6, 'H', 7007), inst(7, 'H', 7008)])
+    const t = play(s, [0, 1])
+    expect(ownedCards(t).find((c) => c.id === 7001)!.bonus).toBe(8)
+    expect(ownedCards(t).find((c) => c.id === 7002)!.bonus).toBe(8)
+    expect(ownedCards(t).find((c) => c.id === 7003)!.bonus).toBe(0)
+    let e = withLegend('everflame')
+    e = withHand(e, [inst(9, 'C', 7001), inst(9, 'D', 7002), inst(2, 'S', 7003), inst(3, 'S', 7004), inst(4, 'S', 7005), inst(5, 'H', 7006), inst(6, 'H', 7007), inst(7, 'H', 7008)])
+    expect(evaluatePlay(e, [0, 1]).xmult).toBe(2)
+  })
+
+  it('the Eternal Dragon devours the weakest civilization of three and grows; Gaia heals the harshest land', () => {
+    const s = withLegend('eternalDragon')
+    s.stats = { vitality: 300, prosperity: 300, industry: 300, knowledge: 300 }
+    const c = (id: number, home: number, tier: number, archetype: Civilization['archetype']): Civilization => ({ id, archetype, name: `c${id}`, home, tier, emergedEra: 0, emergedPlay: 0, reason: { stat: 'vitality', readiness: 0, needed: 0, terrain: 'forest', regionFit: 0 } })
+    s.civilizations = [c(0, 0, 2, 'nomads'), c(1, 3, 1, 'scholars'), c(2, 6, 2, 'merchants')] // devours the Settlement
+    const t = face(s)
+    expect(t.civilizations.map((x) => x.id)).toEqual([0, 2])
+    expect(t.fallen.map((x) => x.id)).toEqual([1])
+    expect(t.legendaries[0].counter).toBe(1)
+    const g = withLegend('gaiasHeart')
+    g.regions[5].terrain = 'wasteland'
+    const next = leave(face(g))
+    expect(next.regions[5].terrain).toBe('forest')
+  })
+
+  it('the Monolith doubles the tested highest stat; the Cosmic Library adds foresight', () => {
+    const s = withLegend('monolith')
+    s.crisisTrack[0] = 'winter'
+    s.stats = { vitality: 20, prosperity: 0, industry: 0, knowledge: 0 }
+    expect(forecast(s).mitigations.find((f) => f.label === 'The Monolith')!.amount).toBe(40)
+    const k = withLegend('cosmicLibrary')
+    k.stats.knowledge = 21
+    expect(forecast(k).mitigations.find((f) => f.label === 'The Cosmic Library')!.amount).toBe(7)
+  })
+
+  it('no legendary combination produces a non-finite or runaway score', () => {
+    for (const [i, id] of LEGENDARY_ORDER.entries()) {
+      const s = structuredClone(newRun(setup(`combo-${i}`)))
+      s.legendaries = LEGENDARY_ORDER.slice(i, i + 4).map((x) => ({ id: x, counter: 5, awake: true }))
+      s.stats = { vitality: 200, prosperity: 200, industry: 200, knowledge: 200 }
+      const r = evaluatePlay(s, [0, 1, 2, 3, 4])
+      expect(Number.isFinite(r.score), id).toBe(true)
+      expect(r.score).toBeLessThan(1e9)
+    }
+  })
+})
+
+describe('Ascension v10: Omens', () => {
+  it('eight stacking Omens, each doing what it says', () => {
+    expect(OMENS.map((o) => o.level)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    const at = (omen: number) => newRun(setup('omens', { omen }))
+    expect(at(1).discardsLeft).toBe(ERAS[0].discards - 1)
+    expect(at(0).discardsLeft).toBe(ERAS[0].discards)
+    const harsh = Array.from({ length: 100 }, (_, i) => generateRegions(hashSeed(`h${i}`), 'pangaea', true).filter((r) => r.terrain === 'tundra' || r.terrain === 'desert').length).reduce((a, b) => a + b, 0)
+    const mild = Array.from({ length: 100 }, (_, i) => generateRegions(hashSeed(`h${i}`)).filter((r) => r.terrain === 'tundra' || r.terrain === 'desert').length).reduce((a, b) => a + b, 0)
+    expect(harsh).toBeGreaterThan(mild)
+    expect(runMods(at(3)).crisis.rivalsEverywhere).toBe(true)
+    expect(runMods(at(3)).crisis.allyResilience).toBe(2)
+    expect(runMods(at(2)).crisis.rivalsEverywhere).toBe(false)
+    expect(runMods(at(4)).marketSlots).toBe(4)
+    expect(runMods(at(5)).crisis.pressurePct).toBe(5)
+    expect(runMods(at(6)).crisis.strainPct).toBe(50)
+    expect(startingResolve(7)).toBe(2)
+    expect(at(7).resolve).toBe(2)
+    expect(at(6).resolve).toBe(3)
+    expect(runMods(at(8), 3).handsBonus).toBe(0)
+    expect(runMods(at(8), 4).handsBonus).toBe(-1)
+    const night = structuredClone(at(8))
+    night.era = FINAL_ERA
+    night.crises = [{ ...face(at(8)).crises[0], result: 'failed', prevented: false }]
+    expect(runMods(night).crisis.extraPressures.find((f) => f.label === 'The Long Night')!.amount).toBe(10)
+  })
+})
+
+describe('Ascension v10: the Chronicle', () => {
+  it('every event of a full run reads as a sentence, deterministically', () => {
+    const { s } = scripted('chronicle')
+    const a = chronicleByEra(s.chronicle, s.seed), b = chronicleByEra(s.chronicle, s.seed)
+    expect(b).toEqual(a)
+    const lines = a.flatMap((g) => g.lines)
+    expect(lines.length).toBe(s.chronicle.length)
+    for (const l of lines) { expect(l.text.length).toBeGreaterThan(8); expect(l.text).not.toMatch(/undefined|NaN|\[object/) }
+    expect(s.chronicle.some((e) => e.t === 'crisis')).toBe(true)
+    expect(s.chronicle[s.chronicle.length - 1].t).toBe('end')
+    expect(describeEvent(s.chronicle[0], s.seed, 0)).toEqual(lines[0].text)
+  })
+
+  it('long runs stay bounded: many seeds end, with finite numbers', () => {
+    for (let i = 0; i < 12; i++) {
+      const { s } = scripted(`bounded-${i}`, { omen: i % 9 })
+      expect(['won', 'lost']).toContain(s.phase)
+      expect(Number.isFinite(s.score)).toBe(true)
+      expect(s.crises.length).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('Ascension v10: terrain data', () => {
+  it('every natural terrain favours a stat; wasteland favours none', () => {
+    for (const t of NATURAL_TERRAINS) expect(TERRAIN[t].stat).not.toBeNull()
+    expect(TERRAIN.wasteland.stat).toBeNull()
   })
 })

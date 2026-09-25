@@ -1,0 +1,183 @@
+1000 seeds · complete% · lapsed% · Winter/Plague/Invasion survival % · median rounds · completed worlds' stats high→low (median) · median crisis margins · median plays per era · mean cards per play · median budget left when facing each crisis
+
+== v8-binary {"budget":{"unit":"none","perEra":[0,0,0],"discardCost":0,"carryOver":false},"rules":{"gatherPerRound":4}}
+  balanced     82% flawless  82% fails/run 0.18 lap  0%  89/96/96    r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 0/0/0
+  random       62% flawless  62% fails/run 0.38 lap  0%  80/90/87    r17  56/53/50/47     m 9/17/12      plays 20/24/24  cards 3.0 left 0/0/0
+  patient      97% flawless  97% fails/run 0.03 lap  0%  100/100/97  r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 0/0/0
+  prepared     98% flawless  98% fails/run 0.01 lap  0%  100/100/99  r10  51/50/50/49     m 17/20/16     plays 12/12/16  cards 5.0 left 0/0/0
+  resolute    100% flawless 100% fails/run 0.00 lap  0%  100/100/100 r12  54/53/52/50     m 25/25/17     plays 16/16/16  cards 4.4 left 0/0/0
+  planner      99% flawless  99% fails/run 0.01 lap  0%  100/100/99  r11  57/54/52/48     m 21/31/20     plays 12/16/16  cards 4.8 left 0/0/0
+  thrifty      99% flawless  99% fails/run 0.01 lap  0%  100/100/99  r11  57/54/52/48     m 21/31/20     plays 12/16/16  cards 4.8 left 0/0/0
+  lean-V       98% flawless  98% fails/run 0.02 lap  0%  100/100/98  r12  78/43/42/41     m 20/23/7      plays 12/16/24  cards 4.2 left 0/0/0
+  lean-I       99% flawless  99% fails/run 0.01 lap  0%  100/100/99  r13  80/42/41/41     m 15/19/45     plays 12/12/24  cards 4.0 left 0/0/0
+  poker-max    83% flawless  83% fails/run 0.17 lap  0%  92/96/94    r10  53/51/49/47     m 13/24/16     plays 12/16/12  cards 5.0 left 0/0/0
+  focus-I       0% flawless   0% fails/run 1.00 lap  0%  0/-/-       r-   -/-/-/-         m -31/-/-      plays 8/-/-     cards 4.0 left 0/-/-
+
+== v8+lives2 {"budget":{"unit":"none","perEra":[0,0,0],"discardCost":0,"carryOver":false},"rules":{"gatherPerRound":4,"lives":2}}
+  balanced    100% flawless  82% fails/run 0.18 lap  0%  89/96/97    r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 0/0/0
+  random      100% flawless  62% fails/run 0.41 lap  0%  80/91/88    r17  56/53/50/47     m 9/17/13      plays 20/24/24  cards 3.0 left 0/0/0
+  patient     100% flawless  97% fails/run 0.03 lap  0%  100/100/97  r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 0/0/0
+  prepared    100% flawless  98% fails/run 0.01 lap  0%  100/100/99  r10  51/50/50/49     m 17/20/16     plays 12/12/16  cards 5.0 left 0/0/0
+  resolute    100% flawless 100% fails/run 0.00 lap  0%  100/100/100 r12  54/53/52/50     m 25/25/17     plays 16/16/16  cards 4.4 left 0/0/0
+  planner     100% flawless  99% fails/run 0.01 lap  0%  100/100/99  r11  57/54/52/48     m 21/31/20     plays 12/16/16  cards 4.8 left 0/0/0
+  thrifty     100% flawless  99% fails/run 0.01 lap  0%  100/100/99  r11  57/54/52/48     m 21/31/20     plays 12/16/16  cards 4.8 left 0/0/0
+  lean-V      100% flawless  98% fails/run 0.02 lap  0%  100/100/98  r12  78/43/42/41     m 20/23/7      plays 12/16/24  cards 4.2 left 0/0/0
+  lean-I      100% flawless  99% fails/run 0.01 lap  0%  100/100/99  r13  80/42/41/41     m 15/19/45     plays 12/12/24  cards 4.0 left 0/0/0
+  poker-max   100% flawless  83% fails/run 0.18 lap  0%  92/96/95    r10  53/51/49/47     m 13/24/16     plays 12/16/12  cards 5.0 left 0/0/0
+  focus-I     100% flawless   0% fails/run 1.00 lap  0%  0/100/100   r12  77/74/57/0      m -31/53/35    plays 8/20/16   cards 4.3 left 0/0/0
+
+== K70-binary {}
+  balanced     82% flawless  82% fails/run 0.18 lap  0%  89/96/96    r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 10/20/30
+  random        5% flawless   5% fails/run 0.19 lap 76%  78/89/86    r16  55/52/49/46     m 8/15/13      plays 20/20/25  cards 3.0 left 0/0/0
+  patient      94% flawless  94% fails/run 0.06 lap  0%  97/100/98   r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 10/20/30
+  prepared     99% flawless  99% fails/run 0.01 lap  0%  100/100/99  r10  51/50/50/49     m 17/20/16     plays 12/12/16  cards 5.0 left 10/20/30
+  resolute     75% flawless  75% fails/run 0.01 lap 24%  100/100/99  r12  54/53/52/51     m 23/25/17     plays 15/15/17  cards 4.3 left 0/0/5
+  planner      99% flawless  99% fails/run 0.01 lap  0%  100/100/99  r11  57/54/52/48     m 21/30/20     plays 12/16/16  cards 4.8 left 10/2/18
+  thrifty      96% flawless  96% fails/run 0.01 lap  4%  100/100/99  r18  58/54/51/44     m 30/34/19     plays 24/24/24  cards 2.8 left 7/5/23
+  lean-V       98% flawless  98% fails/run 0.02 lap  0%  100/100/98  r11  69/47/46/44     m 20/23/10     plays 12/15/19  cards 4.5 left 10/0/0
+  lean-I       99% flawless  99% fails/run 0.01 lap  0%  100/100/99  r11  68/47/46/45     m 15/20/33     plays 12/12/20  cards 4.5 left 10/18/0
+  poker-max    83% flawless  83% fails/run 0.17 lap  0%  91/96/94    r10  53/51/49/47     m 12/24/16     plays 12/16/12  cards 5.0 left 10/0/30
+  focus-I       0% flawless   0% fails/run 1.00 lap  0%  0/-/-       r-   -/-/-/-         m -31/-/-      plays 8/-/-     cards 4.0 left 26/-/-
+
+== K70+lives2 {"rules":{"lives":2}}
+  balanced    100% flawless  82% fails/run 0.18 lap  0%  89/96/97    r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 10/20/30
+  random        8% flawless   5% fails/run 0.20 lap 92%  78/89/89    r16  55/52/49/46     m 8/15/13      plays 20/20/25  cards 2.9 left 0/0/0
+  patient     100% flawless  94% fails/run 0.06 lap  0%  97/100/98   r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 10/20/30
+  prepared    100% flawless  99% fails/run 0.01 lap  0%  100/100/99  r10  51/50/50/49     m 17/20/16     plays 12/12/16  cards 5.0 left 10/20/30
+  resolute     76% flawless  75% fails/run 0.01 lap 24%  100/100/99  r12  54/53/52/51     m 23/25/17     plays 15/15/17  cards 4.3 left 0/0/5
+  planner     100% flawless  99% fails/run 0.01 lap  0%  100/100/99  r11  57/54/52/48     m 21/30/20     plays 12/16/16  cards 4.8 left 10/2/18
+  thrifty      96% flawless  96% fails/run 0.01 lap  4%  100/100/99  r18  58/54/51/44     m 30/34/19     plays 24/24/24  cards 2.8 left 7/5/23
+  lean-V      100% flawless  98% fails/run 0.02 lap  0%  100/100/98  r11  69/47/46/44     m 20/23/10     plays 12/15/19  cards 4.5 left 10/0/0
+  lean-I      100% flawless  99% fails/run 0.01 lap  0%  100/100/99  r11  68/47/46/45     m 15/20/33     plays 12/12/20  cards 4.5 left 10/18/0
+  poker-max   100% flawless  83% fails/run 0.17 lap  0%  91/97/95    r10  53/51/49/47     m 12/24/16     plays 12/16/12  cards 5.0 left 10/0/30
+  focus-I      52% flawless   0% fails/run 1.00 lap 48%  0/100/100   r12  76/73/59/0      m -31/47/35    plays 8/20/20   cards 4.3 left 26/0/5
+
+== A-binary {"budget":{"unit":"plays","perEra":[10,12,14],"discardCost":0,"carryOver":true}}
+  balanced      0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 5.0 left -/-/-
+  random        0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 3.0 left -/-/-
+  patient       0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 5.0 left -/-/-
+  prepared      0% flawless   0% fails/run 0.11 lap 89%  83/71/-     r-   -/-/-/-         m 11/16/-      plays 10/12/-   cards 5.0 left 0/0/-
+  resolute      0% flawless   0% fails/run 0.01 lap 99%  100/67/-    r-   -/-/-/-         m 19/14/-      plays 10/12/-   cards 4.5 left 0/0/-
+  planner       0% flawless   0% fails/run 0.10 lap 91%  82/76/-     r-   -/-/-/-         m 10/18/-      plays 10/12/-   cards 5.0 left 0/0/-
+  thrifty       0% flawless   0% fails/run 0.10 lap 91%  82/76/-     r-   -/-/-/-         m 10/18/-      plays 10/12/-   cards 5.0 left 0/0/-
+  lean-V        0% flawless   0% fails/run 0.11 lap 89%  83/71/-     r-   -/-/-/-         m 10/16/-      plays 10/12/-   cards 5.0 left 0/0/-
+  lean-I        0% flawless   0% fails/run 0.11 lap 89%  83/71/-     r-   -/-/-/-         m 10/16/-      plays 10/12/-   cards 5.0 left 0/0/-
+  poker-max     0% flawless   0% fails/run 0.00 lap 100%  50/-/-      r-   -/-/-/-         m -10/-/-      plays 10/-/-    cards 5.0 left 0/-/-
+  focus-I       0% flawless   0% fails/run 1.00 lap  0%  0/-/-       r-   -/-/-/-         m -30/-/-      plays 8/-/-     cards 4.0 left 2/-/-
+
+== A+lives2 {"budget":{"unit":"plays","perEra":[10,12,14],"discardCost":0,"carryOver":true},"rules":{"lives":2}}
+  balanced      0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 5.0 left -/-/-
+  random        0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 3.0 left -/-/-
+  patient       0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 5.0 left -/-/-
+  prepared      0% flawless   0% fails/run 0.12 lap 100%  83/74/-     r-   -/-/-/-         m 11/16/-      plays 10/12/-   cards 5.0 left 0/0/-
+  resolute      0% flawless   0% fails/run 0.01 lap 100%  100/67/-    r-   -/-/-/-         m 19/14/-      plays 10/12/-   cards 4.5 left 0/0/-
+  planner       0% flawless   0% fails/run 0.10 lap 100%  82/79/-     r-   -/-/-/-         m 10/17/-      plays 10/12/-   cards 5.0 left 0/0/-
+  thrifty       0% flawless   0% fails/run 0.10 lap 100%  82/79/-     r-   -/-/-/-         m 10/17/-      plays 10/12/-   cards 5.0 left 0/0/-
+  lean-V        0% flawless   0% fails/run 0.12 lap 100%  83/73/-     r-   -/-/-/-         m 10/16/-      plays 10/12/-   cards 5.0 left 0/0/-
+  lean-I        0% flawless   0% fails/run 0.12 lap 100%  83/73/-     r-   -/-/-/-         m 10/16/-      plays 10/12/-   cards 5.0 left 0/0/-
+  poker-max     0% flawless   0% fails/run 0.00 lap 100%  50/-/-      r-   -/-/-/-         m -10/-/-      plays 10/-/-    cards 5.0 left 0/-/-
+  focus-I       0% flawless   0% fails/run 1.00 lap 100%  0/-/-       r-   -/-/-/-         m -30/-/-      plays 8/-/-     cards 4.3 left 2/-/-
+
+== B-binary {"budget":{"unit":"actions","perEra":[13,15,17],"discardCost":1,"carryOver":true}}
+  balanced     82% flawless  82% fails/run 0.18 lap  0%  89/96/96    r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 1/4/5
+  random        0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 3.0 left -/-/-
+  patient      92% flawless  92% fails/run 0.08 lap  0%  95/100/97   r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 1/4/5
+  prepared     96% flawless  96% fails/run 0.04 lap  0%  99/100/97   r10  51/50/50/49     m 17/20/15     plays 12/12/16  cards 5.0 left 1/4/5
+  resolute      2% flawless   2% fails/run 0.03 lap 95%  100/76/81   r10  53/53/52/45     m 20/15/11     plays 10/14/17  cards 4.4 left 0/0/0
+  planner      97% flawless  97% fails/run 0.03 lap  0%  100/100/98  r11  56/54/52/50     m 20/30/19     plays 12/16/16  cards 4.9 left 1/0/1
+  thrifty      97% flawless  97% fails/run 0.03 lap  0%  100/100/98  r11  56/54/52/50     m 20/30/19     plays 12/16/16  cards 4.9 left 1/0/1
+  lean-V       96% flawless  96% fails/run 0.04 lap  0%  99/100/97   r10  53/52/51/49     m 18/21/16     plays 12/12/16  cards 4.9 left 1/3/0
+  lean-I       96% flawless  96% fails/run 0.04 lap  0%  99/100/97   r10  53/52/52/50     m 16/20/18     plays 12/12/18  cards 4.9 left 1/3/0
+  poker-max    83% flawless  83% fails/run 0.17 lap  0%  91/96/94    r10  53/51/49/47     m 12/24/16     plays 12/16/12  cards 5.0 left 1/0/5
+  focus-I       0% flawless   0% fails/run 0.79 lap 21%  0/-/-       r-   -/-/-/-         m -29/-/-      plays 8/-/-     cards 3.9 left 0/-/-
+
+== B+lives2 {"budget":{"unit":"actions","perEra":[13,15,17],"discardCost":1,"carryOver":true},"rules":{"lives":2}}
+  balanced    100% flawless  82% fails/run 0.18 lap  0%  89/96/97    r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 1/4/5
+  random        0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 3.0 left -/-/-
+  patient     100% flawless  92% fails/run 0.08 lap  0%  95/100/97   r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 1/4/5
+  prepared    100% flawless  96% fails/run 0.04 lap  0%  99/100/97   r10  51/51/50/49     m 17/20/15     plays 12/12/16  cards 5.0 left 1/4/5
+  resolute      3% flawless   2% fails/run 0.03 lap 97%  100/76/84   r10  53/53/52/45     m 20/15/15     plays 10/14/17  cards 4.4 left 0/0/0
+  planner     100% flawless  97% fails/run 0.03 lap  0%  100/100/98  r11  56/54/52/50     m 20/30/19     plays 12/16/16  cards 4.9 left 1/0/1
+  thrifty     100% flawless  97% fails/run 0.03 lap  0%  100/100/98  r11  56/54/52/50     m 20/30/19     plays 12/16/16  cards 4.9 left 1/0/1
+  lean-V      100% flawless  96% fails/run 0.04 lap  0%  99/100/97   r10  53/52/51/49     m 18/21/16     plays 12/12/16  cards 4.9 left 1/3/0
+  lean-I      100% flawless  96% fails/run 0.04 lap  0%  99/100/97   r10  53/52/52/50     m 16/20/18     plays 12/12/18  cards 4.9 left 1/3/0
+  poker-max   100% flawless  83% fails/run 0.17 lap  0%  91/97/95    r10  53/51/49/47     m 12/24/16     plays 12/16/12  cards 5.0 left 1/0/5
+  focus-I       0% flawless   0% fails/run 0.79 lap 100%  0/-/-       r-   -/-/-/-         m -29/-/-      plays 8/-/-     cards 4.2 left 0/-/-
+
+== C-binary {"budget":{"unit":"rounds","perEra":[3,3,4],"discardCost":0,"carryOver":true}}
+  balanced     79% flawless  79% fails/run 0.17 lap  4%  89/96/96    r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 0/0/0
+  random        0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 3.0 left -/-/-
+  patient      79% flawless  79% fails/run 0.17 lap  4%  89/96/96    r10  51/50/50/49     m 10/16/16     plays 12/12/16  cards 5.0 left 0/0/0
+  prepared     64% flawless  64% fails/run 0.24 lap 12%  97/86/87    r10  52/51/51/46     m 17/16/12     plays 12/12/16  cards 5.0 left 0/0/0
+  resolute      0% flawless   0% fails/run 0.04 lap 96%  100/69/-    r-   -/-/-/-         m 25/13/-      plays 12/12/-   cards 4.1 left 0/0/-
+  planner      53% flawless  53% fails/run 0.22 lap 25%  99/84/89    r10  52/51/51/46     m 18/17/13     plays 12/12/16  cards 5.0 left 0/0/0
+  thrifty      53% flawless  53% fails/run 0.22 lap 25%  99/84/89    r10  52/51/51/46     m 18/17/13     plays 12/12/16  cards 5.0 left 0/0/0
+  lean-V       60% flawless  60% fails/run 0.22 lap 18%  97/87/88    r10  52/51/51/46     m 17/17/12     plays 12/12/16  cards 5.0 left 0/0/0
+  lean-I       61% flawless  61% fails/run 0.23 lap 17%  97/86/88    r10  52/51/51/46     m 17/16/12     plays 12/12/16  cards 5.0 left 0/0/0
+  poker-max    32% flawless  32% fails/run 0.13 lap 56%  91/92/96    r10  53/51/49/47     m 12/18/19     plays 12/12/16  cards 5.0 left 0/0/0
+  focus-I       0% flawless   0% fails/run 1.00 lap  0%  0/-/-       r-   -/-/-/-         m -31/-/-      plays 8/-/-     cards 4.0 left 1/-/-
+
+== C+lives2 {"budget":{"unit":"rounds","perEra":[3,3,4],"discardCost":0,"carryOver":true},"rules":{"lives":2}}
+  balanced     96% flawless  79% fails/run 0.17 lap  4%  89/96/97    r10  51/50/50/49     m 10/16/17     plays 12/12/16  cards 5.0 left 0/0/0
+  random        0% flawless   0% fails/run 0.00 lap 100%  -/-/-       r-   -/-/-/-         m -/-/-        plays -/-/-     cards 3.0 left -/-/-
+  patient      96% flawless  79% fails/run 0.17 lap  4%  89/96/97    r10  51/50/50/49     m 10/16/17     plays 12/12/16  cards 5.0 left 0/0/0
+  prepared     87% flawless  64% fails/run 0.24 lap 13%  97/86/89    r10  52/51/51/46     m 17/16/13     plays 12/12/16  cards 5.0 left 0/0/0
+  resolute      0% flawless   0% fails/run 0.04 lap 100%  100/69/-    r-   -/-/-/-         m 25/13/-      plays 12/12/-   cards 4.1 left 0/0/-
+  planner      73% flawless  53% fails/run 0.22 lap 27%  99/84/91    r10  52/51/51/46     m 18/17/14     plays 12/12/16  cards 5.0 left 0/0/0
+  thrifty      73% flawless  53% fails/run 0.22 lap 27%  99/84/91    r10  52/51/51/46     m 18/17/14     plays 12/12/16  cards 5.0 left 0/0/0
+  lean-V       82% flawless  60% fails/run 0.23 lap 19%  97/87/90    r10  52/51/51/46     m 17/17/13     plays 12/12/16  cards 5.0 left 0/0/0
+  lean-I       82% flawless  61% fails/run 0.23 lap 18%  97/86/90    r10  52/51/51/46     m 17/16/13     plays 12/12/16  cards 5.0 left 0/0/0
+  poker-max    39% flawless  32% fails/run 0.13 lap 61%  91/92/96    r10  53/51/49/47     m 12/18/19     plays 12/12/16  cards 5.0 left 0/0/0
+  focus-I       0% flawless   0% fails/run 1.00 lap 100%  0/100/-     r-   -/-/-/-         m -31/32/-     plays 8/16/-    cards 4.2 left 1/0/-
+
+== D-binary {"budget":{"unit":"none","perEra":[0,0,0],"discardCost":0,"carryOver":false},"rules":{"gatherPerRound":4,"upkeep":150}}
+  balanced     70% flawless  70% fails/run 0.30 lap  0%  81/90/95    r10  51/50/50/49     m 7/13/12      plays 12/12/16  cards 5.0 left 0/0/0
+  random       36% flawless  36% fails/run 0.64 lap  0%  65/81/69    r17  56/53/50/47     m 4/11/5       plays 20/24/24  cards 3.0 left 0/0/0
+  patient      96% flawless  96% fails/run 0.04 lap  0%  99/100/97   r10  51/50/50/49     m 7/13/12      plays 12/12/16  cards 5.0 left 0/0/0
+  prepared     96% flawless  96% fails/run 0.03 lap  0%  100/100/97  r10  51/50/50/49     m 15/18/12     plays 12/12/16  cards 4.9 left 0/0/0
+  resolute    100% flawless 100% fails/run 0.00 lap  0%  100/100/100 r12  54/53/52/50     m 21/22/13     plays 16/16/16  cards 4.3 left 0/0/0
+  planner      98% flawless  98% fails/run 0.02 lap  0%  100/100/98  r11  57/54/52/48     m 19/27/16     plays 12/16/16  cards 4.8 left 0/0/0
+  thrifty      98% flawless  98% fails/run 0.02 lap  0%  100/100/98  r11  57/54/52/48     m 19/27/16     plays 12/16/16  cards 4.8 left 0/0/0
+  lean-V       96% flawless  96% fails/run 0.03 lap  0%  100/100/97  r12  76/46/43/41     m 18/19/5      plays 12/16/20  cards 4.3 left 0/0/0
+  lean-I       98% flawless  98% fails/run 0.02 lap  0%  100/100/98  r13  80/42/42/41     m 12/16/38     plays 12/12/24  cards 4.0 left 0/0/0
+  poker-max    72% flawless  72% fails/run 0.28 lap  0%  84/93/91    r10  53/51/49/47     m 10/20/13     plays 12/16/12  cards 5.0 left 0/0/0
+  focus-I       0% flawless   0% fails/run 1.00 lap  0%  0/-/-       r-   -/-/-/-         m -33/-/-      plays 8/-/-     cards 4.0 left 0/-/-
+
+== D+lives2 {"budget":{"unit":"none","perEra":[0,0,0],"discardCost":0,"carryOver":false},"rules":{"gatherPerRound":4,"upkeep":150,"lives":2}}
+  balanced    100% flawless  70% fails/run 0.31 lap  0%  81/92/96    r10  51/50/50/49     m 7/13/13      plays 12/12/16  cards 5.0 left 0/0/0
+  random      100% flawless  36% fails/run 0.77 lap  0%  65/84/75    r17  56/53/50/47     m 4/12/6       plays 20/24/24  cards 3.0 left 0/0/0
+  patient     100% flawless  96% fails/run 0.04 lap  0%  99/100/97   r10  51/50/50/49     m 7/13/12      plays 12/12/16  cards 5.0 left 0/0/0
+  prepared     99% flawless  96% fails/run 0.03 lap  0%  100/100/97  r10  51/50/50/49     m 15/18/12     plays 12/12/16  cards 4.9 left 0/0/0
+  resolute    100% flawless 100% fails/run 0.00 lap  0%  100/100/100 r12  54/53/52/50     m 21/22/13     plays 16/16/16  cards 4.3 left 0/0/0
+  planner     100% flawless  98% fails/run 0.02 lap  0%  100/100/98  r11  57/54/52/48     m 19/27/16     plays 12/16/16  cards 4.8 left 0/0/0
+  thrifty     100% flawless  98% fails/run 0.02 lap  0%  100/100/98  r11  57/54/52/48     m 19/27/16     plays 12/16/16  cards 4.8 left 0/0/0
+  lean-V       99% flawless  96% fails/run 0.03 lap  0%  100/100/97  r12  75/46/43/42     m 18/19/5      plays 12/16/20  cards 4.3 left 0/0/0
+  lean-I      100% flawless  98% fails/run 0.02 lap  0%  100/100/98  r13  79/42/42/41     m 12/16/38     plays 12/12/24  cards 4.0 left 0/0/0
+  poker-max   100% flawless  72% fails/run 0.29 lap  0%  84/94/92    r10  53/51/49/47     m 10/20/13     plays 12/16/12  cards 5.0 left 0/0/0
+  focus-I     100% flawless   0% fails/run 1.00 lap  0%  0/100/100   r12  77/74/57/0      m -33/47/31    plays 8/20/16   cards 4.3 left 0/0/0
+
+== K55-binary {"budget":{"unit":"cards","perEra":[55,55,70],"discardCost":2,"carryOver":true}}
+  balanced      0% flawless   0% fails/run 0.02 lap 98%  82/-/-      r-   -/-/-/-         m 6/-/-        plays 11/-/-    cards 5.0 left 0/-/-
+  random        0% flawless   0% fails/run 0.01 lap 99%  68/-/-      r-   -/-/-/-         m 6/-/-        plays 17/-/-    cards 2.9 left 0/-/-
+  patient       0% flawless   0% fails/run 0.02 lap 98%  82/-/-      r-   -/-/-/-         m 6/-/-        plays 11/-/-    cards 5.0 left 0/-/-
+  prepared      0% flawless   0% fails/run 0.14 lap 86%  92/73/-     r-   -/-/-/-         m 13/15/-      plays 11/11/-   cards 5.0 left 0/0/-
+  resolute      0% flawless   0% fails/run 0.01 lap 99%  100/64/-    r-   -/-/-/-         m 24/8/-       plays 12/11/-   cards 4.0 left 0/0/-
+  planner       0% flawless   0% fails/run 0.12 lap 88%  96/76/-     r-   -/-/-/-         m 15/14/-      plays 11/11/-   cards 5.0 left 0/0/-
+  thrifty       0% flawless   0% fails/run 0.06 lap 94%  100/71/-    r-   -/-/-/-         m 24/14/-      plays 20/11/-   cards 3.3 left 0/0/-
+  lean-V        0% flawless   0% fails/run 0.16 lap 84%  92/70/-     r-   -/-/-/-         m 13/14/-      plays 11/11/-   cards 5.0 left 0/0/-
+  lean-I        0% flawless   0% fails/run 0.16 lap 84%  92/70/-     r-   -/-/-/-         m 13/14/-      plays 11/11/-   cards 5.0 left 0/0/-
+  poker-max     0% flawless   0% fails/run 0.05 lap 95%  82/-/-      r-   -/-/-/-         m 8/-/-        plays 11/-/-    cards 5.0 left 0/-/-
+  focus-I       0% flawless   0% fails/run 1.00 lap  0%  0/-/-       r-   -/-/-/-         m -30/-/-      plays 8/-/-     cards 3.9 left 11/-/-
+
+== K55+lives2 {"budget":{"unit":"cards","perEra":[55,55,70],"discardCost":2,"carryOver":true},"rules":{"lives":2}}
+  balanced      0% flawless   0% fails/run 0.02 lap 100%  82/-/-      r-   -/-/-/-         m 6/-/-        plays 11/-/-    cards 5.0 left 0/-/-
+  random        0% flawless   0% fails/run 0.01 lap 100%  68/-/-      r-   -/-/-/-         m 6/-/-        plays 17/-/-    cards 2.9 left 0/-/-
+  patient       0% flawless   0% fails/run 0.02 lap 100%  82/-/-      r-   -/-/-/-         m 6/-/-        plays 11/-/-    cards 5.0 left 0/-/-
+  prepared      0% flawless   0% fails/run 0.15 lap 100%  92/75/-     r-   -/-/-/-         m 13/15/-      plays 11/11/-   cards 5.0 left 0/0/-
+  resolute      0% flawless   0% fails/run 0.01 lap 100%  100/64/-    r-   -/-/-/-         m 24/8/-       plays 12/11/-   cards 4.0 left 0/0/-
+  planner       0% flawless   0% fails/run 0.12 lap 100%  96/76/-     r-   -/-/-/-         m 15/14/-      plays 11/11/-   cards 5.0 left 0/0/-
+  thrifty       0% flawless   0% fails/run 0.06 lap 100%  100/71/-    r-   -/-/-/-         m 24/14/-      plays 20/11/-   cards 3.3 left 0/0/-
+  lean-V        0% flawless   0% fails/run 0.16 lap 100%  92/72/-     r-   -/-/-/-         m 13/15/-      plays 11/11/-   cards 5.0 left 0/0/-
+  lean-I        0% flawless   0% fails/run 0.16 lap 100%  92/72/-     r-   -/-/-/-         m 13/15/-      plays 11/11/-   cards 5.0 left 0/0/-
+  poker-max     0% flawless   0% fails/run 0.05 lap 100%  82/-/-      r-   -/-/-/-         m 8/-/-        plays 11/-/-    cards 5.0 left 0/-/-
+  focus-I       0% flawless   0% fails/run 1.00 lap 100%  0/-/-       r-   -/-/-/-         m -30/-/-      plays 8/-/-     cards 4.2 left 11/-/-

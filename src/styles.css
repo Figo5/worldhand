@@ -93,6 +93,7 @@ h2 {
 /* ============================ MENU / INTRO ============================ */
 .intro { justify-content: center; gap: 14px; }
 .intro-head { text-align: center; }
+.mode-back { float: left; font-size: 0.8rem; background: transparent; border-color: transparent; color: var(--muted); }
 .tagline { color: var(--muted); max-width: 700px; margin: 10px auto 0; }
 .hint { color: var(--muted); font-size: 0.85rem; max-width: 640px; }
 .intro-panel { max-width: 640px; margin: 6px auto 0; width: 100%; }

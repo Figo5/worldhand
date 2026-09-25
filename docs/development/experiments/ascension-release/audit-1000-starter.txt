@@ -1,0 +1,77 @@
+# Ascension v10 simulation — 1000 seeds × 23 bots, opts {"prefix":"audit","pool":"starter"} (1284s)
+
+bot           win   resolve-lost  died-in-era T/A/M/I/Inf/S         fails/run  era survival %            median margin by era        score(med)  plays  cards/play  scoring/play  discards/era  faced early (hands left)
+poker-max      52%   1.70         0%/0%/7%/16%/12%/13%            1.70      63/65/73/58/76/80         2/4/7/-2/18/21                  47212     51        2.94          2.94          0.00  0% (0.0)
+poker-dig      74%   1.08         0%/0%/3%/7%/6%/10%              1.08      75/80/85/74/86/88         5/11/14/15/28/32                69989     53        3.18          3.18          0.52  0% (0.0)
+balanced       71%   1.26         0%/0%/5%/9%/7%/10%              1.26      60/79/79/77/85/88         1/5/8/13/26/29                  57703     51        2.97          2.97          0.00  0% (0.0)
+planner        81%   0.67         0%/0%/1%/2%/5%/11%              0.67      87/91/89/90/86/88         5/8/9/15/20/22                  53320     49        2.80          2.80          1.79  73% (1.9)
+hasty          61%   0.99         0%/0%/1%/2%/6%/30%              0.99      89/90/88/87/77/67         5/5/5/5/4/3                     35167     41        2.83          2.83          1.58  62% (4.6)
+planner-late   86%   0.54         0%/0%/1%/2%/3%/9%               0.54      89/92/91/92/91/91         7/14/15/24/32/35                65390     51        3.04          3.04          1.32  0% (0.0)
+lean-V         90%   0.37         0%/0%/0%/0%/1%/8%               0.37      94/97/97/89/94/92         7/18/14/27/47/24                58687     49        3.31          3.31          1.86  83% (1.9)
+lean-P         49%   1.48         0%/0%/1%/7%/12%/31%             1.48      93/81/69/72/65/61         6/6/4/6/5/3                     38862     51        2.61          2.61          1.82  53% (1.8)
+lean-I         54%   1.43         0%/0%/1%/6%/12%/26%             1.43      88/74/82/71/64/68         6/4/9/6/5/7                     33947     49        2.63          2.63          2.34  58% (1.9)
+lean-K         82%   0.58         0%/0%/0%/0%/3%/15%              0.58      90/95/97/89/86/84         5/16/15/15/27/20                44696     49        2.78          2.78          2.19  76% (1.9)
+duo-IV         73%   0.94         0%/0%/1%/3%/7%/15%              0.94      87/84/86/82/81/83         5/7/9/9/14/16                   41616     49        2.75          2.75          2.18  68% (1.9)
+duo-PK         65%   1.06         0%/0%/1%/3%/8%/23%              1.06      88/87/84/80/77/74         5/8/8/9/11/8                    44903     50        2.65          2.65          1.71  64% (1.9)
+arc-I          73%   0.94         0%/0%/1%/3%/7%/15%              0.94      87/84/86/82/81/83         5/7/9/9/16/19                   42834     49        2.79          2.79          2.15  68% (1.9)
+arc-P          65%   1.06         0%/0%/1%/3%/8%/24%              1.06      88/87/84/80/77/73         5/8/8/9/12/9                    46610     50        2.69          2.69          1.68  64% (1.9)
+arc-V          90%   0.38         0%/0%/0%/0%/1%/9%               0.38      94/97/97/89/94/91         7/18/14/27/43/26                57791     49        3.30          3.29          1.91  83% (1.9)
+arc-K          81%   0.58         0%/0%/0%/0%/3%/16%              0.58      90/95/97/89/86/84         5/16/15/15/28/24                46535     49        2.85          2.85          2.19  76% (1.9)
+focus-I        26%   2.47         0%/0%/11%/19%/23%/21%           2.47      54/43/67/48/37/55         2/-14/17/-71/-17/-1             23728     43        3.03          3.03          1.98  0% (0.0)
+terrain        77%   0.76         0%/0%/1%/3%/6%/13%              0.76      87/89/88/88/85/86         5/8/9/12/19/17                  48142     49        2.81          2.81          1.99  71% (1.9)
+civ            75%   0.89         0%/0%/2%/4%/6%/13%              0.89      89/80/86/83/85/85         5/7/9/10/16/23                  63244     49        2.90          2.90          1.30  69% (1.9)
+mediocre       53%   1.65         0%/0%/5%/13%/13%/16%            1.65      60/77/73/64/70/78         1/4/5/3/10/15                   36460     51        2.90          2.90          0.00  0% (0.0)
+sampler        82%   0.73         0%/0%/1%/5%/5%/8%               0.73      87/83/88/88/87/91         5/8/9/14/25/26                  53787     49        2.84          2.84          1.88  74% (1.9)
+sampler-poker  81%   0.87         0%/0%/2%/5%/5%/7%               0.87      75/85/89/82/88/92         5/14/17/22/34/45                74597     53        3.39          3.39          0.47  0% (0.0)
+random          0%   3.00         0%/0%/70%/24%/5%/1%             3.00      15/16/5/8/3/0             -9/-20/-22/-48/-62/-85           1423     23        2.99          1.25          1.07  0% (0.0)
+
+## Crisis failures (share of faced, all bots pooled)
+  flood           faced  11569  failed  20%  median margin 4
+  plague          faced  11431  failed  18%  median margin 6
+  schism          faced  11776  failed  24%  median margin 7
+  smog            faced   7317  failed  21%  median margin 14
+  disinformation  faced  10448  failed  19%  median margin 17
+  voidstorm       faced  10030  failed  18%  median margin 18
+  winter          faced  11431  failed  21%  median margin 6
+  invasion        faced  11224  failed  12%  median margin 11
+  revolution      faced   7418  failed  30%  median margin 4
+  machines        faced  10028  failed  20%  median margin 18
+  crash           faced   7119  failed  12%  median margin 20
+  drought         faced  11569  failed  21%  median margin 8
+  filter          faced   8822  failed  18%  median margin 19
+
+## Cards per play (share) and hand categories, all bots pooled
+  sizes 1-5: 27% / 25% / 3% / 21% / 24%
+  categories: high 28%, pair 25%, two-pair 20%, flush 11%, straight 7%, full-house 5%, trips 3%, quads 0%, straight-flush 0%
+
+## Seeds no bot wins: 1/1000 (audit-553)
+
+## Legendaries held at the end (share of runs): sleepingGod 50%, silkRoad 39%, titanForge 36%, oraclesEye 33%, monolith 31%, eternalDragon 30%, cosmicLibrary 30%, everflame 29%, hydraCrown 28%, worldTree 28%, hourglass 27%
+## Living civilizations at the end (share of runs): empireBuilders 92%, nomads 82%, scholars 82%, natureKeepers 80%, technocrats 80%, merchants 78%
+## World cards owned at the end (copies per run): granary 0.39, woodpile 0.39, tally-stones 0.39, forge 0.33, scroll 0.29, trade-road 0.21, hearth 0.14, sacred-grove 0.14, great-library 0.13, border-fort 0.13, quarry 0.13, monument 0.13, caravanserai 0.12, herbalist 0.12, market-square 0.12, aqueduct 0.09, observatory 0.09, campfire 0.08, fertile-valley 0.08, balance-scales 0.08, waystation 0.08, council-hall 0.06, ember-seed 0.03, pilgrim-road 0.03, golden-harvest 0.03, grand-bazaar 0.02
+## Legendary lift (win rate of runs ending with it vs all runs, 67%): cosmicLibrary 80% (n=6786), eternalDragon 71% (n=6833), everflame 75% (n=6749), hourglass 68% (n=6254), hydraCrown 76% (n=6550), monolith 76% (n=7107), oraclesEye 72% (n=7678), silkRoad 71% (n=8856), sleepingGod 73% (n=11409), titanForge 67% (n=8392), worldTree 81% (n=6517)
+## Legendary lift, offered-and-taken vs offered-and-declined (win %): cosmicLibrary 76% vs 75% (3431/9526), eternalDragon 65% vs 73% (3855/15769), everflame 67% vs 73% (3544/16153), hourglass 63% vs 73% (3103/15736), hydraCrown 72% vs 76% (3153/9419), monolith 70% vs 80% (3821/7711), oraclesEye 69% vs 74% (4354/14957), silkRoad 66% vs 74% (6117/13358), sleepingGod 70% vs 75% (8932/7701), titanForge 62% vs 75% (5322/14599), worldTree 79% vs 70% (3519/17038)
+## Median civilizations (living/fallen), final stats high→low, Influence earned per run:
+  poker-max     civs 5/1  stats 46/41/36/28     influence 38
+  poker-dig     civs 6/1  stats 52/47/42/37     influence 48
+  balanced      civs 6/0  stats 46/43/40/38     influence 45
+  planner       civs 6/0  stats 45/41/38/35     influence 54
+  hasty         civs 5/0  stats 36/33/30/27     influence 55
+  planner-late  civs 6/0  stats 50/45/42/39     influence 53
+  lean-V        civs 6/0  stats 63/50/42/32     influence 54
+  lean-P        civs 5/0  stats 41/36/31/24     influence 53
+  lean-I        civs 5/0  stats 47/36/30/23     influence 41
+  lean-K        civs 5/0  stats 53/41/34/27     influence 52
+  duo-IV        civs 5/0  stats 48/41/36/28     influence 48
+  duo-PK        civs 5/0  stats 44/39/35/29     influence 55
+  arc-I         civs 5/0  stats 47/42/37/30     influence 48
+  arc-P         civs 5/0  stats 43/39/35/30     influence 55
+  arc-V         civs 6/0  stats 60/50/43/33     influence 54
+  arc-K         civs 5/0  stats 52/42/37/30     influence 52
+  focus-I       civs 4/1  stats 54/27/18/5      influence 30
+  terrain       civs 6/0  stats 47/41/38/32     influence 52
+  civ           civs 6/1  stats 45/41/38/33     influence 57
+  mediocre      civs 5/0  stats 43/39/36/32     influence 38
+  sampler       civs 6/0  stats 47/42/39/36     influence 53
+  sampler-poker civs 6/0  stats 55/49/45/40     influence 52
+  random        civs 1/2  stats 12/8/3/0        influence 7

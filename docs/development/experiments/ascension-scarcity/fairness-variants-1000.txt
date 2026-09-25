@@ -1,0 +1,384 @@
+# Ascension core-loop audit — 1000 seeds, 19 bots, rule sets B+forest2 vs K70+forest2 vs K70+forest3, ablations full, cap 60 rounds (223s)
+
+  B+forest2: B with forests defending the Invasion (+2 each)
+  K70+forest2: cards-70 with forests defending the Invasion (+2 each)
+  K70+forest3: cards-70 with forests defending the Invasion (+3 each)
+
+## Bots
+  poker-max    [score] highest poker score (chips × mult); ignores the world; faces crises at once
+  score-max    [score] highest total immediate score; faces crises at once
+  balanced     [balanced] 5 cards, always raising the lowest stat; faces crises at once
+  terrain      [focused] focuses the stat its land favours most, plus what the era checklist asks for; faces at once
+  civ-synergy  [score] maximises civilization passives once it has civilizations (balanced before); faces at once
+  focus-V      [focused] naive: Vitality plus what the checklist asks for; faces at once
+  focus-P      [focused] naive: Prosperity plus what the checklist asks for; faces at once
+  focus-I      [focused] naive: Industry plus what the checklist asks for; faces at once
+  focus-K      [focused] naive: Knowledge plus what the checklist asks for; faces at once
+  random       [weak] seeded random legal play/discard; faces at once
+  patient      [balanced] balanced play, but faces a ready crisis only once it would survive (or when it strikes)
+  prepared     [balanced] balanced + reads the forecast: fixes what it lacks, holds back the checkpoint, faces when it would survive
+  resolute     [balanced] reads the forecast; while short, plays only the suit that most improves it (discarding the rest); otherwise like prepared
+  planner      [score] reads the forecast (reserves included): prepares with the best-margin play, otherwise the best score; faces when it would survive
+  thrifty      [score] the planner, judging each play per unit of era budget it costs (hand size can matter)
+  lean-V       [focused] reads the forecast; when safe plays only Vitality (then what the checklist needs)
+  lean-P       [focused] reads the forecast; when safe plays only Prosperity (then what the checklist needs)
+  lean-I       [focused] reads the forecast; when safe plays only Industry (then what the checklist needs)
+  lean-K       [focused] reads the forecast; when safe plays only Knowledge (then what the checklist needs)
+
+## 1. Completion by strategy (full rules)
+  bot          family    B+forest2 complete  B+forest2 W/P/I %  B+forest2 rounds  B+forest2 top failure              K70+forest2 complete  K70+forest2 W/P/I %  K70+forest2 rounds  K70+forest2 top failure               K70+forest3 complete  K70+forest3 W/P/I %  K70+forest3 rounds  K70+forest3 top failure             
+  poker-max    score     80%                 92/96/91           10                winter: Cold land (9%)             81%                   91/96/91             10                  winter: Cold land (9%)                82%                   91/96/93             10                  winter: Cold land (9%)              
+  score-max    score     73%                 88/93/88           10                winter: Cold land (11%)            73%                   88/94/88             10                  winter: Cold land (12%)               75%                   88/94/91             10                  winter: Cold land (12%)             
+  balanced     balanced  81%                 89/96/95           10                winter: Cold land (11%)            81%                   89/96/95             10                  winter: Cold land (11%)               82%                   89/96/96             10                  winter: Cold land (11%)             
+  terrain      focused   0%                  51/40/0            -                 winter: Cleared forests (47%)      0%                    51/40/0              -                   winter: Cleared forests (47%)         0%                    51/40/0              -                   winter: Cleared forests (47%)       
+  civ-synergy  score     68%                 85/91/88           10                winter: Cold land (15%)            67%                   85/91/88             10                  winter: Cold land (15%)               69%                   85/91/90             10                  winter: Cold land (15%)             
+  focus-V      focused   0%                  99/0/-             -                 Ancient lapsed (50%)               0%                    99/0/-               -                   plague: Trade outruns medicine (51%)  0%                    99/0/-               -                   plague: Trade outruns medicine (51%)
+  focus-P      focused   0%                  0/-/-              -                 winter: Cleared forests (98%)      0%                    0/-/-                -                   winter: Cleared forests (98%)         0%                    0/-/-                -                   winter: Cleared forests (98%)       
+  focus-I      focused   0%                  0/-/-              -                 winter: Cleared forests (99%)      0%                    0/-/-                -                   winter: Cleared forests (99%)         0%                    0/-/-                -                   winter: Cleared forests (99%)       
+  focus-K      focused   0%                  99/100/0           12                invasion: Undefended wealth (49%)  0%                    99/100/0             11                  invasion: Undefended wealth (52%)     0%                    99/100/0             11                  invasion: Undefended wealth (52%)   
+  random       weak      0%                  66/-/-             -                 Tribal lapsed (96%)                5%                    78/89/80             16                  Ancient lapsed (39%)                  5%                    78/89/84             16                  Ancient lapsed (39%)                
+  patient      balanced  99%                 100/100/99         10                invasion: Riches to plunder (1%)   94%                   97/100/97            10                  winter: Cold land (3%)                95%                   97/100/98            10                  winter: Cold land (3%)              
+  prepared     balanced  99%                 100/100/99         10                invasion: Riches to plunder (1%)   98%                   100/100/98           10                  invasion: Riches to plunder (2%)      99%                   100/100/99           10                  invasion: Riches to plunder (1%)    
+  resolute     balanced  40%                 100/100/94         12                Tribal lapsed (43%)                74%                   100/100/97           12                  Ancient lapsed (15%)                  75%                   100/100/99           12                  Ancient lapsed (15%)                
+  planner      score     100%                100/100/100        11                invasion: Riches to plunder (1%)   98%                   100/100/98           11                  invasion: Riches to plunder (2%)      99%                   100/100/99           11                  invasion: Riches to plunder (1%)    
+  thrifty      score     100%                100/100/100        11                invasion: Riches to plunder (1%)   95%                   100/100/99           18                  Ancient lapsed (4%)                   96%                   100/100/99           18                  Ancient lapsed (4%)                 
+  lean-V       focused   98%                 100/100/98         11                invasion: Riches to plunder (2%)   97%                   100/100/98           11                  invasion: Riches to plunder (2%)      98%                   100/100/98           11                  invasion: Riches to plunder (2%)    
+  lean-P       focused   98%                 100/100/98         11                invasion: Riches to plunder (2%)   97%                   100/100/97           11                  invasion: Riches to plunder (3%)      98%                   100/100/98           11                  invasion: Riches to plunder (2%)    
+  lean-I       focused   99%                 100/100/100        12                invasion: Riches to plunder (0%)   98%                   100/100/98           11                  invasion: Riches to plunder (2%)      99%                   100/100/99           11                  invasion: Riches to plunder (1%)    
+  lean-K       focused   99%                 100/100/99         11                invasion: Riches to plunder (1%)   97%                   100/100/98           11                  invasion: Riches to plunder (2%)      98%                   100/100/98           11                  invasion: Riches to plunder (2%)    
+
+## 2. Focused vs balanced: completion by family, and the spread of completed worlds (highest − lowest stat, median)
+  B+forest2: [score] poker-max 80%, score-max 73%, civ-synergy 68%, planner 100%, thrifty 100%  [balanced] balanced 81%, patient 99%, prepared 99%, resolute 40%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 98%, lean-P 98%, lean-I 99%, lean-K 99%  [weak] random 0%
+  B+forest2: spread of completed worlds: poker-max 6, score-max 7, balanced 2, civ-synergy 14, patient 2, prepared 2, resolute 3, planner 9, thrifty 9, lean-V 25, lean-P 15, lean-I 24, lean-K 25
+  K70+forest2: [score] poker-max 81%, score-max 73%, civ-synergy 67%, planner 98%, thrifty 95%  [balanced] balanced 81%, patient 94%, prepared 98%, resolute 74%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 97%, lean-P 97%, lean-I 98%, lean-K 97%  [weak] random 5%
+  K70+forest2: spread of completed worlds: poker-max 6, score-max 7, balanced 2, civ-synergy 14, random 10, patient 2, prepared 2, resolute 3, planner 8, thrifty 14, lean-V 24, lean-P 14, lean-I 24, lean-K 23
+  K70+forest3: [score] poker-max 82%, score-max 75%, civ-synergy 69%, planner 99%, thrifty 96%  [balanced] balanced 82%, patient 95%, prepared 99%, resolute 75%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 98%, lean-P 98%, lean-I 99%, lean-K 98%  [weak] random 5%
+  K70+forest3: spread of completed worlds: poker-max 6, score-max 7, balanced 2, civ-synergy 14, random 10, patient 2, prepared 2, resolute 3, planner 8, thrifty 14, lean-V 24, lean-P 16, lean-I 23, lean-K 24
+
+## 3. Ablations: completion rate (score contribution = full vs no-reserves; v7 has no reserves)
+
+## 3b. Scarcity (full rules): lapsed % · median plays per era (T/A/M) · mean cards per play · median budget left when facing each crisis
+  bot          B+forest2                      K70+forest2                     K70+forest3                   
+  poker-max    0% · 12/16/12 · 5.0 · 6/8/18   0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30 
+  score-max    0% · 12/16/12 · 5.0 · 6/8/18   0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30 
+  balanced     0% · 12/12/16 · 5.0 · 6/12/18  0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30
+  terrain      26% · 8/20/20 · 4.1 · 5/1/2    25% · 8/20/20 · 4.1 · 26/1/6    25% · 8/20/20 · 4.1 · 26/1/6  
+  civ-synergy  0% · 12/16/12 · 5.0 · 6/8/18   0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30 
+  focus-V      50% · 8/20/- · 4.3 · 5/1/-     48% · 8/20/- · 4.2 · 26/0/-     48% · 8/20/- · 4.2 · 26/0/-   
+  focus-P      0% · 8/-/- · 4.0 · 5/-/-       0% · 8/-/- · 4.0 · 26/-/-       0% · 8/-/- · 4.0 · 26/-/-     
+  focus-I      0% · 8/-/- · 4.0 · 5/-/-       0% · 8/-/- · 4.0 · 26/-/-       0% · 8/-/- · 4.0 · 26/-/-     
+  focus-K      49% · 8/20/20 · 4.3 · 5/0/2    46% · 8/20/20 · 4.3 · 26/1/5    46% · 8/20/20 · 4.3 · 26/1/5  
+  random       99% · 16/-/- · 3.0 · 0/-/-     76% · 20/20/25 · 3.0 · 0/0/0    76% · 20/20/25 · 3.0 · 0/0/0  
+  patient      0% · 12/12/16 · 5.0 · 6/12/18  0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30
+  prepared     0% · 12/12/16 · 5.0 · 6/12/18  0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30
+  resolute     57% · 15/14/19 · 4.1 · 0/2/2   24% · 15/15/17 · 4.3 · 0/0/5    24% · 15/15/17 · 4.3 · 0/0/5  
+  planner      0% · 12/16/16 · 4.8 · 6/8/14   0% · 12/16/16 · 4.8 · 10/2/19   0% · 12/16/16 · 4.8 · 10/2/19 
+  thrifty      0% · 12/16/16 · 4.8 · 6/8/14   4% · 24/24/24 · 2.8 · 7/5/22    4% · 24/24/24 · 2.8 · 7/5/22  
+  lean-V       0% · 12/16/20 · 4.4 · 6/5/0    0% · 12/15/19 · 4.5 · 10/0/0    0% · 12/15/19 · 4.5 · 10/0/0  
+  lean-P       0% · 12/12/20 · 4.6 · 6/10/6   0% · 12/12/20 · 4.6 · 10/18/9   0% · 12/12/20 · 4.6 · 10/18/7 
+  lean-I       0% · 12/12/22 · 4.4 · 6/10/0   0% · 12/12/20 · 4.5 · 10/18/0   0% · 12/12/20 · 4.5 · 10/18/0 
+  lean-K       0% · 12/16/20 · 4.4 · 6/5/0    0% · 12/15/20 · 4.5 · 10/0/0    0% · 12/15/20 · 4.5 · 10/0/0  
+
+## 4. Crisis failure distribution (share of all runs, all bots pooled, that ended at each crisis; top reasons)
+  B+forest2: lapsed 15% · Harsh Winter 16% (Cleared forests 82%, Cold land 18%) · Plague 4% (Trade outruns medicine 78%, Crowded ports and farms 11%) · Invasion 5% (Undefended wealth 59%, Riches to plunder 41%) · unfinished at the cap 0%
+  K70+forest2: lapsed 12% · Harsh Winter 17% (Cleared forests 77%, Cold land 23%) · Plague 5% (Trade outruns medicine 78%, Crowded ports and farms 12%) · Invasion 6% (Undefended wealth 55%, Riches to plunder 45%) · unfinished at the cap 0%
+  K70+forest3: lapsed 12% · Harsh Winter 17% (Cleared forests 77%, Cold land 23%) · Plague 5% (Trade outruns medicine 78%, Crowded ports and farms 12%) · Invasion 5% (Undefended wealth 63%, Riches to plunder 37%) · unfinished at the cap 0%
+  B+forest2, forecast-reading bots: faced after waiting 1%; losing when it became ready 2%, of those survived 82%; median winning margin 17
+  K70+forest2, forecast-reading bots: faced after waiting 1%; losing when it became ready 2%, of those survived 53%; median winning margin 17
+  K70+forest3, forecast-reading bots: faced after waiting 0%; losing when it became ready 2%, of those survived 62%; median winning margin 18
+
+## 5. Decision value (sampled play states; long term = the crisis outlook after the play, reserves included)
+  rules        states from  n     poker-best = score-best  terrain changes best  passives change best  poker-best is long-term-best (all / at risk)  poker pts given up (med, at risk)  poker / total / preparation: 3 different plays  best score per budget < 5 cards  best preparation per budget < 5 cards
+  B+forest2    balanced     7300  82%                      8%                    16%                   23% / 23%                                     14                                 13%                                             0%                               21%                                  
+  B+forest2    score-max    7276  81%                      8%                    16%                   25% / 22%                                     15                                 13%                                             0%                               17%                                  
+  B+forest2    planner      8850  82%                      7%                    16%                   32% / 31%                                     12                                 11%                                             0%                               25%                                  
+  B+forest2    random       3672  89%                      8%                    8%                    34% / 33%                                     8                                  6%                                              0%                               3%                                   
+  K70+forest2  balanced     7300  82%                      8%                    16%                   23% / 23%                                     14                                 13%                                             52%                              96%                                  
+  K70+forest2  score-max    7292  81%                      8%                    16%                   24% / 22%                                     15                                 13%                                             50%                              95%                                  
+  K70+forest2  planner      8836  82%                      7%                    16%                   32% / 31%                                     12                                 11%                                             49%                              92%                                  
+  K70+forest2  random       8867  85%                      8%                    14%                   28% / 28%                                     11                                 10%                                             51%                              95%                                  
+  K70+forest3  balanced     7300  82%                      8%                    16%                   23% / 24%                                     13                                 13%                                             52%                              96%                                  
+  K70+forest3  score-max    7292  81%                      8%                    16%                   24% / 22%                                     15                                 13%                                             50%                              95%                                  
+  K70+forest3  planner      8746  82%                      7%                    16%                   32% / 32%                                     10                                 11%                                             49%                              92%                                  
+  K70+forest3  random       8867  85%                      8%                    14%                   28% / 28%                                     11                                 10%                                             51%                              95%                                  
+
+## 6. Fairness: seeds no bot completes; forecast-reading completion by cold regions
+  B+forest2: seeds no bot completes 3/1000 (audit-147, audit-724, audit-982); forecast-reading completion 99%; by cold regions 0-2 93% · 3-4 100% · 5-6 100% · 7-8 99% · 9-12 100%
+  K70+forest2: seeds no bot completes 6/1000 (audit-33, audit-62, audit-508, audit-580, audit-724, audit-982); forecast-reading completion 97%; by cold regions 0-2 87% · 3-4 99% · 5-6 99% · 7-8 95% · 9-12 95%
+  K70+forest3: seeds no bot completes 4/1000 (audit-508, audit-580, audit-724, audit-982); forecast-reading completion 98%; by cold regions 0-2 92% · 3-4 99% · 5-6 100% · 7-8 95% · 9-12 95%
+
+## 7. Pacing (full rules, completed runs, median): rounds in Tribal / Ancient / Medieval · plays per run
+  bot          B+forest2 T/A/M · plays  K70+forest2 T/A/M · plays  K70+forest3 T/A/M · plays
+  poker-max    3/4/3 · 40               3/4/3 · 40                 3/4/3 · 40               
+  score-max    3/4/3 · 40               3/4/3 · 40                 3/4/3 · 40               
+  balanced     3/3/4 · 40               3/3/4 · 40                 3/3/4 · 40               
+  terrain      -                        -                          -                        
+  civ-synergy  3/4/3 · 40               3/4/3 · 40                 3/4/3 · 40               
+  focus-V      -                        -                          -                        
+  focus-P      -                        -                          -                        
+  focus-I      -                        -                          -                        
+  focus-K      2/5/5 · 48               2/5/4 · 47                 2/5/4 · 47               
+  random       -                        5/5/6 · 67                 5/5/6 · 67               
+  patient      3/3/4 · 40               3/3/4 · 40                 3/3/4 · 40               
+  prepared     3/3/4 · 40               3/3/4 · 40                 3/3/4 · 40               
+  resolute     3/4/5 · 48               3/4/5 · 48                 3/4/5 · 48               
+  planner      3/4/4 · 44               3/4/4 · 44                 3/4/4 · 44               
+  thrifty      3/4/4 · 44               6/6/6 · 72                 6/6/6 · 72               
+  lean-V       3/4/5 · 47               3/3/5 · 46                 3/3/5 · 46               
+  lean-P       3/3/5 · 44               3/3/5 · 44                 3/3/5 · 44               
+  lean-I       3/3/5 · 48               3/3/5 · 47                 3/3/5 · 47               
+  lean-K       3/4/5 · 47               3/3/5 · 46                 3/3/5 · 46               
+
+
+# Ascension core-loop audit — 1000 seeds, 19 bots, rule sets K70-X2 vs K70-X3 vs K70-X4, ablations full, cap 60 rounds (241s)
+
+  K70-X2: cards-70, Invasion open 1 / mountain 3 / forest 2, base 40
+  K70-X3: cards-70, Invasion open 1 / mountain 2 / forest 1, base 45
+  K70-X4: cards-70, Invasion open 1 / mountain 2 / forest 2, base 48
+
+## Bots
+  poker-max    [score] highest poker score (chips × mult); ignores the world; faces crises at once
+  score-max    [score] highest total immediate score; faces crises at once
+  balanced     [balanced] 5 cards, always raising the lowest stat; faces crises at once
+  terrain      [focused] focuses the stat its land favours most, plus what the era checklist asks for; faces at once
+  civ-synergy  [score] maximises civilization passives once it has civilizations (balanced before); faces at once
+  focus-V      [focused] naive: Vitality plus what the checklist asks for; faces at once
+  focus-P      [focused] naive: Prosperity plus what the checklist asks for; faces at once
+  focus-I      [focused] naive: Industry plus what the checklist asks for; faces at once
+  focus-K      [focused] naive: Knowledge plus what the checklist asks for; faces at once
+  random       [weak] seeded random legal play/discard; faces at once
+  patient      [balanced] balanced play, but faces a ready crisis only once it would survive (or when it strikes)
+  prepared     [balanced] balanced + reads the forecast: fixes what it lacks, holds back the checkpoint, faces when it would survive
+  resolute     [balanced] reads the forecast; while short, plays only the suit that most improves it (discarding the rest); otherwise like prepared
+  planner      [score] reads the forecast (reserves included): prepares with the best-margin play, otherwise the best score; faces when it would survive
+  thrifty      [score] the planner, judging each play per unit of era budget it costs (hand size can matter)
+  lean-V       [focused] reads the forecast; when safe plays only Vitality (then what the checklist needs)
+  lean-P       [focused] reads the forecast; when safe plays only Prosperity (then what the checklist needs)
+  lean-I       [focused] reads the forecast; when safe plays only Industry (then what the checklist needs)
+  lean-K       [focused] reads the forecast; when safe plays only Knowledge (then what the checklist needs)
+
+## 1. Completion by strategy (full rules)
+  bot          family    K70-X2 complete  K70-X2 W/P/I %  K70-X2 rounds  K70-X2 top failure                    K70-X3 complete  K70-X3 W/P/I %  K70-X3 rounds  K70-X3 top failure                    K70-X4 complete  K70-X4 W/P/I %  K70-X4 rounds  K70-X4 top failure                  
+  poker-max    score     85%              91/96/96        10             winter: Cold land (9%)                75%              91/96/85        10             invasion: Riches to plunder (13%)     74%              91/96/84        10             invasion: Riches to plunder (14%)   
+  score-max    score     77%              88/94/94        10             winter: Cold land (12%)               69%              88/94/84        10             invasion: Riches to plunder (14%)     69%              88/94/83        10             invasion: Riches to plunder (14%)   
+  balanced     balanced  83%              89/96/97        10             winter: Cold land (11%)               80%              89/96/94        10             winter: Cold land (11%)               79%              89/96/92        10             winter: Cold land (11%)             
+  terrain      focused   0%               51/40/0         -              winter: Cleared forests (47%)         0%               51/40/0         -              winter: Cleared forests (47%)         0%               51/40/0         -              winter: Cleared forests (47%)       
+  civ-synergy  score     71%              85/91/92        10             winter: Cold land (15%)               62%              85/91/81        10             winter: Cold land (15%)               62%              85/91/81        10             winter: Cold land (15%)             
+  focus-V      focused   0%               99/0/-          -              plague: Trade outruns medicine (51%)  0%               99/0/-          -              plague: Trade outruns medicine (51%)  0%               99/0/-          -              plague: Trade outruns medicine (51%)
+  focus-P      focused   0%               0/-/-           -              winter: Cleared forests (98%)         0%               0/-/-           -              winter: Cleared forests (98%)         0%               0/-/-           -              winter: Cleared forests (98%)       
+  focus-I      focused   0%               0/-/-           -              winter: Cleared forests (99%)         0%               0/-/-           -              winter: Cleared forests (99%)         0%               0/-/-           -              winter: Cleared forests (99%)       
+  focus-K      focused   0%               99/100/0        11             invasion: Undefended wealth (52%)     0%               99/100/0        11             invasion: Undefended wealth (52%)     0%               99/100/0        11             invasion: Undefended wealth (52%)   
+  random       weak      5%               78/89/91        16             Ancient lapsed (39%)                  4%               78/89/66        16             Ancient lapsed (39%)                  4%               78/89/68        16             Ancient lapsed (39%)                
+  patient      balanced  95%              97/100/98       10             winter: Cold land (3%)                94%              97/100/97       10             winter: Cold land (3%)                93%              97/100/96       10             invasion: Riches to plunder (4%)    
+  prepared     balanced  99%              100/100/100     10             invasion: Riches to plunder (0%)      97%              100/100/97      10             invasion: Riches to plunder (3%)      97%              100/100/97      10             invasion: Riches to plunder (3%)    
+  resolute     balanced  76%              100/100/99      12             Ancient lapsed (15%)                  73%              100/100/96      12             Ancient lapsed (15%)                  73%              100/100/96      12             Ancient lapsed (15%)                
+  planner      score     100%             100/100/100     11             invasion: Riches to plunder (1%)      98%              100/100/98      11             invasion: Riches to plunder (2%)      98%              100/100/98      11             invasion: Riches to plunder (2%)    
+  thrifty      score     96%              100/100/100     18             Ancient lapsed (4%)                   94%              100/100/98      19             Ancient lapsed (4%)                   95%              100/100/98      19             Ancient lapsed (4%)                 
+  lean-V       focused   99%              100/100/99      11             invasion: Riches to plunder (1%)      97%              100/100/97      11             invasion: Riches to plunder (3%)      97%              100/100/97      11             invasion: Riches to plunder (3%)    
+  lean-P       focused   99%              100/100/99      11             invasion: Riches to plunder (1%)      97%              100/100/97      11             invasion: Riches to plunder (3%)      96%              100/100/96      11             invasion: Riches to plunder (4%)    
+  lean-I       focused   99%              100/100/100     11             invasion: Riches to plunder (0%)      98%              100/100/98      11             invasion: Riches to plunder (2%)      98%              100/100/98      11             invasion: Riches to plunder (2%)    
+  lean-K       focused   99%              100/100/99      11             invasion: Riches to plunder (1%)      97%              100/100/97      11             invasion: Riches to plunder (3%)      97%              100/100/97      11             invasion: Riches to plunder (3%)    
+
+## 2. Focused vs balanced: completion by family, and the spread of completed worlds (highest − lowest stat, median)
+  K70-X2: [score] poker-max 85%, score-max 77%, civ-synergy 71%, planner 100%, thrifty 96%  [balanced] balanced 83%, patient 95%, prepared 99%, resolute 76%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 99%, lean-P 99%, lean-I 99%, lean-K 99%  [weak] random 5%
+  K70-X2: spread of completed worlds: poker-max 6, score-max 8, balanced 2, civ-synergy 14, random 10, patient 2, prepared 2, resolute 3, planner 8, thrifty 14, lean-V 25, lean-P 16, lean-I 23, lean-K 24
+  K70-X3: [score] poker-max 75%, score-max 69%, civ-synergy 62%, planner 98%, thrifty 94%  [balanced] balanced 80%, patient 94%, prepared 97%, resolute 73%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 97%, lean-P 97%, lean-I 98%, lean-K 97%  [weak] random 4%
+  K70-X3: spread of completed worlds: poker-max 6, score-max 7, balanced 2, civ-synergy 14, random 9, patient 2, prepared 4, resolute 4, planner 9, thrifty 15, lean-V 22, lean-P 11, lean-I 24, lean-K 22
+  K70-X4: [score] poker-max 74%, score-max 69%, civ-synergy 62%, planner 98%, thrifty 95%  [balanced] balanced 79%, patient 93%, prepared 97%, resolute 73%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 97%, lean-P 96%, lean-I 98%, lean-K 97%  [weak] random 4%
+  K70-X4: spread of completed worlds: poker-max 6, score-max 7, balanced 2, civ-synergy 14, random 10, patient 2, prepared 4, resolute 4, planner 9, thrifty 14, lean-V 22, lean-P 12, lean-I 24, lean-K 22
+
+## 3. Ablations: completion rate (score contribution = full vs no-reserves; v7 has no reserves)
+
+## 3b. Scarcity (full rules): lapsed % · median plays per era (T/A/M) · mean cards per play · median budget left when facing each crisis
+  bot          K70-X2                          K70-X3                          K70-X4                        
+  poker-max    0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30 
+  score-max    0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30 
+  balanced     0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30
+  terrain      25% · 8/20/20 · 4.1 · 26/1/6    25% · 8/20/20 · 4.1 · 26/1/6    25% · 8/20/20 · 4.1 · 26/1/6  
+  civ-synergy  0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30 
+  focus-V      48% · 8/20/- · 4.2 · 26/0/-     48% · 8/20/- · 4.2 · 26/0/-     48% · 8/20/- · 4.2 · 26/0/-   
+  focus-P      0% · 8/-/- · 4.0 · 26/-/-       0% · 8/-/- · 4.0 · 26/-/-       0% · 8/-/- · 4.0 · 26/-/-     
+  focus-I      0% · 8/-/- · 4.0 · 26/-/-       0% · 8/-/- · 4.0 · 26/-/-       0% · 8/-/- · 4.0 · 26/-/-     
+  focus-K      46% · 8/20/20 · 4.3 · 26/1/5    46% · 8/20/20 · 4.3 · 26/1/5    46% · 8/20/20 · 4.3 · 26/1/5  
+  random       76% · 20/20/25 · 3.0 · 0/0/0    76% · 20/20/25 · 3.0 · 0/0/0    76% · 20/20/25 · 3.0 · 0/0/0  
+  patient      0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30
+  prepared     0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 4.9 · 10/20/30
+  resolute     24% · 15/15/17 · 4.3 · 0/0/5    24% · 15/15/17 · 4.3 · 0/0/5    24% · 15/15/17 · 4.3 · 0/0/5  
+  planner      0% · 12/16/16 · 4.8 · 10/2/17   0% · 12/16/16 · 4.7 · 10/2/22   0% · 12/16/16 · 4.7 · 10/2/21 
+  thrifty      4% · 24/24/24 · 2.9 · 7/5/23    4% · 24/24/28 · 2.7 · 7/5/23    4% · 24/24/28 · 2.7 · 7/5/23  
+  lean-V       0% · 12/15/19 · 4.5 · 10/0/0    0% · 12/15/19 · 4.6 · 10/0/7    0% · 12/15/19 · 4.6 · 10/0/7  
+  lean-P       0% · 12/12/20 · 4.6 · 10/18/7   0% · 12/12/20 · 4.7 · 10/18/10  0% · 12/12/20 · 4.7 · 10/18/10
+  lean-I       0% · 12/12/20 · 4.5 · 10/18/0   0% · 12/12/20 · 4.5 · 10/18/0   0% · 12/12/20 · 4.5 · 10/18/0 
+  lean-K       0% · 12/15/20 · 4.5 · 10/0/0    0% · 12/15/19 · 4.6 · 10/0/6    0% · 12/15/19 · 4.6 · 10/0/5  
+
+## 4. Crisis failure distribution (share of all runs, all bots pooled, that ended at each crisis; top reasons)
+  K70-X2: lapsed 12% · Harsh Winter 17% (Cleared forests 77%, Cold land 23%) · Plague 5% (Trade outruns medicine 78%, Crowded ports and farms 12%) · Invasion 5% (Undefended wealth 72%, Riches to plunder 28%) · unfinished at the cap 0%
+  K70-X3: lapsed 12% · Harsh Winter 17% (Cleared forests 77%, Cold land 23%) · Plague 5% (Trade outruns medicine 78%, Crowded ports and farms 12%) · Invasion 7% (Riches to plunder 54%, Undefended wealth 46%) · unfinished at the cap 0%
+  K70-X4: lapsed 12% · Harsh Winter 17% (Cleared forests 77%, Cold land 23%) · Plague 5% (Trade outruns medicine 78%, Crowded ports and farms 12%) · Invasion 7% (Riches to plunder 55%, Undefended wealth 45%) · unfinished at the cap 0%
+  K70-X2, forecast-reading bots: faced after waiting 0%; losing when it became ready 2%, of those survived 66%; median winning margin 18
+  K70-X3, forecast-reading bots: faced after waiting 1%; losing when it became ready 2%, of those survived 50%; median winning margin 15
+  K70-X4, forecast-reading bots: faced after waiting 1%; losing when it became ready 3%, of those survived 53%; median winning margin 15
+
+## 5. Decision value (sampled play states; long term = the crisis outlook after the play, reserves included)
+  rules   states from  n     poker-best = score-best  terrain changes best  passives change best  poker-best is long-term-best (all / at risk)  poker pts given up (med, at risk)  poker / total / preparation: 3 different plays  best score per budget < 5 cards  best preparation per budget < 5 cards
+  K70-X2  balanced     7300  82%                      8%                    16%                   23% / 24%                                     13                                 13%                                             52%                              96%                                  
+  K70-X2  score-max    7292  81%                      8%                    16%                   24% / 22%                                     15                                 13%                                             50%                              95%                                  
+  K70-X2  planner      8731  82%                      7%                    16%                   32% / 33%                                     10                                 11%                                             48%                              92%                                  
+  K70-X2  random       8867  85%                      8%                    14%                   28% / 28%                                     10                                 10%                                             51%                              95%                                  
+  K70-X3  balanced     7300  82%                      8%                    16%                   23% / 23%                                     14                                 13%                                             52%                              96%                                  
+  K70-X3  score-max    7292  81%                      8%                    16%                   24% / 23%                                     16                                 13%                                             50%                              95%                                  
+  K70-X3  planner      8928  82%                      7%                    16%                   31% / 29%                                     12                                 12%                                             48%                              91%                                  
+  K70-X3  random       8867  85%                      8%                    14%                   28% / 28%                                     11                                 10%                                             51%                              95%                                  
+  K70-X4  balanced     7300  82%                      8%                    16%                   23% / 23%                                     14                                 13%                                             52%                              96%                                  
+  K70-X4  score-max    7292  81%                      8%                    16%                   24% / 22%                                     16                                 13%                                             50%                              95%                                  
+  K70-X4  planner      8926  81%                      7%                    16%                   32% / 30%                                     12                                 12%                                             48%                              91%                                  
+  K70-X4  random       8867  85%                      8%                    14%                   28% / 28%                                     11                                 10%                                             51%                              95%                                  
+
+## 6. Fairness: seeds no bot completes; forecast-reading completion by cold regions
+  K70-X2: seeds no bot completes 3/1000 (audit-580, audit-724, audit-982); forecast-reading completion 98%; by cold regions 0-2 94% · 3-4 100% · 5-6 100% · 7-8 95% · 9-12 95%
+  K70-X3: seeds no bot completes 14/1000 (audit-33, audit-41, audit-62, audit-170, audit-237, audit-351, audit-453, audit-505, …); forecast-reading completion 97%; by cold regions 0-2 84% · 3-4 98% · 5-6 100% · 7-8 94% · 9-12 95%
+  K70-X4: seeds no bot completes 14/1000 (audit-33, audit-41, audit-62, audit-170, audit-237, audit-351, audit-453, audit-505, …); forecast-reading completion 96%; by cold regions 0-2 85% · 3-4 98% · 5-6 99% · 7-8 94% · 9-12 95%
+
+## 7. Pacing (full rules, completed runs, median): rounds in Tribal / Ancient / Medieval · plays per run
+  bot          K70-X2 T/A/M · plays  K70-X3 T/A/M · plays  K70-X4 T/A/M · plays
+  poker-max    3/4/3 · 40            3/4/3 · 40            3/4/3 · 40          
+  score-max    3/4/3 · 40            3/4/3 · 40            3/4/3 · 40          
+  balanced     3/3/4 · 40            3/3/4 · 40            3/3/4 · 40          
+  terrain      -                     -                     -                   
+  civ-synergy  3/4/3 · 40            3/4/3 · 40            3/4/3 · 40          
+  focus-V      -                     -                     -                   
+  focus-P      -                     -                     -                   
+  focus-I      -                     -                     -                   
+  focus-K      2/5/4 · 47            2/5/4 · 47            2/5/4 · 47          
+  random       5/5/6 · 67            5/5/6 · 67            5/5/6 · 67          
+  patient      3/3/4 · 40            3/3/4 · 40            3/3/4 · 40          
+  prepared     3/3/4 · 40            3/3/4 · 40            3/3/4 · 40          
+  resolute     3/4/5 · 48            3/4/5 · 48            3/4/5 · 48          
+  planner      3/4/4 · 44            3/4/4 · 44            3/4/4 · 44          
+  thrifty      6/6/6 · 72            6/6/7 · 76            6/6/7 · 76          
+  lean-V       3/3/5 · 47            3/3/5 · 44            3/3/5 · 44          
+  lean-P       3/3/5 · 44            3/3/5 · 44            3/3/5 · 44          
+  lean-I       3/3/5 · 47            3/3/5 · 47            3/3/5 · 47          
+  lean-K       3/3/5 · 47            3/3/5 · 44            3/3/5 · 44          
+
+
+# Ascension core-loop audit — 1000 seeds, 19 bots, rule sets K70-X5 vs K70-X6, ablations full, cap 60 rounds (163s)
+
+  K70-X5: cards-70, Invasion open 1 / mountain 3 / forest 2, base 43
+  K70-X6: cards-70, Invasion open 1 / mountain 3 / forest 2, base 44
+
+## Bots
+  poker-max    [score] highest poker score (chips × mult); ignores the world; faces crises at once
+  score-max    [score] highest total immediate score; faces crises at once
+  balanced     [balanced] 5 cards, always raising the lowest stat; faces crises at once
+  terrain      [focused] focuses the stat its land favours most, plus what the era checklist asks for; faces at once
+  civ-synergy  [score] maximises civilization passives once it has civilizations (balanced before); faces at once
+  focus-V      [focused] naive: Vitality plus what the checklist asks for; faces at once
+  focus-P      [focused] naive: Prosperity plus what the checklist asks for; faces at once
+  focus-I      [focused] naive: Industry plus what the checklist asks for; faces at once
+  focus-K      [focused] naive: Knowledge plus what the checklist asks for; faces at once
+  random       [weak] seeded random legal play/discard; faces at once
+  patient      [balanced] balanced play, but faces a ready crisis only once it would survive (or when it strikes)
+  prepared     [balanced] balanced + reads the forecast: fixes what it lacks, holds back the checkpoint, faces when it would survive
+  resolute     [balanced] reads the forecast; while short, plays only the suit that most improves it (discarding the rest); otherwise like prepared
+  planner      [score] reads the forecast (reserves included): prepares with the best-margin play, otherwise the best score; faces when it would survive
+  thrifty      [score] the planner, judging each play per unit of era budget it costs (hand size can matter)
+  lean-V       [focused] reads the forecast; when safe plays only Vitality (then what the checklist needs)
+  lean-P       [focused] reads the forecast; when safe plays only Prosperity (then what the checklist needs)
+  lean-I       [focused] reads the forecast; when safe plays only Industry (then what the checklist needs)
+  lean-K       [focused] reads the forecast; when safe plays only Knowledge (then what the checklist needs)
+
+## 1. Completion by strategy (full rules)
+  bot          family    K70-X5 complete  K70-X5 W/P/I %  K70-X5 rounds  K70-X5 top failure                    K70-X6 complete  K70-X6 W/P/I %  K70-X6 rounds  K70-X6 top failure                  
+  poker-max    score     83%              91/96/94        10             winter: Cold land (9%)                83%              91/96/94        10             winter: Cold land (9%)              
+  score-max    score     75%              88/94/91        10             winter: Cold land (12%)               74%              88/94/90        10             winter: Cold land (12%)             
+  balanced     balanced  82%              89/96/96        10             winter: Cold land (11%)               82%              89/96/96        10             winter: Cold land (11%)             
+  terrain      focused   0%               51/40/0         -              winter: Cleared forests (47%)         0%               51/40/0         -              winter: Cleared forests (47%)       
+  civ-synergy  score     69%              85/91/90        10             winter: Cold land (15%)               68%              85/91/88        10             winter: Cold land (15%)             
+  focus-V      focused   0%               99/0/-          -              plague: Trade outruns medicine (51%)  0%               99/0/-          -              plague: Trade outruns medicine (51%)
+  focus-P      focused   0%               0/-/-           -              winter: Cleared forests (98%)         0%               0/-/-           -              winter: Cleared forests (98%)       
+  focus-I      focused   0%               0/-/-           -              winter: Cleared forests (99%)         0%               0/-/-           -              winter: Cleared forests (99%)       
+  focus-K      focused   0%               99/100/0        11             invasion: Undefended wealth (52%)     0%               99/100/0        11             invasion: Undefended wealth (52%)   
+  random       weak      5%               78/89/86        16             Ancient lapsed (39%)                  5%               78/89/84        16             Ancient lapsed (39%)                
+  patient      balanced  94%              97/100/98       10             winter: Cold land (3%)                94%              97/100/97       10             winter: Cold land (3%)              
+  prepared     balanced  99%              100/100/99      10             invasion: Riches to plunder (1%)      98%              100/100/99      10             invasion: Riches to plunder (1%)    
+  resolute     balanced  75%              100/100/99      12             Ancient lapsed (15%)                  75%              100/100/98      12             Ancient lapsed (15%)                
+  planner      score     99%              100/100/99      11             invasion: Riches to plunder (1%)      99%              100/100/99      11             invasion: Riches to plunder (1%)    
+  thrifty      score     96%              100/100/99      18             Ancient lapsed (4%)                   96%              100/100/99      18             Ancient lapsed (4%)                 
+  lean-V       focused   98%              100/100/98      11             invasion: Riches to plunder (2%)      98%              100/100/98      11             invasion: Riches to plunder (2%)    
+  lean-P       focused   98%              100/100/98      11             invasion: Riches to plunder (2%)      97%              100/100/98      11             invasion: Riches to plunder (2%)    
+  lean-I       focused   99%              100/100/99      11             invasion: Riches to plunder (1%)      99%              100/100/99      11             invasion: Riches to plunder (1%)    
+  lean-K       focused   98%              100/100/98      11             invasion: Riches to plunder (2%)      98%              100/100/98      11             invasion: Riches to plunder (2%)    
+
+## 2. Focused vs balanced: completion by family, and the spread of completed worlds (highest − lowest stat, median)
+  K70-X5: [score] poker-max 83%, score-max 75%, civ-synergy 69%, planner 99%, thrifty 96%  [balanced] balanced 82%, patient 94%, prepared 99%, resolute 75%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 98%, lean-P 98%, lean-I 99%, lean-K 98%  [weak] random 5%
+  K70-X5: spread of completed worlds: poker-max 6, score-max 7, balanced 2, civ-synergy 14, random 10, patient 2, prepared 2, resolute 3, planner 8, thrifty 14, lean-V 25, lean-P 15, lean-I 24, lean-K 24
+  K70-X6: [score] poker-max 83%, score-max 74%, civ-synergy 68%, planner 99%, thrifty 96%  [balanced] balanced 82%, patient 94%, prepared 98%, resolute 75%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 98%, lean-P 97%, lean-I 99%, lean-K 98%  [weak] random 5%
+  K70-X6: spread of completed worlds: poker-max 6, score-max 7, balanced 2, civ-synergy 14, random 10, patient 2, prepared 2, resolute 3, planner 8, thrifty 14, lean-V 25, lean-P 15, lean-I 24, lean-K 24
+
+## 3. Ablations: completion rate (score contribution = full vs no-reserves; v7 has no reserves)
+
+## 3b. Scarcity (full rules): lapsed % · median plays per era (T/A/M) · mean cards per play · median budget left when facing each crisis
+  bot          K70-X5                          K70-X6                        
+  poker-max    0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30 
+  score-max    0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30 
+  balanced     0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30
+  terrain      25% · 8/20/20 · 4.1 · 26/1/6    25% · 8/20/20 · 4.1 · 26/1/6  
+  civ-synergy  0% · 12/16/12 · 5.0 · 10/0/30   0% · 12/16/12 · 5.0 · 10/0/30 
+  focus-V      48% · 8/20/- · 4.2 · 26/0/-     48% · 8/20/- · 4.2 · 26/0/-   
+  focus-P      0% · 8/-/- · 4.0 · 26/-/-       0% · 8/-/- · 4.0 · 26/-/-     
+  focus-I      0% · 8/-/- · 4.0 · 26/-/-       0% · 8/-/- · 4.0 · 26/-/-     
+  focus-K      46% · 8/20/20 · 4.3 · 26/1/5    46% · 8/20/20 · 4.3 · 26/1/5  
+  random       76% · 20/20/25 · 3.0 · 0/0/0    76% · 20/20/25 · 3.0 · 0/0/0  
+  patient      0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30
+  prepared     0% · 12/12/16 · 5.0 · 10/20/30  0% · 12/12/16 · 5.0 · 10/20/30
+  resolute     24% · 15/15/17 · 4.3 · 0/0/5    24% · 15/15/17 · 4.3 · 0/0/5  
+  planner      0% · 12/16/16 · 4.8 · 10/2/18   0% · 12/16/16 · 4.8 · 10/2/18 
+  thrifty      4% · 24/24/24 · 2.8 · 7/5/23    4% · 24/24/24 · 2.8 · 7/5/22  
+  lean-V       0% · 12/15/19 · 4.5 · 10/0/0    0% · 12/15/19 · 4.5 · 10/0/0  
+  lean-P       0% · 12/12/20 · 4.6 · 10/18/8   0% · 12/12/20 · 4.6 · 10/18/9 
+  lean-I       0% · 12/12/20 · 4.5 · 10/18/0   0% · 12/12/20 · 4.5 · 10/18/0 
+  lean-K       0% · 12/15/20 · 4.5 · 10/0/0    0% · 12/15/20 · 4.5 · 10/0/0  
+
+## 4. Crisis failure distribution (share of all runs, all bots pooled, that ended at each crisis; top reasons)
+  K70-X5: lapsed 12% · Harsh Winter 17% (Cleared forests 77%, Cold land 23%) · Plague 5% (Trade outruns medicine 78%, Crowded ports and farms 12%) · Invasion 5% (Undefended wealth 63%, Riches to plunder 37%) · unfinished at the cap 0%
+  K70-X6: lapsed 12% · Harsh Winter 17% (Cleared forests 77%, Cold land 23%) · Plague 5% (Trade outruns medicine 78%, Crowded ports and farms 12%) · Invasion 5% (Undefended wealth 60%, Riches to plunder 40%) · unfinished at the cap 0%
+  K70-X5, forecast-reading bots: faced after waiting 1%; losing when it became ready 2%, of those survived 59%; median winning margin 17
+  K70-X6, forecast-reading bots: faced after waiting 1%; losing when it became ready 2%, of those survived 56%; median winning margin 17
+
+## 5. Decision value (sampled play states; long term = the crisis outlook after the play, reserves included)
+  rules   states from  n     poker-best = score-best  terrain changes best  passives change best  poker-best is long-term-best (all / at risk)  poker pts given up (med, at risk)  poker / total / preparation: 3 different plays  best score per budget < 5 cards  best preparation per budget < 5 cards
+  K70-X5  balanced     7300  82%                      8%                    16%                   23% / 23%                                     13                                 13%                                             52%                              96%                                  
+  K70-X5  score-max    7292  81%                      8%                    16%                   24% / 22%                                     15                                 13%                                             50%                              95%                                  
+  K70-X5  planner      8814  82%                      7%                    15%                   32% / 31%                                     11                                 11%                                             49%                              92%                                  
+  K70-X5  random       8867  85%                      8%                    14%                   28% / 28%                                     11                                 10%                                             51%                              95%                                  
+  K70-X6  balanced     7300  82%                      8%                    16%                   23% / 23%                                     14                                 13%                                             52%                              96%                                  
+  K70-X6  score-max    7292  81%                      8%                    16%                   24% / 22%                                     15                                 13%                                             50%                              95%                                  
+  K70-X6  planner      8843  82%                      7%                    15%                   32% / 31%                                     11                                 11%                                             49%                              92%                                  
+  K70-X6  random       8867  85%                      8%                    14%                   28% / 28%                                     11                                 10%                                             51%                              95%                                  
+
+## 6. Fairness: seeds no bot completes; forecast-reading completion by cold regions
+  K70-X5: seeds no bot completes 3/1000 (audit-580, audit-724, audit-982); forecast-reading completion 98%; by cold regions 0-2 91% · 3-4 99% · 5-6 100% · 7-8 95% · 9-12 95%
+  K70-X6: seeds no bot completes 3/1000 (audit-580, audit-724, audit-982); forecast-reading completion 98%; by cold regions 0-2 90% · 3-4 99% · 5-6 100% · 7-8 94% · 9-12 95%
+
+## 7. Pacing (full rules, completed runs, median): rounds in Tribal / Ancient / Medieval · plays per run
+  bot          K70-X5 T/A/M · plays  K70-X6 T/A/M · plays
+  poker-max    3/4/3 · 40            3/4/3 · 40          
+  score-max    3/4/3 · 40            3/4/3 · 40          
+  balanced     3/3/4 · 40            3/3/4 · 40          
+  terrain      -                     -                   
+  civ-synergy  3/4/3 · 40            3/4/3 · 40          
+  focus-V      -                     -                   
+  focus-P      -                     -                   
+  focus-I      -                     -                   
+  focus-K      2/5/4 · 47            2/5/4 · 47          
+  random       5/5/6 · 67            5/5/6 · 67          
+  patient      3/3/4 · 40            3/3/4 · 40          
+  prepared     3/3/4 · 40            3/3/4 · 40          
+  resolute     3/4/5 · 48            3/4/5 · 48          
+  planner      3/4/4 · 44            3/4/4 · 44          
+  thrifty      6/6/6 · 72            6/6/6 · 72          
+  lean-V       3/3/5 · 46            3/3/5 · 46          
+  lean-P       3/3/5 · 44            3/3/5 · 44          
+  lean-I       3/3/5 · 47            3/3/5 · 47          
+  lean-K       3/3/5 · 47            3/3/5 · 47          

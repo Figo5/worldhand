@@ -1,0 +1,162 @@
+# Ascension core-loop audit — 1000 seeds, 19 bots, rule sets v8 vs v9, ablations full, no-terrain-bonus, no-passives, no-reserves, no-strain, no-civ-in-crises, cap 60 rounds (815s)
+
+  v8: rules v8: ready crises (+4 per round waited, strike after 2), no era budget, Invasion 40 + 2/open, no forest cover
+  v9: rules v9 (as shipped): 70/70/90 cards per era (a card played costs 1, a discard 2, unspent carry over); Invasion 43 + 1/open, forests +2 each
+
+## Bots
+  poker-max    [score] highest poker score (chips × mult); ignores the world; faces crises at once
+  score-max    [score] highest total immediate score; faces crises at once
+  balanced     [balanced] 5 cards, always raising the lowest stat; faces crises at once
+  terrain      [focused] focuses the stat its land favours most, plus what the era checklist asks for; faces at once
+  civ-synergy  [score] maximises civilization passives once it has civilizations (balanced before); faces at once
+  focus-V      [focused] naive: Vitality plus what the checklist asks for; faces at once
+  focus-P      [focused] naive: Prosperity plus what the checklist asks for; faces at once
+  focus-I      [focused] naive: Industry plus what the checklist asks for; faces at once
+  focus-K      [focused] naive: Knowledge plus what the checklist asks for; faces at once
+  random       [weak] seeded random legal play/discard; faces at once
+  patient      [balanced] balanced play, but faces a ready crisis only once it would survive (or when it strikes)
+  prepared     [balanced] balanced + reads the forecast: fixes what it lacks, holds back the checkpoint, faces when it would survive
+  resolute     [balanced] reads the forecast; while short, plays only the suit that most improves it (discarding the rest); otherwise like prepared
+  planner      [score] reads the forecast (reserves included): prepares with the best-margin play, otherwise the best score; faces when it would survive
+  thrifty      [score] the planner, judging each play per unit of era budget it costs (hand size can matter)
+  lean-V       [focused] reads the forecast; when safe plays only Vitality (then what the checklist needs)
+  lean-P       [focused] reads the forecast; when safe plays only Prosperity (then what the checklist needs)
+  lean-I       [focused] reads the forecast; when safe plays only Industry (then what the checklist needs)
+  lean-K       [focused] reads the forecast; when safe plays only Knowledge (then what the checklist needs)
+
+## 1. Completion by strategy (full rules)
+  bot          family    v8 complete  v8 W/P/I %   v8 rounds  v8 top failure                        v9 complete  v9 W/P/I %  v9 rounds  v9 top failure                      
+  poker-max    score     73%          92/96/83     10         invasion: Riches to plunder (15%)     83%          91/96/94    10         winter: Cold land (9%)              
+  score-max    score     67%          88/93/81     10         invasion: Riches to plunder (16%)     75%          88/94/91    10         winter: Cold land (12%)             
+  balanced     balanced  77%          89/96/90     10         winter: Cold land (11%)               82%          89/96/96    10         winter: Cold land (11%)             
+  terrain      focused   0%           51/36/0      -          winter: Cleared forests (47%)         0%           51/40/0     -          winter: Cleared forests (47%)       
+  civ-synergy  score     62%          85/91/80     10         invasion: Riches to plunder (16%)     69%          85/91/90    10         winter: Cold land (15%)             
+  focus-V      focused   0%           99/0/0       -          plague: Trade outruns medicine (99%)  0%           99/0/-      -          plague: Trade outruns medicine (51%)
+  focus-P      focused   0%           0/-/-        -          winter: Cleared forests (98%)         0%           0/-/-       -          winter: Cleared forests (98%)       
+  focus-I      focused   0%           0/-/-        -          winter: Cleared forests (99%)         0%           0/-/-       -          winter: Cleared forests (99%)       
+  focus-K      focused   0%           99/100/0     12         invasion: Undefended wealth (92%)     0%           99/100/0    11         invasion: Undefended wealth (52%)   
+  random       weak      48%          80/90/67     17         invasion: Riches to plunder (24%)     5%           78/89/86    16         Ancient lapsed (39%)                
+  patient      balanced  95%          100/100/95   10         invasion: Riches to plunder (5%)      94%          97/100/98   10         winter: Cold land (3%)              
+  prepared     balanced  96%          100/100/97   10         invasion: Riches to plunder (3%)      99%          100/100/99  10         invasion: Riches to plunder (1%)    
+  resolute     balanced  100%         100/100/100  12         -                                     75%          100/100/99  12         Ancient lapsed (15%)                
+  planner      score     97%          100/100/97   11         invasion: Riches to plunder (3%)      99%          100/100/99  11         invasion: Riches to plunder (1%)    
+  thrifty      score     97%          100/100/97   11         invasion: Riches to plunder (3%)      96%          100/100/99  18         Ancient lapsed (4%)                 
+  lean-V       focused   95%          100/100/95   12         invasion: Riches to plunder (5%)      98%          100/100/98  11         invasion: Riches to plunder (2%)    
+  lean-P       focused   96%          100/100/96   11         invasion: Riches to plunder (4%)      98%          100/100/98  11         invasion: Riches to plunder (2%)    
+  lean-I       focused   97%          100/100/97   13         invasion: Riches to plunder (3%)      99%          100/100/99  11         invasion: Riches to plunder (1%)    
+  lean-K       focused   96%          100/100/96   12         invasion: Riches to plunder (4%)      98%          100/100/98  11         invasion: Riches to plunder (2%)    
+
+## 2. Focused vs balanced: completion by family, and the spread of completed worlds (highest − lowest stat, median)
+  v8: [score] poker-max 73%, score-max 67%, civ-synergy 62%, planner 97%, thrifty 97%  [balanced] balanced 77%, patient 95%, prepared 96%, resolute 100%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 95%, lean-P 96%, lean-I 97%, lean-K 96%  [weak] random 48%
+  v8: spread of completed worlds: poker-max 6, score-max 7, balanced 2, civ-synergy 14, random 9, patient 2, prepared 4, resolute 7, planner 10, thrifty 10, lean-V 28, lean-P 12, lean-I 38, lean-K 28
+  v9: [score] poker-max 83%, score-max 75%, civ-synergy 69%, planner 99%, thrifty 96%  [balanced] balanced 82%, patient 94%, prepared 99%, resolute 75%  [focused] terrain 0%, focus-V 0%, focus-P 0%, focus-I 0%, focus-K 0%, lean-V 98%, lean-P 98%, lean-I 99%, lean-K 98%  [weak] random 5%
+  v9: spread of completed worlds: poker-max 6, score-max 7, balanced 2, civ-synergy 14, random 10, patient 2, prepared 2, resolute 3, planner 8, thrifty 14, lean-V 25, lean-P 15, lean-I 24, lean-K 24
+
+## 3. Ablations: completion rate (score contribution = full vs no-reserves; v7 has no reserves)
+  v8
+  bot          full  no-terrain-bonus  no-passives  no-reserves  no-strain  no-civ-in-crises
+  poker-max    73%   68%               66%          18%          85%        0%              
+  score-max    67%   68%               59%          18%          83%        0%              
+  balanced     77%   69%               67%          20%          80%        0%              
+  terrain      0%    0%                0%           0%           2%         0%              
+  civ-synergy  62%   61%               62%          22%          80%        0%              
+  focus-V      0%    0%                0%           0%           5%         0%              
+  focus-P      0%    0%                0%           0%           1%         0%              
+  focus-I      0%    0%                0%           0%           2%         0%              
+  focus-K      0%    0%                0%           0%           0%         0%              
+  random       48%   42%               41%          16%          67%        0%              
+  patient      95%   92%               89%          48%          95%        0%              
+  prepared     96%   96%               96%          74%          97%        0%              
+  resolute     100%  100%              100%         100%         100%       80%             
+  planner      97%   97%               96%          74%          97%        1%              
+  thrifty      97%   97%               96%          74%          97%        1%              
+  lean-V       95%   94%               93%          70%          95%        0%              
+  lean-P       96%   95%               94%          74%          96%        0%              
+  lean-I       97%   97%               96%          87%          97%        2%              
+  lean-K       96%   95%               94%          70%          96%        1%              
+  v9
+  bot          full  no-terrain-bonus  no-passives  no-reserves  no-strain  no-civ-in-crises
+  poker-max    83%   80%               81%          40%          91%        0%              
+  score-max    75%   79%               73%          35%          89%        0%              
+  balanced     82%   78%               80%          47%          85%        0%              
+  terrain      0%    0%                0%           0%           1%         0%              
+  civ-synergy  69%   69%               75%          35%          85%        0%              
+  focus-V      0%    0%                0%           0%           2%         0%              
+  focus-P      0%    0%                0%           0%           0%         0%              
+  focus-I      0%    0%                0%           0%           0%         0%              
+  focus-K      0%    0%                0%           0%           0%         0%              
+  random       5%    5%                4%           2%           6%         0%              
+  patient      94%   92%               94%          69%          95%        0%              
+  prepared     99%   98%               98%          93%          98%        1%              
+  resolute     75%   74%               74%          65%          73%        0%              
+  planner      99%   99%               98%          94%          99%        7%              
+  thrifty      96%   95%               96%          90%          96%        11%             
+  lean-V       98%   97%               97%          91%          98%        1%              
+  lean-P       98%   97%               97%          89%          98%        1%              
+  lean-I       99%   98%               98%          93%          99%        4%              
+  lean-K       98%   97%               98%          91%          98%        1%              
+
+## 3b. Scarcity (full rules): lapsed % · median plays per era (T/A/M) · mean cards per play · median budget left when facing each crisis
+  bot          v8                           v9                            
+  poker-max    0% · 12/16/12 · 5.0 · 0/0/0  0% · 12/16/12 · 5.0 · 10/0/30 
+  score-max    0% · 12/16/12 · 5.0 · 0/0/0  0% · 12/16/12 · 5.0 · 10/0/30 
+  balanced     0% · 12/12/16 · 5.0 · 0/0/0  0% · 12/12/16 · 5.0 · 10/20/30
+  terrain      0% · 8/20/16 · 4.1 · 0/0/0   25% · 8/20/20 · 4.1 · 26/1/6  
+  civ-synergy  0% · 12/16/12 · 5.0 · 0/0/0  0% · 12/16/12 · 5.0 · 10/0/30 
+  focus-V      0% · 8/20/16 · 4.3 · 0/0/0   48% · 8/20/- · 4.2 · 26/0/-   
+  focus-P      0% · 8/-/- · 4.0 · 0/-/-     0% · 8/-/- · 4.0 · 26/-/-     
+  focus-I      0% · 8/-/- · 4.0 · 0/-/-     0% · 8/-/- · 4.0 · 26/-/-     
+  focus-K      0% · 8/20/16 · 4.3 · 0/0/0   46% · 8/20/20 · 4.3 · 26/1/5  
+  random       0% · 20/24/24 · 3.0 · 0/0/0  76% · 20/20/25 · 3.0 · 0/0/0  
+  patient      0% · 12/12/16 · 5.0 · 0/0/0  0% · 12/12/16 · 5.0 · 10/20/30
+  prepared     0% · 12/12/16 · 4.9 · 0/0/0  0% · 12/12/16 · 5.0 · 10/20/30
+  resolute     0% · 16/16/20 · 4.2 · 0/0/0  24% · 15/15/17 · 4.3 · 0/0/5  
+  planner      0% · 12/16/16 · 4.7 · 0/0/0  0% · 12/16/16 · 4.8 · 10/2/18 
+  thrifty      0% · 12/16/16 · 4.7 · 0/0/0  4% · 24/24/24 · 2.8 · 7/5/23  
+  lean-V       0% · 12/16/20 · 4.4 · 0/0/0  0% · 12/15/19 · 4.5 · 10/0/0  
+  lean-P       0% · 12/12/20 · 4.6 · 0/0/0  0% · 12/12/20 · 4.6 · 10/18/8 
+  lean-I       0% · 12/12/24 · 4.1 · 0/0/0  0% · 12/12/20 · 4.5 · 10/18/0 
+  lean-K       0% · 12/16/20 · 4.4 · 0/0/0  0% · 12/15/20 · 4.5 · 10/0/0  
+
+## 4. Crisis failure distribution (share of all runs, all bots pooled, that ended at each crisis; top reasons)
+  v8: lapsed 0% · Harsh Winter 17% (Cleared forests 77%, Cold land 23%) · Plague 8% (Trade outruns medicine 84%, Merchants 8%) · Invasion 12% (Riches to plunder 52%, Undefended wealth 48%) · unfinished at the cap 0%
+  v9: lapsed 12% · Harsh Winter 17% (Cleared forests 77%, Cold land 23%) · Plague 5% (Trade outruns medicine 78%, Crowded ports and farms 12%) · Invasion 5% (Undefended wealth 63%, Riches to plunder 37%) · unfinished at the cap 0%
+  v8, forecast-reading bots: faced after waiting 1%; losing when it became ready 3%, of those survived 57%; median winning margin 16
+  v9, forecast-reading bots: faced after waiting 1%; losing when it became ready 2%, of those survived 59%; median winning margin 17
+
+## 5. Decision value (sampled play states; long term = the crisis outlook after the play, reserves included)
+  rules  states from  n      poker-best = score-best  terrain changes best  passives change best  poker-best is long-term-best (all / at risk)  poker pts given up (med, at risk)  poker / total / preparation: 3 different plays  best score per budget < 5 cards  best preparation per budget < 5 cards
+  v8     balanced     7300   82%                      8%                    16%                   23% / 23%                                     14                                 13%                                             0%                               21%                                  
+  v8     score-max    7276   81%                      8%                    16%                   25% / 23%                                     15                                 13%                                             0%                               17%                                  
+  v8     planner      8959   81%                      8%                    16%                   31% / 29%                                     12                                 12%                                             0%                               27%                                  
+  v8     random       15677  82%                      8%                    16%                   24% / 23%                                     15                                 13%                                             0%                               17%                                  
+  v9     balanced     7300   82%                      8%                    16%                   23% / 23%                                     13                                 13%                                             52%                              96%                                  
+  v9     score-max    7292   81%                      8%                    16%                   24% / 22%                                     15                                 13%                                             50%                              95%                                  
+  v9     planner      8814   82%                      7%                    15%                   32% / 31%                                     11                                 11%                                             49%                              92%                                  
+  v9     random       8867   85%                      8%                    14%                   28% / 28%                                     11                                 10%                                             51%                              95%                                  
+
+## 6. Fairness: seeds no bot completes; forecast-reading completion by cold regions
+  v8: seeds no bot completes 0/1000; forecast-reading completion 96%; by cold regions 0-2 77% · 3-4 97% · 5-6 100% · 7-8 98% · 9-12 91%
+  v9: seeds no bot completes 3/1000 (audit-580, audit-724, audit-982); forecast-reading completion 98%; by cold regions 0-2 91% · 3-4 99% · 5-6 100% · 7-8 95% · 9-12 95%
+
+## 7. Pacing (full rules, completed runs, median): rounds in Tribal / Ancient / Medieval · plays per run
+  bot          v8 T/A/M · plays  v9 T/A/M · plays
+  poker-max    3/4/3 · 40        3/4/3 · 40      
+  score-max    3/4/3 · 40        3/4/3 · 40      
+  balanced     3/3/4 · 40        3/3/4 · 40      
+  terrain      -                 -               
+  civ-synergy  3/4/3 · 40        3/4/3 · 40      
+  focus-V      -                 -               
+  focus-P      -                 -               
+  focus-I      -                 -               
+  focus-K      2/6/4 · 48        2/5/4 · 47      
+  random       5/6/6 · 68        5/5/6 · 67      
+  patient      3/3/4 · 40        3/3/4 · 40      
+  prepared     3/3/4 · 40        3/3/4 · 40      
+  resolute     4/4/5 · 48        3/4/5 · 48      
+  planner      3/4/4 · 44        3/4/4 · 44      
+  thrifty      3/4/4 · 44        6/6/6 · 72      
+  lean-V       3/4/5 · 48        3/3/5 · 46      
+  lean-P       3/3/5 · 44        3/3/5 · 44      
+  lean-I       3/3/6 · 52        3/3/5 · 47      
+  lean-K       3/4/5 · 48        3/3/5 · 47      
