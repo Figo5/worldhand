@@ -20,7 +20,7 @@ const argOf = (flag, dflt) => {
   const i = argv.indexOf(flag)
   return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : dflt
 }
-const SAVE = argOf('--save', '/Users/giofiore/Downloads/README (1).md')
+const SAVE = argOf('--save', './repro-runaway.out.md')
 const EPOCH_CAP = Number(argOf('--epochs', '25'))
 
 // ---------------------------------------------------------------------------
