@@ -117,9 +117,5 @@ Keyboard controls and reduced-motion support are included in both modes.
 
 ## License
 
-**Undecided.** `package.json` declares `"license": "MIT"`, but the repository has
-no LICENSE file, and that field has not been confirmed as the project's license.
-Worldhand may become a commercial game; whether it will be open source,
-source-available, dual licensed, or proprietary with selected open-source
-components has not been decided. Until a decision is recorded here, do not treat
-the `package.json` field as a grant of rights.
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Gio Fiore.
+
