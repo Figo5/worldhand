@@ -1,7 +1,7 @@
 # Repository analysis and modernization (2026-09-24)
 
 A review of `main` at `6b3713a` (rules v8, Ascension rules v8) and the
-tooling changes made on `claude/zen-cannon-tu3i4x`. No engine rule,
+associated tooling changes. No engine rule,
 balance number or save format changed; the 40 Classic replay fixtures
 replay unchanged.
 

@@ -2,7 +2,6 @@
 
 # Worldhand — Independent Review (v3, post-playtest-fix round)
 
-**Reviewer:** Independent subagent (Hermes), delegated-child session. Routing metadata per required delegation override: **provider `ollama-cloud`, model `glm-5.3-flash`** (session-configured route; not the coordinator model `deepseek-v4-flash:0731`, no recursive delegation). All claims below cite tool outputs produced in this session.
 **Date:** 2026-09-09 (13:00–13:40 EDT) · **Repo:** `<local-checkout>/worldhand` · **HEAD at review start and end: `43c803f`** ("qa: refresh screenshots after target calibration"). Working tree had no source changes at review start (only screenshot PNG churn); the implementation worker's edits are already committed in the tree at `6f49ca8`, `8c1d73e`, `43c803f`. File mtimes show the last source edits landed ~34–49 min before my review began — the implementation worker had stabilized.
 **Scope:** full test/build/QA battery, engine/UI/save/solver inspection, new independent Playwright probes for the save-rejection and lives-reach-zero paths. No engine/test/docs files modified by me; no tests weakened; no requirements rewritten. Two new review scripts added (§ 7). One long-standing pre-existing dev server was briefly killed and restarted unchanged (same `npm run dev` command, port 5177) — no state modified.
 
@@ -159,7 +158,6 @@ Suite: 87/87 tests, tsc/build/qa/review scripts green at commit time.
 
 ## 11. Independent re-verification on the stabilized tree (v4, this reviewer, post-fix)
 
-**Routing metadata per required delegation override:** provider `ollama-cloud`, model `glm-5.3-flash` (session-configured; coordinator route `deepseek-v4-flash:0731` not inherited; no recursive delegation). All claims are tool outputs from this session.
 **Re-verified at:** HEAD `98d67a4` ("qa: refresh screenshots on restored-target revision"), 2026-09-09 14:30–14:40 EDT. Working tree clean of source changes; the fix landed as `d8eae6c`, targets restored in `c148686`, coordinator verification/playtest in `51adee9`. My two review scripts (`scripts/review-independent.mjs`, `scripts/review-save-lives-browser.mjs`) were adapted by the worker to the v3 save shape (validateState calls, schema:3 envelopes, two-step-confirm probe) and committed — I re-ran the adapted versions and re-read their source to confirm the probes still assert the same properties (reject/not-loaded/preserved, two-step confirm, lives-zero outcome); the original pre-fix versions and their results remain in § 2 as the "before" evidence. Pre-existing review scripts were untouched by the worker except the one-line target string in `review-probe.mjs` (followed the engine's target restore `30,70,320 → 45,110,360`); `git diff 43c803f..HEAD` on qa/browser/fullrun/autosave/planet3d/pvcommit scripts is empty, and test deletions are exactly 11 lines (the two superseded lives tests + the v2 envelope describe-block, each replaced by a stronger v3 counterpart — no weakening).
 
 ### Battery on HEAD `98d67a4` (all run by me, this session)
@@ -233,7 +231,6 @@ These are **bounded solver results** (machine heuristic, disjoint seed sets), no
 
 ## 12. Independent review v5 addendum — the three playtest-defect fixes (2026-09-09, 15:16–15:50 EDT)
 
-**Routing metadata per required delegation override:** provider `ollama-cloud`, model `glm-5.3-flash` (session-configured route; the coordinator's `deepseek-v4-flash:0731` was not inherited; no recursive delegation). Every claim below is a tool output produced in this session.
 
 **Reviewed revision:** HEAD `9a5538d` ("fix: three playtest defects — Mycorrhiza decay, truthful Seed credit, final-epoch flow"), child of baseline `015a414`. I waited for the implementation worker to freeze its diff before judging: HEAD moved `015a414 → 9a5538d` at 15:16 EDT while I polled, and after the commit the only working-tree changes are screenshot PNGs plus my two reviewer-added probe scripts (`scripts/review-independent-v5.mjs`, `scripts/review-independent-v5-browser.mjs`). I made NO changes to source, tests, or docs. The worker's diff: `src/engine/worldhand.ts` (94 lines), `src/App.tsx` (14), `tests/fix-regressions.test.ts` (new, 363), `tests/worldhand.test.ts` (30), `RULES.md`/`README.md`/`PLAYTEST_HANDOFF.md`, `scripts/review-playtest-fixes.mjs` (new, 143), plus screenshot refreshes.
 
@@ -305,7 +302,6 @@ Balance is unchanged (bounded solver re-measured below) — I make no balance cl
 
 # Dated Addendum — Regional-bonus system v4 (independent finished-diff review)
 
-**Reviewer:** Independent subagent (Hermes), delegated-child session. Routing metadata per required delegation override: **provider `ollama-cloud`, model `glm-5.3-flash`** (session-configured route; not the coordinator model `deepseek-v4-flash:0731`; no recursive delegation). All claims below cite tool outputs produced in this session.
 **Date:** 2026-09-09 (15:20–16:30 EDT) · **Repo:** `<local-checkout>/worldhand`
 **Reviewed revision (frozen):** **`785556a`** — "feat: regional-bonus system (v4) — 3 fixed poker specializations drive small flat Growth bonuses". I **waited for the freeze** before reviewing: HEAD sat at baseline `f89d397` with a clean tree through my baseline survey (baseline gate re-run on `f89d397`: tsc clean, **108/108**), I observed the worker's edits accumulate (up to 40 dirty files), the feature commit land at 15:51 EDT, then confirmed source/test/docs stability (only 9 screenshot-PNG artifacts ever remained dirty; last PNG mtime 27 min before my gate). The baseline gate numbers were re-confirmed by checking out `f89d397` mid-session and re-running vitest (108/108), then returning to `785556a`.
 **Scope discipline:** no source/test/doc files modified by me. My artifacts live outside the repo (`/tmp/rev-probe.mts`) plus this addendum. No global config touched; the dev server (port 5177) was left running as found.
