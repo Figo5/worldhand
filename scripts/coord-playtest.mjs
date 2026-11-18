@@ -1,7 +1,7 @@
 // Coordinator ordinary-playtest harness: drives ONE complete run in the live
 // app WITHOUT any debug currency, forced cards, or edited saves. Plays real
 // poker (select best 1-5 cards, discard weak hands), shops, and records every
-// decision + the outcome. For the coordinator's (Luna/deepseek) playtest log.
+// decision + the outcome for the playtest log.
 import { chromium } from 'playwright'
 const BASE = process.env.BASE || 'http://localhost:5177'
 const SEED = process.env.SEED || 'coord-playtest-1'
